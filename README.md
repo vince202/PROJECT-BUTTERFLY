@@ -40,7 +40,7 @@ npm test                 # suite Vitest
 npm run typecheck        # TypeScript strict
 npm run build            # bundle de production (dist/)
 npm run cli -- --seed 42 # simule une journée en ligne de commande
-npm run cli -- --seed 150 --bus-delay 3 --at 09:25 --agent gerard --verbose
+npm run cli -- --seed 51 --bus-delay 3 --at 09:25 --agent gerard
 ```
 
 ---
@@ -72,6 +72,37 @@ La graine par défaut (`DEMO_SEED` dans `src/store/useSimStore.ts`) est choisie 
 7. Basculez Réalité A / Réalité B à la même heure pour voir où chacun se trouve, et relisez l'une ou l'autre.
 
 Le moteur causal fonctionne pour toutes les graines et toutes les interventions ; le scénario n'est pas scripté. Voir « Graine de démonstration » plus bas pour le détail de la chaîne obtenue.
+
+## Graine de démonstration
+
+Résultat obtenu avec la graine par défaut (reproductible avec `npm run cli -- --seed 51 --bus-delay 3 --at 09:25`) :
+
+**Graine 51** — événement : « Le bus L1-1 arrive à Arrêt Place du Marché » (09:25, Arrêt Place du Marché), retard imposé : 3 minutes.
+
+- 3000 événements identiques, 6 décalés dans le temps, 3 présents seulement dans A, 9 seulement dans B.
+- 15 conséquences causalement vérifiées de l’intervention, touchant 5 habitants.
+- Première conséquence : 09:28 — Gérard monte dans le bus L1-1 à Arrêt Place du Marché.
+- Conséquences majeures : 15:39 Hugo trouve un portefeuille oublié à Supermarché Marché Plus ; 18:39 Hugo dépose le portefeuille de Gérard à son domicile (Gérard est absent) ; 18:53 Martin trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard ; 19:38 Martin rend son portefeuille à Gérard.
+
+Conséquences vérifiées :
+
+- 09:28 — Gérard monte dans le bus L1-1 à Arrêt Place du Marché *(décalé de +3 min)*
+- 09:26 — Antoine et Gérard discutent dans le bus L1-1 *(n’a pas eu lieu dans B)*
+- 09:32 — Gérard descend du bus à Arrêt Supermarché *(décalé de +3 min)*
+- 09:52 — Gérard oublie son portefeuille à Supermarché Marché Plus *(seulement dans B)*
+- 12:15 — Gérard abandonne « Se reposer à la maison » pour « Se détendre au parc » *(n’a pas eu lieu dans B)*
+- 14:42 — Gérard attend Paul (Partie de pétanque) *(décalé de +13 min)*
+- 15:39 — Hugo trouve un portefeuille oublié à Supermarché Marché Plus *(seulement dans B)*
+- 15:39 — Hugo décide de rendre le portefeuille à Gérard *(seulement dans B)*
+- 18:39 — Hugo dépose le portefeuille de Gérard à son domicile (Gérard est absent) *(seulement dans B)*
+- 18:53 — Martin trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard *(seulement dans B)*
+- 18:53 — Martin décide de rendre le portefeuille à Gérard *(seulement dans B)*
+- 19:38 — Martin rend son portefeuille à Gérard *(seulement dans B)*
+- 20:35 — Gérard et Noé bavardent joyeusement à Immeuble Haussmann *(décalé de +56 min)*
+
+Dans la réalité A, Gérard bavarde avec Antoine (le chauffeur) dans le bus et fait ses courses sans incident. Dans la réalité B, il arrive au supermarché trois minutes plus tard, dans un autre moment de distraction : il oublie son portefeuille. Hugo le trouve l'après-midi, le dépose chez Gérard qui est absent, Martin le ramasse en rentrant et le rend à Gérard dans la soirée. Cinq habitants sont touchés ; les quinze autres vivent exactement la même journée.
+
+Chaque maillon est inspectable dans l'explorateur causal, et le tirage aléatoire responsable de l'oubli (`lose:gerard:…`) est affiché avec sa valeur : la différence vient bien d'un autre instant, pas d'une autre « chance ».
 
 ## Interventions comprises sans LLM
 
