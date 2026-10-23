@@ -1,8 +1,14 @@
 /**
  * BUTTERFLY application shell.
  *
- * Layout: top bar (clock, playback), left (inhabitants), centre (3D city +
- * panel overlays), right (inspector), bottom (timeline).
+ * Two UI modes (store `uiMode`, class on `.app`):
+ * - `lab`: top bar, left (inhabitants), centre (3D city + panel overlays),
+ *   right (inspector), bottom (timeline);
+ * - `spectator`: the centre grows to the whole viewport and only floating
+ *   glass overlays remain (see ui/Spectator.tsx).
+ * `CityScene` keeps the same position in the tree in both modes so the WebGL
+ * context survives mode switches. While the outgoing mode plays its exit
+ * animation the root also carries `.leaving`.
  */
 
 import { useEffect } from 'react';
@@ -13,6 +19,8 @@ import { InhabitantList } from './ui/InhabitantList';
 import { Inspector } from './ui/Inspector';
 import { Timeline } from './ui/Timeline';
 import { PanelHost } from './ui/PanelHost';
+import { SpectatorOverlay } from './ui/Spectator';
+import { useGlobalShortcuts, useModeTransition } from './ui/mode';
 import { checkAiStatus } from './ai/client';
 
 /** Drives the display clock from real time (×1 = one simulated minute per real second). */
@@ -34,28 +42,38 @@ function useClock() {
 
 export function App() {
   useClock();
+  useGlobalShortcuts();
+  const { mode, leaving } = useModeTransition();
   const setAi = useSimStore((s) => s.setAi);
   useEffect(() => {
     checkAiStatus().then(setAi);
   }, [setAi]);
+  const lab = mode === 'lab';
   return (
-    <div className="app">
-      <TopBar />
+    <div className={`app ${mode}${leaving ? ' leaving' : ''}`}>
+      {lab && <TopBar />}
       <div className="app-body">
-        <aside className="app-left">
-          <InhabitantList />
-        </aside>
+        {lab && (
+          <aside className="app-left">
+            <InhabitantList />
+          </aside>
+        )}
         <main className="app-center">
           <CityScene />
-          <PanelHost />
+          {lab && <PanelHost />}
+          {!lab && <SpectatorOverlay leaving={leaving} />}
         </main>
-        <aside className="app-right">
-          <Inspector />
-        </aside>
+        {lab && (
+          <aside className="app-right">
+            <Inspector />
+          </aside>
+        )}
       </div>
-      <footer className="app-bottom">
-        <Timeline />
-      </footer>
+      {lab && (
+        <footer className="app-bottom">
+          <Timeline />
+        </footer>
+      )}
     </div>
   );
 }

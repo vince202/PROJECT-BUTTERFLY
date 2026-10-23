@@ -2,7 +2,7 @@
  * Left column: the twenty inhabitants with their live activity.
  */
 
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useSimStore } from '../store/useSimStore';
 import { AGENTS } from '../sim/population';
 import type { AgentProfile, TraceAgent } from '../sim/types';
@@ -17,6 +17,8 @@ export function InhabitantList() {
   const hoveredId = useSimStore((s) => s.hoveredAgentId);
   const isB = useSimStore((s) => s.activeRealityId === 'B' && !!s.realityB);
   const [q, setQ] = useState('');
+  // Never leave a stale hover behind when the list goes away (e.g. switching to spectator mode).
+  useEffect(() => () => useSimStore.getState().hoverAgent(null), []);
 
   const frame = reality.frameAt(minute);
   const list = useMemo(() => {
@@ -62,6 +64,9 @@ const AgentCard = memo(function AgentCard({ a, tr, selected, followed, hovered }
     <li
       className={`agent-card ${selected ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${tr?.asleep ? 'asleep' : ''}`}
       onMouseEnter={() => hoverAgent(a.id)}
+      onMouseLeave={() => useSimStore.getState().hoveredAgentId === a.id && hoverAgent(null)}
+      onFocus={() => hoverAgent(a.id)}
+      onBlur={() => useSimStore.getState().hoveredAgentId === a.id && hoverAgent(null)}
       style={{ ['--agent' as string]: a.color }}
     >
       <button className="agent-card-main" onClick={() => selectAgent(selected ? null : a.id)} title={`${a.name} — ${a.occupation}`}>

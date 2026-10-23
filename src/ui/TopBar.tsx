@@ -1,13 +1,20 @@
 /**
- * Top bar: brand, clock, playback, reality switch, panel toggles, AI status.
+ * Top bar (laboratory mode): brand, clock, playback, reality switch, panel
+ * toggles, switch to spectator mode. Secondary controls (seed, day, decision
+ * policy, AI status) are folded into a "⋯ Plus" popover on narrower screens.
+ * Keyboard shortcuts live in ui/mode.ts (useGlobalShortcuts).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSimStore, type PanelId, type Speed } from '../store/useSimStore';
 import { fmtTime, periodOfDay } from '../sim/time';
 import { DAY_END, DAY_START } from '../sim/types';
 import { parseClock, weatherLabel } from './format';
 import { useActiveReality, useMinute } from './hooks';
+import { useMediaQuery } from './mode';
+
+/** Below this width the secondary controls move into the « ⋯ Plus » popover. */
+const COMPACT_QUERY = '(max-width: 1720px)';
 
 const SPEEDS: Speed[] = [1, 2, 10, 60];
 
@@ -18,13 +25,6 @@ const PANELS: { id: Exclude<PanelId, null>; label: string; icon: string; title: 
   { id: 'report', label: 'Rapport', icon: '📜', title: 'Rapport narratif de la journée' },
 ];
 
-function isTypingTarget(t: EventTarget | null): boolean {
-  const el = t as HTMLElement | null;
-  if (!el) return false;
-  const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
-}
-
 export function TopBar() {
   const minute = useMinute();
   const reality = useActiveReality();
@@ -34,32 +34,13 @@ export function TopBar() {
   const realityB = useSimStore((s) => s.realityB);
   const activeId = useSimStore((s) => s.activeRealityId);
   const panel = useSimStore((s) => s.panel);
-  const ai = useSimStore((s) => s.ai);
   const { restart, togglePlay, setSpeed, seek, generateAll, setSeed, switchReality, setPanel } = useSimStore.getState();
 
   const frame = reality.frameAt(minute);
   const weather = weatherLabel(frame?.weather);
 
-  // Keyboard shortcuts: space = play/pause, Escape = close panel.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target)) return;
-      const s = useSimStore.getState();
-      if (e.code === 'Space') {
-        e.preventDefault();
-        s.togglePlay();
-      } else if (e.key === 'Escape') {
-        if (s.panel) s.setPanel(s.panel);
-        else if (s.selectedEventId) s.selectEvent(null);
-      } else if (e.key === 'ArrowRight' && e.shiftKey) {
-        s.seek(Math.floor(s.time) + 10);
-      } else if (e.key === 'ArrowLeft' && e.shiftKey) {
-        s.seek(Math.floor(s.time) - 10);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const compact = useMediaQuery(COMPACT_QUERY);
+  const setUiMode = useSimStore((s) => s.setUiMode);
 
   return (
     <header className="topbar">
@@ -105,9 +86,13 @@ export function TopBar() {
 
       <div className="tb-spacer" />
 
-      <SeedControl seed={seed} hasB={!!realityB} onSet={setSeed} />
-      <DayControl />
-      <PolicyControl />
+      {!compact && (
+        <>
+          <SeedControl seed={seed} hasB={!!realityB} onSet={setSeed} />
+          <DayControl />
+          <PolicyControl />
+        </>
+      )}
 
       <div className="seg reality" role="group" aria-label="Réalité affichée">
         <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title="Réalité A — la journée originale">
@@ -141,11 +126,64 @@ export function TopBar() {
         })}
       </nav>
 
-      <span className={`ai-badge ${ai.enabled ? 'on' : ''}`} title={ai.message ?? (ai.checked ? '' : 'Vérification du service IA…')}>
-        <span className="ai-dot" aria-hidden />
-        <span className="ai-text">{!ai.checked ? 'Narration IA : …' : ai.enabled ? `Narration IA : activée${ai.model ? ` · ${ai.model}` : ''}` : 'Narration IA : désactivée'}</span>
-      </span>
+      {compact ? (
+        <MoreMenu>
+          <SeedControl seed={seed} hasB={!!realityB} onSet={setSeed} inline />
+          <DayControl />
+          <PolicyControl />
+          <AiBadge full />
+        </MoreMenu>
+      ) : (
+        <AiBadge />
+      )}
+
+      <button className="btn sm spectator-btn" onClick={() => setUiMode('spectator')} title="Mode spectateur : la ville en plein écran (Tab)">
+        <span aria-hidden>👁</span> Spectateur
+      </button>
     </header>
+  );
+}
+
+function AiBadge({ full = false }: { full?: boolean }) {
+  const ai = useSimStore((s) => s.ai);
+  return (
+    <span className={`ai-badge ${ai.enabled ? 'on' : ''} ${full ? 'full' : ''}`} title={ai.message ?? (ai.checked ? '' : 'Vérification du service IA…')}>
+      <span className="ai-dot" aria-hidden />
+      <span className="ai-text">{!ai.checked ? 'Narration IA : …' : ai.enabled ? `Narration IA : activée${ai.model ? ` · ${ai.model}` : ''}` : 'Narration IA : désactivée'}</span>
+    </span>
+  );
+}
+
+/** « ⋯ Plus » button + popover holding the secondary controls. */
+function MoreMenu({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  return (
+    <div className="seed more" ref={ref}>
+      <button className={`btn ghost sm ${open ? 'active' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="true" title="Graine, jour, politique de décision, statut IA">
+        ⋯ Plus
+      </button>
+      {open && (
+        <div className="popover more-pop" role="menu">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -177,19 +215,19 @@ function GoTo({ onGo }: { onGo: (t: number) => void }) {
   );
 }
 
-function SeedControl({ seed, hasB, onSet }: { seed: number; hasB: boolean; onSet: (s: number) => void }) {
+function SeedControl({ seed, hasB, onSet, inline = false }: { seed: number; hasB: boolean; onSet: (s: number) => void; inline?: boolean }) {
   const [open, setOpen] = useState(false);
   const [v, setV] = useState(String(seed));
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => setV(String(seed)), [seed]);
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     const close = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     window.addEventListener('mousedown', close);
     return () => window.removeEventListener('mousedown', close);
-  }, [open]);
+  }, [open, inline]);
   const apply = (n: number) => {
     if (!Number.isFinite(n)) return;
     if (hasB && !window.confirm('Une nouvelle journée effacera la réalité B et ses interventions. Continuer ?')) return;
@@ -202,7 +240,7 @@ function SeedControl({ seed, hasB, onSet }: { seed: number; hasB: boolean; onSet
         🎲 Graine <span className="mono">{seed}</span>
       </button>
       {open && (
-        <div className="popover">
+        <div className={`popover ${inline ? 'inline' : ''}`}>
           <div className="popover-title">Nouvelle journée</div>
           <p className="muted small">La graine détermine tous les aléas. Une même graine produit exactement la même journée.</p>
           <form
