@@ -371,6 +371,8 @@ export interface AgentState {
   lastChat: Record<AgentId, Minute>;
   /** Count of completed objectives (commitments done). */
   objectivesDone: number;
+  /** Minute at which each action was last completed (avoids repeating the same thing). */
+  recent: Partial<Record<ActionType, Minute>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +404,12 @@ export interface BusState {
   delayEventIds: EventId[];
   /** Whether the bus is in service. */
   inService: boolean;
+  /** Direction the bus takes when leaving its current/next stop (+1 towards the last stop). */
+  direction: 1 | -1;
+  /** Index of the next timetable entry for this bus. */
+  scheduleIndex: number;
+  /** Inhabitant driving the bus, if any. */
+  driverId?: AgentId;
   /** Minute of the last scheduled departure of the current loop. */
   currentStopId: LocationId | null;
   /** Clock minute when the bus is scheduled to depart the current stop. */

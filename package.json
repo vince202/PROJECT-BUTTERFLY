@@ -11,8 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "server": "node --env-file-if-exists=.env --experimental-strip-types server/index.ts",
-    "cli": "node --experimental-strip-types scripts/cli.ts"
+    "server": "tsx --env-file-if-exists=.env server/index.ts",
+    "cli": "tsx scripts/cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.2.0",
@@ -29,6 +29,7 @@
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "tsx": "^4.23.15",
     "typescript": "~5.9.3",
     "vite": "^7.3.7",
     "vitest": "^4.1.12"
