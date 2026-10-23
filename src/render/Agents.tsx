@@ -15,14 +15,17 @@ import { LOCATIONS } from '../sim/city';
 import { AGENTS } from '../sim/population';
 import type { AgentProfile } from '../sim/types';
 import { useSimStore } from '../store/useSimStore';
-import { activeRealityOf, agentWorld, angleDelta, damp, env, hashString, labelMaterial, makeLabel, radialTexture, sampleFrames, sizeLabel } from './shared';
+import { type StreetSample, activeRealityOf, agentWorld, angleDelta, damp, env, hashString, labelMaterial, makeLabel, radialTexture, sampleFrames, sizeLabel, streetLerp } from './shared';
 
 /** Overall meeple scale (meeples are deliberately oversized for readability). */
-const AGENT_SCALE = 0.8;
+const AGENT_SCALE = 0.95;
 /** Below this camera distance every name is shown. */
 const ALL_NAMES_DISTANCE = 380;
 /** Lateral offset applied while walking so that people use the sidewalks (metres). */
 const SIDEWALK_OFFSET = 8.5;
+
+/** Locations whose interior hides the people inside (everything but the park and bus stops). */
+const INDOOR = new Set(LOCATIONS.filter((l) => l.kind !== 'park' && l.kind !== 'bus_stop').map((l) => l.id));
 
 const SKIN = ['#f1c7a5', '#e5b48e', '#c98e66', '#8d5a3b', '#f4d2b8'];
 const HAIR = ['#3b2a20', '#5a3b26', '#1f1a17', '#a8743f', '#d9b56c', '#7a3f22'];
@@ -78,7 +81,7 @@ function makeMeeple(p: AgentProfile, geo: ReturnType<typeof makeGeometries>, eye
     body: new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.55 }),
     skin: new THREE.MeshStandardMaterial({ color: SKIN[h % SKIN.length], roughness: 0.6 }),
     legs: new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color).multiplyScalar(0.35).lerp(new THREE.Color('#2d3440'), 0.6), roughness: 0.7 }),
-    hair: new THREE.MeshStandardMaterial({ color: p.age >= 62 ? '#d8d6d0' : HAIR[(h >> 3) % HAIR.length], roughness: 0.8 }),
+    hair: new THREE.MeshStandardMaterial({ color: p.age >= 62 ? '#d8d6d0' : HAIR[(h >>> 3) % HAIR.length], roughness: 0.8 }),
   };
 
   const root = new THREE.Group();
@@ -168,6 +171,7 @@ function setDimmed(m: Meeple, dim: boolean) {
 }
 
 const tmpTarget = new THREE.Vector3();
+const sample: StreetSample = { x: 0, y: 0, dx: 0, dy: 0 };
 const tmpEmissive = new THREE.Color();
 
 export function Agents() {
@@ -234,8 +238,9 @@ export function Agents() {
         x = k < 0.5 ? a0.x : a1.x;
         z = k < 0.5 ? a0.y : a1.y;
       } else {
-        x = a0.x + (a1.x - a0.x) * k;
-        z = a0.y + (a1.y - a0.y) * k;
+        streetLerp(a0.x, a0.y, a1.x, a1.y, k, sample);
+        x = sample.x;
+        z = sample.y;
       }
       const riding = k < 0.5 ? a0.riding : a1.riding;
       const asleep = a0.asleep;
@@ -244,14 +249,12 @@ export function Agents() {
       // Movement direction from the trace (stable even when paused).
       const moving = jump > 2 && jump <= 250 && !riding;
       if (moving) {
-        const target = Math.atan2(a1.x - a0.x, a1.y - a0.y);
+        const target = Math.atan2(sample.dx, sample.dy);
         m.heading += angleDelta(m.heading, target) * damp(10, dt);
       }
       // Right-hand sidewalk offset while walking along streets.
       if (moving && travelling) {
-        const fx = (a1.x - a0.x) / jump;
-        const fz = (a1.y - a0.y) / jump;
-        tmpTarget.set(-fz * SIDEWALK_OFFSET, 0, fx * SIDEWALK_OFFSET);
+        tmpTarget.set(-sample.dy * SIDEWALK_OFFSET, 0, sample.dx * SIDEWALK_OFFSET);
       } else tmpTarget.set(0, 0, 0);
       if (!m.initialised) m.offset.copy(tmpTarget);
       else m.offset.lerp(tmpTarget, damp(4, dt));
@@ -293,7 +296,9 @@ export function Agents() {
       tmpEmissive.copy(m.bodyColor).multiplyScalar(m.hoverK * 0.45);
       m.mats.body.emissive.copy(tmpEmissive);
 
-      const showLabel = visible && (hovered || selected || showAll);
+      // When zoomed in, show everybody's name, except people hidden inside a building.
+      const indoors = a0.loc !== '' && INDOOR.has(a0.loc);
+      const showLabel = visible && (hovered || selected || (showAll && !indoors));
       m.label.visible = showLabel;
       if (showLabel) {
         sizeLabel(m.label, m.labelAspect, selected || hovered ? 22 : 18);
@@ -388,7 +393,7 @@ function SelectionFx() {
         const frame = activeRealityOf(s).frameAt(Math.floor(s.time));
         const loc = frame?.agents[s.selectedAgentId!]?.loc ?? '';
         const roof = loc ? ROOF_HEIGHT.get(loc) ?? 0 : 0;
-        const base = roof > 0 ? roof + 12 : 12;
+        const base = roof > 0 ? roof + 12 : 15;
         marker.current.position.set(p.x, base + Math.sin(t * 2.2) * 0.8, p.z);
         marker.current.rotation.y += dt * 1.5;
       }

@@ -43,7 +43,7 @@ function footprintAt(x0: number, z0: number, x1: number, z1: number): LocationDe
     const lz1 = l.pos.y + l.size.y / 2;
     const ox = Math.min(x1, lx1) - Math.max(x0, lx0);
     const oz = Math.min(z1, lz1) - Math.max(z0, lz0);
-    if (ox > 4 && oz > 4) return l;
+    if (ox > 1.5 && oz > 1.5) return l;
   }
   return null;
 }

@@ -1,0 +1,24 @@
+/* BUTTERFLY — 3D city scene container. */
+
+.city-scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #a9d0ee;
+}
+
+.city-scene__canvas {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  touch-action: none;
+}
+
+/* Soft cinematic vignette; never intercepts the pointer. */
+.city-scene__vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, rgba(0, 0, 0, 0) 55%, rgba(20, 16, 30, 0.28) 100%);
+}

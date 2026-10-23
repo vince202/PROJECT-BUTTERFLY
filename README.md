@@ -9,6 +9,12 @@ Puis vous intervenez : **« Et si le bus avait trois minutes de retard ? »** BU
 
 Parfois rien d'important ne change. Parfois deux personnes ne se rencontrent pas. Parfois un portefeuille change de mains et un dîner n'a pas lieu.
 
+![La ville de nuit](docs/screenshots/nuit.png)
+
+| Inspecteur — « Pourquoi fait-il cela ? » | Comparaison des réalités | Explorateur causal |
+|---|---|---|
+| ![Inspecteur](docs/screenshots/inspecteur.png) | ![Comparaison](docs/screenshots/comparaison.png) | ![Causalité](docs/screenshots/causalite.png) |
+
 ---
 
 ## Lancer l'application
@@ -41,6 +47,7 @@ npm run typecheck        # TypeScript strict
 npm run build            # bundle de production (dist/)
 npm run cli -- --seed 42 # simule une journée en ligne de commande
 npm run cli -- --seed 51 --bus-delay 3 --at 09:25 --agent gerard
+node scripts/screenshot.mjs       # test visuel : parcourt la démonstration dans Chromium et enregistre des captures
 ```
 
 ---

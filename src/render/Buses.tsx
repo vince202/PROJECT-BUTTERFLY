@@ -5,14 +5,13 @@
  * with their id and current delay.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { BUS_LINES } from '../sim/city';
 import { useActiveReality, useSimStore } from '../store/useSimStore';
 import { StaticBatch, batchMaterial } from './batch';
-import { activeRealityOf, angleDelta, damp, env, labelMaterial, makeLabel, sampleFrames, sizeLabel } from './shared';
-import { bulbColor } from './Streets';
+import { type StreetSample, activeRealityOf, angleDelta, damp, env, makeLabel, sampleFrames, sizeLabel, streetLerp } from './shared';
 
 const LANE_OFFSET = 3.6;
 const LENGTH = 17;
@@ -75,6 +74,7 @@ interface BusRig {
 }
 
 const tmpOffset = new THREE.Vector3();
+const sample: StreetSample = { x: 0, y: 0, dx: 0, dy: 0 };
 
 export function Buses() {
   const reality = useActiveReality();
@@ -83,15 +83,13 @@ export function Buses() {
   const busIds = useMemo(() => {
     const f = reality.frameAt(0);
     return f ? Object.keys(f.buses).sort() : [];
-    // generation bumps when the reality is regenerated
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `generation` bumps when the reality is regenerated.
   }, [reality, generation]);
 
   const color = BUS_LINES[0]?.color ?? '#f39c12';
   const model = useMemo(() => buildBusModel(color), [color]);
   const bodyMat = useMemo(() => batchMaterial({ roughness: 0.45, flatShading: true }), []);
   const glowMat = useMemo(() => new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), []);
-  const headlight = useMemo(() => new THREE.Color(), []);
 
   useEffect(
     () => () => {
@@ -102,8 +100,6 @@ export function Buses() {
     },
     [model, bodyMat, glowMat],
   );
-
-  const rigs = useRef(new Map<string, BusRig>());
 
   const groups = useMemo(() => {
     const map = new Map<string, BusRig>();
@@ -124,7 +120,6 @@ export function Buses() {
       root.add(label);
       map.set(id, { root, label, labelKey: '', aspect: 1, heading: 0, offset: new THREE.Vector3(), init: false });
     }
-    rigs.current = map;
     return map;
   }, [busIds, model, bodyMat, glowMat]);
 
@@ -143,10 +138,9 @@ export function Buses() {
     const dt = Math.min(rawDt, 0.1);
     const s = useSimStore.getState();
     const pair = sampleFrames(activeRealityOf(s), s.time);
-    bulbColor(headlight, env.night);
     glowMat.color.setScalar(0.8 + env.night * 0.6);
 
-    for (const [id, r] of rigs.current) {
+    for (const [id, r] of groups) {
       const b0 = pair?.f0.buses[id];
       const b1 = pair?.f1.buses[id] ?? b0;
       if (!pair || !b0 || !b1) {
@@ -154,14 +148,13 @@ export function Buses() {
         continue;
       }
       r.root.visible = true;
-      const dx = b1.x - b0.x;
-      const dz = b1.y - b0.y;
-      const d = Math.hypot(dx, dz);
-      const k = d > 400 ? (pair.k < 0.5 ? 0 : 1) : pair.k;
-      const x = b0.x + dx * k;
-      const z = b0.y + dz * k;
-      if (d > 0.5 && d < 400) {
-        const target = Math.atan2(dx, dz);
+      const d = Math.hypot(b1.x - b0.x, b1.y - b0.y);
+      const k = d > 600 ? (pair.k < 0.5 ? 0 : 1) : pair.k;
+      streetLerp(b0.x, b0.y, b1.x, b1.y, k, sample);
+      const x = sample.x;
+      const z = sample.y;
+      if (d > 0.5 && d <= 600) {
+        const target = Math.atan2(sample.dx, sample.dy);
         if (!r.init) r.heading = target;
         else r.heading += angleDelta(r.heading, target) * damp(5, dt);
       }
@@ -202,6 +195,3 @@ export function Buses() {
     </group>
   );
 }
-
-/** Same as labelMaterial but exported for symmetry (kept for future label variants). */
-export const busLabelMaterial = labelMaterial;

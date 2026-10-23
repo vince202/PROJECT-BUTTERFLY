@@ -59,14 +59,14 @@ function freeSpot(x: number, z: number, lamps: LampDef[]): boolean {
   const city = getCity();
   for (const l of BUILDINGS) {
     if (inRect(x, z, l, 7)) return false;
-    // Keep the corridor between the door and the street clear.
     const d = city.doorPos(l.id);
     const dx = d.x - l.pos.x;
     const dz = d.y - l.pos.y;
     const between = (v: number, a: number, c: number) => v >= Math.min(a, c) - 2 && v <= Math.max(a, c) + 2;
+    // The whole frontage on the door side stays clear (terraces, canopies, steps).
     if (Math.abs(dx) / l.size.x > Math.abs(dz) / l.size.y) {
-      if (Math.abs(z - d.y) < 9 && between(x, l.pos.x + (Math.sign(dx) * l.size.x) / 2, d.x)) return false;
-    } else if (Math.abs(x - d.x) < 9 && between(z, l.pos.y + (Math.sign(dz) * l.size.y) / 2, d.y)) return false;
+      if (Math.abs(z - l.pos.y) < l.size.y / 2 + 3 && between(x, l.pos.x + (Math.sign(dx) * l.size.x) / 2, d.x)) return false;
+    } else if (Math.abs(x - l.pos.x) < l.size.x / 2 + 3 && between(z, l.pos.y + (Math.sign(dz) * l.size.y) / 2, d.y)) return false;
   }
   if (inRect(x, z, PARK, 4)) return false;
   for (const s of LOCATIONS) if (s.kind === 'bus_stop' && Math.hypot(s.pos.x - x, s.pos.y - z) < 16) return false;

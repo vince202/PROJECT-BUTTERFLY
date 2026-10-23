@@ -14,7 +14,8 @@ import * as THREE from 'three';
 import type { Reality } from '../sim/reality';
 import type { TraceFrame } from '../sim/types';
 import type { SimStore } from '../store/useSimStore';
-import { CITY_HEIGHT, CITY_WIDTH } from '../sim/city';
+import { CITY_HEIGHT, CITY_WIDTH, STREET_SPACING, getCity, pointAlong, polylineLength } from '../sim/city';
+import type { Vec2 } from '../sim/types';
 
 // ---------------------------------------------------------------------------
 // Dimensions
@@ -93,6 +94,93 @@ export function sampleFrames(reality: Reality, time: number): FramePair | null {
   // frameAt clamps: if both minutes clamp to the same frame there is nothing to interpolate.
   const k = f1 === f0 ? 0 : Math.min(1, Math.max(0, time - m));
   return { f0, f1, k };
+}
+
+// ---------------------------------------------------------------------------
+// Street-following interpolation
+// ---------------------------------------------------------------------------
+
+export interface StreetSample {
+  x: number;
+  y: number;
+  /** Unit direction of travel at the sample (0, 0 when not moving). */
+  dx: number;
+  dy: number;
+}
+
+const onStreetX = (x: number) => Math.abs(x - Math.round(x / STREET_SPACING) * STREET_SPACING) < 0.5;
+const routeCache = new Map<string, { pts: Vec2[]; len: number }>();
+
+/**
+ * Route between two trace positions one minute apart. Fast movers (buses) can
+ * turn one or two corners within a minute, so a straight lerp would cut across
+ * blocks: use an L-shaped path along streets when possible, otherwise the
+ * shortest path on the street graph between the nearest nodes.
+ */
+function routeBetween(x0: number, y0: number, x1: number, y1: number): { pts: Vec2[]; len: number } {
+  const key = `${x0.toFixed(1)},${y0.toFixed(1)}>${x1.toFixed(1)},${y1.toFixed(1)}`;
+  const hit = routeCache.get(key);
+  if (hit) return hit;
+  let pts: Vec2[];
+  if (onStreetX(y0) && onStreetX(x1)) {
+    pts = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }];
+  } else if (onStreetX(x0) && onStreetX(y1)) {
+    pts = [{ x: x0, y: y0 }, { x: x0, y: y1 }, { x: x1, y: y1 }];
+  } else {
+    const city = getCity();
+    const a = city.nearestNode({ x: x0, y: y0 });
+    const b = city.nearestNode({ x: x1, y: y1 });
+    pts = [{ x: x0, y: y0 }, ...city.pathNodes(a, b).map((n) => city.nodePos(n)), { x: x1, y: y1 }];
+    // Drop a first / last node that would make us double back.
+    if (pts.length > 3) {
+      const [p, q, r] = pts;
+      if ((q.x - p.x) * (r.x - q.x) + (q.y - p.y) * (r.y - q.y) < 0) pts.splice(1, 1);
+    }
+    if (pts.length > 3) {
+      const n = pts.length;
+      const [p, q, r] = [pts[n - 3], pts[n - 2], pts[n - 1]];
+      if ((q.x - p.x) * (r.x - q.x) + (q.y - p.y) * (r.y - q.y) < 0) pts.splice(n - 2, 1);
+    }
+  }
+  const route = { pts, len: polylineLength(pts) };
+  if (routeCache.size > 4000) routeCache.clear();
+  routeCache.set(key, route);
+  return route;
+}
+
+/** Interpolate between two positions (fraction k) following the streets. */
+export function streetLerp(x0: number, y0: number, x1: number, y1: number, k: number, out: StreetSample): StreetSample {
+  const ddx = x1 - x0;
+  const ddy = y1 - y0;
+  const d = Math.hypot(ddx, ddy);
+  if (d < 1e-3) {
+    out.x = x0;
+    out.y = y0;
+    out.dx = 0;
+    out.dy = 0;
+    return out;
+  }
+  if (Math.abs(ddx) < 0.5 || Math.abs(ddy) < 0.5 || d < 12) {
+    out.x = x0 + ddx * k;
+    out.y = y0 + ddy * k;
+    out.dx = ddx / d;
+    out.dy = ddy / d;
+    return out;
+  }
+  const r = routeBetween(x0, y0, x1, y1);
+  const at = r.len * k;
+  const p = pointAlong(r.pts, at);
+  // Direction of the segment containing the sample.
+  const q = pointAlong(r.pts, Math.min(r.len, at + 0.5));
+  const p0 = at > 0.5 ? pointAlong(r.pts, at - 0.5) : p;
+  const vx = q.x - p0.x;
+  const vy = q.y - p0.y;
+  const vl = Math.hypot(vx, vy) || 1;
+  out.x = p.x;
+  out.y = p.y;
+  out.dx = vx / vl;
+  out.dy = vy / vl;
+  return out;
 }
 
 /** Map sim coordinates to a three.js vector on the ground. */

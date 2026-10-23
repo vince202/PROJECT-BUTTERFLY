@@ -37,7 +37,7 @@ function makePrism(): THREE.BufferGeometry {
   shape.closePath();
   const g = new THREE.ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false });
   g.translate(0, 0, -0.5);
-  const n = g.toNonIndexed();
+  const n = g.index ? g.toNonIndexed() : g;
   n.computeVertexNormals();
   return n;
 }

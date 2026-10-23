@@ -224,10 +224,10 @@ function buildAll(): Built {
 
     // ----- Roof -------------------------------------------------------------
     if (PITCHED.has(kind)) {
-      const roofH = THREE.MathUtils.clamp(Math.min(sx, sz) * 0.26, 4, 10);
+      const roofH = THREE.MathUtils.clamp(Math.min(sx, sz) * 0.16, 3.5, 7.5);
       const ridgeX = sx >= sz;
       const roofColor = loc.id === 'imm_haussmann' ? SLATE : ROOF_COLORS[hashString(loc.id) % ROOF_COLORS.length];
-      solid.prism(x, H, z, sx + 1.8, roofH, sz + 1.8, roofColor, ridgeX);
+      solid.prism(x, H, z, sx + 1.2, roofH, sz + 1.2, roofColor, ridgeX);
       roofTop = H + roofH;
       // Chimneys
       const nCh = 1 + (hashString(loc.id + 'c') % 2);
@@ -502,7 +502,7 @@ function buildAll(): Built {
 
   // Park label
   const park = LOCATIONS.find((l) => l.kind === 'park');
-  if (park) labels.push({ id: park.id, name: park.name, color: park.color, position: new THREE.Vector3(park.pos.x, 14, park.pos.y - 16) });
+  if (park) labels.push({ id: park.id, name: park.name, color: park.color, position: new THREE.Vector3(park.pos.x - park.size.x / 2 + 45, 10, park.pos.y - park.size.y / 2 + 26) });
 
   return { solid: solid.build(), glow: glow.build(), bulbs: bulbs.build(), windows, signs, labels, clocks, ids };
 }

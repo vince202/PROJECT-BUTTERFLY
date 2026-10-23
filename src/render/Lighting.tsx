@@ -29,19 +29,19 @@ interface Key {
 
 // Key frames of the day. Values are interpolated linearly in between.
 const KEYS: Key[] = [
-  { t: 0, sky: '#0b1226', fog: '#141d36', sun: '#8ea6ff', sunI: 0.35, hemiSky: '#3a4f86', hemiGround: '#141820', hemiI: 0.35, elev: 40, night: 1 },
-  { t: 330, sky: '#1a2547', fog: '#26314f', sun: '#8ea6ff', sunI: 0.35, hemiSky: '#45598f', hemiGround: '#1b1f2a', hemiI: 0.4, elev: 40, night: 1 },
+  { t: 0, sky: '#0b1226', fog: '#141d36', sun: '#9fb4ff', sunI: 0.42, hemiSky: '#4a5d96', hemiGround: '#181c28', hemiI: 0.45, elev: 40, night: 1 },
+  { t: 330, sky: '#1a2547', fog: '#26314f', sun: '#9fb4ff', sunI: 0.42, hemiSky: '#4f6299', hemiGround: '#1b1f2a', hemiI: 0.48, elev: 40, night: 1 },
   { t: 375, sky: '#5d6f9e', fog: '#7a7f9c', sun: '#ff9f80', sunI: 0.55, hemiSky: '#8a94c2', hemiGround: '#3a3530', hemiI: 0.55, elev: 4, night: 0.65 },
   { t: 405, sky: '#a8b6d4', fog: '#c9bfc4', sun: '#ffb68a', sunI: 1.2, hemiSky: '#b4c2e0', hemiGround: '#5d5246', hemiI: 0.75, elev: 9, night: 0.25 },
   { t: 420, sky: '#b9cbe3', fog: '#d6d2cf', sun: '#ffc89c', sunI: 1.6, hemiSky: '#c2d2ea', hemiGround: '#6a5e4e', hemiI: 0.85, elev: 13, night: 0 },
   { t: 540, sky: '#a9d0ee', fog: '#d4e2ea', sun: '#fff0d8', sunI: 2.6, hemiSky: '#cfe3f5', hemiGround: '#7d7058', hemiI: 0.95, elev: 36, night: 0 },
-  { t: 780, sky: '#9fcdf0', fog: '#d3e5f0', sun: '#ffffff', sunI: 3.0, hemiSky: '#d8eaf8', hemiGround: '#857a62', hemiI: 1.0, elev: 58, night: 0 },
+  { t: 780, sky: '#9fcdf0', fog: '#d3e5f0', sun: '#fffaf0', sunI: 3.0, hemiSky: '#d8eaf8', hemiGround: '#857a62', hemiI: 1.0, elev: 52, night: 0 },
   { t: 1020, sky: '#b3cfe6', fog: '#e3dccb', sun: '#ffd9a0', sunI: 2.6, hemiSky: '#d9e2ea', hemiGround: '#8a7458', hemiI: 0.95, elev: 30, night: 0 },
-  { t: 1110, sky: '#e8c39a', fog: '#efcfa8', sun: '#ffb46a', sunI: 2.2, hemiSky: '#ecd2b4', hemiGround: '#7f5f45', hemiI: 0.85, elev: 14, night: 0 },
-  { t: 1170, sky: '#e39a78', fog: '#d9957f', sun: '#ff8550', sunI: 1.3, hemiSky: '#d6a094', hemiGround: '#5a4038', hemiI: 0.7, elev: 5, night: 0.2 },
+  { t: 1110, sky: '#f0cfa2', fog: '#f3d9b4', sun: '#ffc27a', sunI: 2.6, hemiSky: '#f4e0c6', hemiGround: '#8a6a4c', hemiI: 1.0, elev: 18, night: 0 },
+  { t: 1170, sky: '#eaa985', fog: '#e8b598', sun: '#ff9a5e', sunI: 2.0, hemiSky: '#e9c0ad', hemiGround: '#6b4c40', hemiI: 0.85, elev: 9, night: 0.15 },
   { t: 1200, sky: '#5b6496', fog: '#6a6a8e', sun: '#9aa6ff', sunI: 0.45, hemiSky: '#7480b6', hemiGround: '#2a2630', hemiI: 0.55, elev: 30, night: 0.7 },
-  { t: 1260, sky: '#1f2a4f', fog: '#28324f', sun: '#8ea6ff', sunI: 0.38, hemiSky: '#4a5d96', hemiGround: '#181b26', hemiI: 0.42, elev: 40, night: 1 },
-  { t: 1440, sky: '#0b1226', fog: '#141d36', sun: '#8ea6ff', sunI: 0.35, hemiSky: '#3a4f86', hemiGround: '#141820', hemiI: 0.35, elev: 40, night: 1 },
+  { t: 1260, sky: '#1f2a4f', fog: '#28324f', sun: '#9fb4ff', sunI: 0.45, hemiSky: '#55689f', hemiGround: '#1c2030', hemiI: 0.5, elev: 40, night: 1 },
+  { t: 1440, sky: '#0b1226', fog: '#141d36', sun: '#9fb4ff', sunI: 0.42, hemiSky: '#4a5d96', hemiGround: '#181c28', hemiI: 0.45, elev: 40, night: 1 },
 ];
 
 const KEY_COLORS = KEYS.map((k) => ({
@@ -55,17 +55,25 @@ const KEY_COLORS = KEYS.map((k) => ({
 const RAIN_SKY = new THREE.Color('#7d8794');
 const RAIN_SUN = new THREE.Color('#c9d2dc');
 
-/** Sun azimuth: rises in the east (+x) at ~06:30, culminates south (+z), sets west at ~20:00. */
+/**
+ * Sun direction (pointing towards the sun). Stylised path: rises east-south-east
+ * at ~06:30, passes south-west in the early afternoon and sets west-north-west at
+ * ~20:00, so that shadows fall where the default three-quarter camera sees them.
+ */
 function sunDirection(t: number, elevDeg: number, night: number, out: THREE.Vector3): THREE.Vector3 {
-  const a = Math.min(Math.PI, Math.max(0, (Math.PI * (t - 390)) / (1200 - 390)));
+  const f = Math.min(1, Math.max(0, (t - 390) / (1200 - 390)));
+  const phi = THREE.MathUtils.degToRad(30 + 180 * f);
   const el = THREE.MathUtils.degToRad(elevDeg);
-  const sunDir = new THREE.Vector3(Math.cos(a) * Math.cos(el), Math.sin(el), (0.35 + 0.65 * Math.sin(a)) * Math.cos(el)).normalize();
+  const sunDir = tmpSun.set(Math.cos(phi) * Math.cos(el), Math.sin(el), Math.sin(phi) * Math.cos(el)).normalize();
   // The moon hangs in the south-west at night: keep shadows readable from the default camera.
-  const moonDir = new THREE.Vector3(-0.45, Math.sin(el), 0.6).normalize();
+  const moonDir = tmpMoon.set(-0.45, Math.sin(el), 0.6).normalize();
   return out.copy(sunDir).lerp(moonDir, night).normalize();
 }
 
 const SHADOW_EXTENT = 470;
+const tmpTop = new THREE.Color();
+const tmpSun = new THREE.Vector3();
+const tmpMoon = new THREE.Vector3();
 
 export function Lighting() {
   const scene = useThree((s) => s.scene);
@@ -87,11 +95,13 @@ export function Lighting() {
     [],
   );
 
+  // The sky is a CSS gradient behind the (transparent) canvas: cheap and smooth.
+  const gl = useThree((s) => s.gl);
+  const lastSky = useRef('');
   useEffect(() => {
-    scene.background = new THREE.Color('#a9d0ee');
+    scene.background = null;
     scene.fog = new THREE.Fog('#d4e2ea', 900, 2600);
     return () => {
-      scene.background = null;
       scene.fog = null;
     };
   }, [scene]);
@@ -133,6 +143,8 @@ export function Lighting() {
     if (!light) return;
     light.target.position.copy(CITY_CENTER);
     scene.add(light.target);
+    // R3F sets the shadow camera bounds but does not refresh its projection.
+    light.shadow.camera.updateProjectionMatrix();
     return () => {
       scene.remove(light.target);
     };
@@ -165,7 +177,14 @@ export function Lighting() {
 
     state.sky.copy(ca.sky).lerp(cb.sky, f).lerp(RAIN_SKY, rain * 0.55 * (1 - night * 0.7));
     state.fog.copy(ca.fog).lerp(cb.fog, f).lerp(RAIN_SKY, rain * 0.6 * (1 - night * 0.7));
-    (scene.background as THREE.Color | null)?.copy(state.sky);
+    const top = `#${tmpTop.copy(state.sky).multiplyScalar(0.8).getHexString()}`;
+    const mid = `#${state.sky.getHexString()}`;
+    const bottom = `#${state.fog.getHexString()}`;
+    const css = `linear-gradient(to bottom, ${top} 0%, ${mid} 38%, ${bottom} 75%, ${bottom} 100%)`;
+    if (css !== lastSky.current) {
+      lastSky.current = css;
+      gl.domElement.style.background = css;
+    }
     const fog = scene.fog as THREE.Fog | null;
     if (fog) {
       fog.color.copy(state.fog);
