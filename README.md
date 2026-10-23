@@ -79,7 +79,7 @@ Résultat obtenu avec la graine par défaut (reproductible avec `npm run cli -- 
 
 **Graine 51** — événement : « Le bus L1-1 arrive à Arrêt Place du Marché » (09:25, Arrêt Place du Marché), retard imposé : 3 minutes.
 
-- 3000 événements identiques, 6 décalés dans le temps, 3 présents seulement dans A, 9 seulement dans B.
+- 2993 événements identiques, 5 décalés dans le temps, 4 présents seulement dans A, 9 seulement dans B.
 - 15 conséquences causalement vérifiées de l’intervention, touchant 5 habitants.
 - Première conséquence : 09:28 — Gérard monte dans le bus L1-1 à Arrêt Place du Marché.
 - Conséquences majeures : 15:39 Hugo trouve un portefeuille oublié à Supermarché Marché Plus ; 18:39 Hugo dépose le portefeuille de Gérard à son domicile (Gérard est absent) ; 18:53 Martin trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard ; 19:38 Martin rend son portefeuille à Gérard.
