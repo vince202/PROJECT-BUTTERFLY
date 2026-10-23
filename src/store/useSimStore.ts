@@ -16,7 +16,7 @@ export type RealityId = 'A' | 'B';
 export type PanelId = 'butterfly' | 'causal' | 'compare' | 'report' | null;
 
 /** Seed used by the demonstration scenario (see README). */
-export const DEMO_SEED = 29;
+export const DEMO_SEED = 150;
 const STORAGE_KEY = 'butterfly:v1';
 
 interface Persisted {

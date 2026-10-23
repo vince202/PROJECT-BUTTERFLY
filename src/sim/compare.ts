@@ -63,6 +63,10 @@ export interface Comparison {
   /** Agents whose day changed in a causally verified way. */
   affectedAgents: AgentId[];
   summary: string[];
+  /** Match status of every B event (to mark which steps of a causal chain actually differ from A). */
+  statusB: Record<EventId, MatchStatus>;
+  /** Match status of every A event. */
+  statusA: Record<EventId, MatchStatus>;
 }
 
 const NOISE_TYPES = new Set(['decision', 'bus_depart', 'bus_arrive', 'activity_start', 'activity_end', 'depart', 'arrive', 'wake', 'day_start', 'day_end', 'purchase']);
@@ -195,8 +199,14 @@ export function compareRealities(A: Reality, B: Reality): Comparison {
   if (majors.length) summary.push(`Conséquences majeures : ${majors.slice(0, 4).map((m) => (m.b ? `${fmtTime(m.b.t)} ${m.b.label}` : `${fmtTime(m.a!.t)} « ${m.a!.label} » n’a pas eu lieu`)).join(' ; ')}.`);
   else if (consequences.length === 0) summary.push('L’intervention n’a produit aucune conséquence notable : la journée s’est déroulée presque à l’identique.');
 
+  const statusB: Record<EventId, MatchStatus> = {};
+  const statusA: Record<EventId, MatchStatus> = {};
+  for (const m of matches) {
+    if (m.b) statusB[m.b.id] = m.status;
+    if (m.a) statusA[m.a.id] = m.status;
+  }
   void graphA;
-  return { interventionEvents, firstDivergence, firstConsequence, matches, same, shifted, onlyA, onlyB, consequences, agentDiffs, affectedAgents, summary };
+  return { interventionEvents, firstDivergence, firstConsequence, matches, same, shifted, onlyA, onlyB, consequences, agentDiffs, affectedAgents, summary, statusB, statusA };
 }
 
 /** Where is each agent at minute t in both realities (for the side-by-side view). */

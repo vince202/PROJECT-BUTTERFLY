@@ -773,7 +773,10 @@ export class Engine {
     if (a.activity) {
       this.applyActivityEffects(a);
       if (t >= a.activity.until) {
-        this.endActivity(a, null, 'terminé');
+        // Meetings are closed by handleMeetings() so that every participant ends together.
+        const c = a.activity.commitmentId ? a.commitments.find((x) => x.id === a.activity!.commitmentId) : undefined;
+        const meetingLike = a.activity.action === 'commitment' && c && (c.kind === 'meeting' || c.kind === 'appointment');
+        if (!meetingLike) this.endActivity(a, null, 'terminé');
         return;
       }
       // A meeting, appointment or errand that is due interrupts work.
@@ -1156,6 +1159,38 @@ export class Engine {
           const ev = this.emit({ type: 'wait_start', actors: [a.id], locationId: loc, label: `${p.firstName} attend ${others} (${c.label})`, causes: [cause], mechanism: 'Arrivée au lieu du rendez-vous', data: { commitmentId: c.id }, sig: c.id });
           a.activity = { action: 'wait', label: `Attend ${others}`, locationId: loc, since: t, until: Math.max(c.start, t) + c.tolerance + Math.round(p.traits.patience * 10), commitmentId: c.id, withAgent: c.with[0], startEventId: ev.id, interruptible: false };
           a.plan = null;
+          return;
+        }
+        if (c.kind === 'errand' && c.id.startsWith('return_')) {
+          // Returning a found wallet to its owner's home.
+          const ownerId = c.with[0];
+          const owner = this.state.agents[ownerId];
+          const item = a.inventory.find((i) => i === `wallet_of:${ownerId}`);
+          c.status = 'done';
+          a.objectivesDone += 1;
+          a.plan = null;
+          if (item) {
+            a.inventory = a.inventory.filter((i) => i !== item);
+            if (owner && owner.locationId === loc && !owner.asleep) {
+              owner.inventory.push('wallet');
+              const ret = this.emit({ type: 'return_item', actors: [a.id, ownerId], locationId: loc, label: `${p.firstName} rend son portefeuille à ${this.name(ownerId)}`, causes: [cause], mechanism: 'Le trouveur se présente chez le propriétaire, qui est là', effects: [this.adjustRelationship(owner, a.id, 0.3), this.adjustRelationship(a, ownerId, 0.1), ...this.mood(owner, 0.4, -0.3)], sig: `${a.id}>${ownerId}` });
+              this.remember(owner, ret, `${p.firstName} m\u2019a rapporté mon portefeuille !`, 0.9, 0.8, [a.id]);
+              this.remember(a, ret, `Rendu le portefeuille à ${this.name(ownerId)}`, 0.7, 0.5, [ownerId]);
+              for (const oc of owner.commitments) if (oc.id === `wallet_${ownerId}` && oc.status === 'pending') { oc.status = 'done'; owner.objectivesDone += 1; }
+              a.lastChat[ownerId] = t;
+              owner.lastChat[a.id] = t;
+              this.decide(a, ret.id);
+              return;
+            }
+            // Owner absent: leave the wallet at the door; the owner finds it when coming home.
+            const lose = this.events.filter((e) => e.type === 'lose_item' && e.actors[0] === ownerId).pop();
+            const left = this.emit({ type: 'return_item', actors: [a.id, ownerId], locationId: loc, label: `${p.firstName} dépose le portefeuille de ${this.name(ownerId)} à son domicile (${this.name(ownerId)} est absent)`, causes: [cause, lose?.id], mechanism: 'Le propriétaire n\u2019est pas chez lui', data: { left: true }, sig: `${a.id}>${ownerId}:left` });
+            this.state.locations[loc].items.push({ item: 'wallet', ownerId, eventId: left.id });
+            this.remember(a, left, `Déposé le portefeuille de ${this.name(ownerId)} chez lui`, 0.6, 0.3, [ownerId]);
+            this.decide(a, left.id);
+            return;
+          }
+          this.decide(a, cause);
           return;
         }
         if (c.kind === 'errand') {

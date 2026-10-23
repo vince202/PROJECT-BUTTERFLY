@@ -187,7 +187,7 @@ function make(b: Builder, action: ActionType, locationId: LocationId, duration: 
   const cost = ACTION_COSTS[action] ?? 0;
   if (!cand.rejected && cost > 0 && b.agent.money < cost) cand.rejected = `Pas assez d’argent (${cost} €)`;
   if (!cand.rejected && cost > 0 && !b.agent.inventory.includes('wallet')) cand.rejected = 'Portefeuille introuvable';
-  if (!cand.rejected && def.kind !== 'home' && def.kind !== 'bus_stop' && !isLocationOpen(city, world, locationId, t + travel.minutes)) {
+  if (!cand.rejected && def.kind !== 'home' && def.kind !== 'bus_stop' && !isLocationOpen(city, world, locationId, t + Math.max(0, travel.minutes - 2))) {
     cand.rejected = `${def.name} est fermé`;
   }
   if (!cand.rejected && def.capacity !== undefined && b.agent.locationId !== locationId && occupancy(world, locationId) >= def.capacity) {
