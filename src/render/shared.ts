@@ -414,3 +414,113 @@ export function moodColor(mood: number, out: THREE.Color): THREE.Color {
 
 /** Displayed (interpolated, smoothed) mood of each agent, written by <Agents/> every frame. */
 export const agentMood = new Map<string, number>();
+
+// ---------------------------------------------------------------------------
+// BUTTERFLY palette: one material language for procedural and imported models
+// ---------------------------------------------------------------------------
+
+/**
+ * The common palette of the town. Every imported glTF material colour is
+ * snapped to the nearest entry (see `remapColor`) so Quaternius and Kenney
+ * models read as one world with the procedural parts.
+ */
+export const BUTTERFLY_PALETTE = {
+  creme: ['#f2e6cf', '#e8d6b4', '#dcc59c'],
+  brique: ['#b5654a', '#a0533d', '#c47a5c'],
+  bleuGris: ['#8ea3b4', '#71889c', '#5d7286'],
+  vertSauge: ['#a7b98f', '#8aa276', '#6f8c5f'],
+  ocre: ['#d9a85b', '#c99248', '#e6bf7c'],
+  rougeFane: ['#b4483c', '#983a33', '#c8665a'],
+  ardoise: ['#5c6470', '#4a525d', '#737c88'],
+  boisChaud: ['#8a5a3b', '#6e4630', '#a6744f'],
+  feuillage: ['#6a9a4c', '#58884a', '#7fae5a', '#4c7a40'],
+  pierre: ['#cfc4b0', '#b7ab96', '#9d927f'],
+  fer: ['#33363b', '#24272b'],
+  blanc: ['#f6f1e6'],
+} as const;
+
+export type PaletteFamily = keyof typeof BUTTERFLY_PALETTE;
+
+const paletteEntries: { family: PaletteFamily; color: THREE.Color; lab: [number, number, number] }[] = [];
+
+function srgbToOklab(c: THREE.Color): [number, number, number] {
+  // THREE.Color stores linear components when colour management is enabled.
+  const l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
+  const m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
+  const s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
+  const l_ = Math.cbrt(l), m_ = Math.cbrt(m), s_ = Math.cbrt(s);
+  return [
+    0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_,
+    1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_,
+    0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_,
+  ];
+}
+
+for (const [family, list] of Object.entries(BUTTERFLY_PALETTE) as [PaletteFamily, readonly string[]][]) {
+  for (const hex of list) {
+    const color = new THREE.Color(hex);
+    paletteEntries.push({ family, color, lab: srgbToOklab(color) });
+  }
+}
+
+/** Material-name hints for imported packs (checked before colour distance). */
+const NAME_HINTS: [RegExp, PaletteFamily, number][] = [
+  [/leaf|leaves|foliage|grass|bush|plant/i, 'feuillage', 0],
+  [/bark|trunk/i, 'boisChaud', 0],
+  [/rooftiles_red|roof_red/i, 'brique', 0],
+  [/rooftile|roof/i, 'ardoise', 0],
+  [/plaster|beige/i, 'creme', 0],
+  [/stone_dark/i, 'pierre', 2],
+  [/stone_light/i, 'pierre', 0],
+  [/^stone$|rock|stone/i, 'pierre', 1],
+  [/darkwood/i, 'boisChaud', 1],
+  [/wood_side|wood_light/i, 'boisChaud', 2],
+  [/wood/i, 'boisChaud', 0],
+  [/window|glass/i, 'ardoise', 1],
+  [/metal|pole|iron|green\.|^green/i, 'fer', 0],
+];
+
+/** Snap a colour to the nearest palette entry (OKLab distance), optionally restricted to a family. */
+export function remapColor(src: THREE.Color, out = new THREE.Color(), family?: PaletteFamily): THREE.Color {
+  const lab = srgbToOklab(src);
+  let best = paletteEntries[0];
+  let bestD = Infinity;
+  for (const e of paletteEntries) {
+    if (family && e.family !== family) continue;
+    const d = (e.lab[0] - lab[0]) ** 2 * 0.6 + (e.lab[1] - lab[1]) ** 2 + (e.lab[2] - lab[2]) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = e;
+    }
+  }
+  return out.copy(best.color);
+}
+
+/** Palette colour for an imported material (name hints first, then nearest colour). */
+export function paletteFor(name: string, color: THREE.Color, out = new THREE.Color()): THREE.Color {
+  for (const [re, family, idx] of NAME_HINTS) {
+    if (re.test(name)) {
+      const list = BUTTERFLY_PALETTE[family];
+      return out.set(list[Math.min(idx, list.length - 1)]);
+    }
+  }
+  return remapColor(color, out);
+}
+
+/**
+ * Replace an imported material's colour by the palette and normalise its
+ * response (roughness ~0.8, no metalness, no textures).
+ */
+export function remapMaterial(m: THREE.Material): THREE.MeshStandardMaterial {
+  const src = m as THREE.MeshStandardMaterial;
+  const out = new THREE.MeshStandardMaterial({
+    name: src.name,
+    color: paletteFor(src.name ?? '', src.color ?? new THREE.Color('#cccccc')),
+    roughness: 0.8,
+    metalness: 0,
+    side: src.side,
+    transparent: src.transparent,
+    opacity: src.opacity,
+  });
+  return out;
+}
