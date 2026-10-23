@@ -21,3 +21,7 @@ Les modèles de `public/models/quaternius/` proviennent des packs de **Quaterniu
 | `buildings/` | Buildings Pack : maisons, boutique, banque, hôpital, immeubles |
 | `street/` | Street Pack : lampadaires, panneaux, feu |
 | `characters/` | Ultimate Animated Character Pack (nov. 2019) : personnages animés (marche, course, repos, assis…), convertis de FBX en glTF avec FBX2glTF |
+| `transport/` | Public Transport Pack : bus, taxi, vélos, feu, panneaux, ambulance (OBJ → glTF) |
+| `props/` | Fantasy Props MegaKit (édition standard) : bancs, chaises, tables, tonneaux, caisses, étals, lanternes, livres (glTF → GLB avec gltf-pipeline) |
+
+`public/models/hdri/dusseldorf_bridge_1k.hdr` provient de **Poly Haven** (polyhaven.com), licence **CC0**, utilisé pour l'éclairage d'environnement.

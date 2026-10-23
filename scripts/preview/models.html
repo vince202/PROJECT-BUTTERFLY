@@ -1,0 +1,32 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#9cc3e0}canvas{display:block}</style></head>
+<body><script type="module">
+// Dev-only helper for render-check: shows glTF models side by side at native scale.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+const params = new URLSearchParams(location.search);
+const list = (params.get('m') ?? '').split(',').filter(Boolean);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#9cc3e0');
+scene.add(new THREE.HemisphereLight('#ffffff', '#776655', 1.6));
+const sun = new THREE.DirectionalLight('#ffffff', 2.2); sun.position.set(3, 6, 5); scene.add(sun);
+const loader = new GLTFLoader();
+let x = 0; const box = new THREE.Box3(); let maxH = 0;
+for (const m of list) {
+  const g = await loader.loadAsync(`/models/${m}.glb`);
+  const s = g.scene; box.setFromObject(s); const size = box.getSize(new THREE.Vector3());
+  s.position.x = x - box.min.x; x += size.x + 0.3; maxH = Math.max(maxH, size.y);
+  if (g.animations.length) { const mix = new THREE.AnimationMixer(s); const clip = g.animations.find(a => a.name.includes(params.get('anim') ?? 'Idle')) ?? g.animations[0]; mix.clipAction(clip).play(); mix.update(Number(params.get('t') ?? 0.3)); }
+  scene.add(s);
+}
+const cam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.01, 1000);
+const cx = x / 2; const dist = Math.max(x * 1.2, maxH * 2.6);
+const az = Number(params.get('az') ?? 0.5);
+cam.position.set(cx + Math.sin(az) * dist, maxH * 0.9 + dist * 0.35, Math.cos(az) * dist); cam.lookAt(cx, maxH * 0.4, 0);
+renderer.render(scene, cam);
+window.__done = true;
+</script></body></html>
