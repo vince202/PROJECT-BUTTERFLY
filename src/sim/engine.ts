@@ -819,7 +819,7 @@ export class Engine {
       if (c.locationId === a.locationId) continue; // handled by the meeting logic on the spot
       const dist = this.city.nodeDistance(agentNode(a, this.city), this.city.location(c.locationId).node);
       const travel = Math.ceil(dist / walkSpeed(this.state)) + 1;
-      const margin = 3 + 12 * p.traits.punctuality;
+      const margin = 2 + 9 * p.traits.punctuality;
       if (c.start - t - travel <= margin) return true;
     }
     return false;
@@ -1010,6 +1010,7 @@ export class Engine {
     const t = this.state.t;
     if (tr.stage === 'riding') return; // position synced by the bus
     if (a.movedAt === t) return; // already walked this minute (travel started outside the agent loop)
+    if (tr.pausedUntil !== undefined && t < tr.pausedUntil) return; // stopped to chat
     a.movedAt = t;
     if (tr.stage === 'waiting') {
       // Give up on the bus after a long wait and walk instead.
@@ -1812,6 +1813,7 @@ export class Engine {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(a.id);
     }
+    this.handleStreetEncounters();
     for (const [key, ids] of groups) {
       if (ids.length < 2) continue;
       ids.sort();
@@ -1844,8 +1846,45 @@ export class Engine {
     }
   }
 
+  /** Pedestrians crossing paths in the street may stop for a short chat (which delays both). */
+  private handleStreetEncounters() {
+    const t = this.state.t;
+    const walkers = Object.values(this.state.agents).filter((a) => !a.asleep && a.travel && a.locationId === null && ['walking', 'to_stop', 'from_stop'].includes(a.travel.stage) && !(a.travel.pausedUntil !== undefined && t < a.travel.pausedUntil));
+    walkers.sort((x, y) => x.id.localeCompare(y.id));
+    for (let i = 0; i < walkers.length; i++) {
+      for (let j = i + 1; j < walkers.length; j++) {
+        const a = walkers[i];
+        const b = walkers[j];
+        if (Math.hypot(a.pos.x - b.pos.x, a.pos.y - b.pos.y) > 20) continue;
+        const last = Math.max(a.lastChat[b.id] ?? -999, b.lastChat[a.id] ?? -999);
+        if (t - last < 90) continue;
+        const lastAnyA = Math.max(-999, ...Object.values(a.lastChat));
+        const lastAnyB = Math.max(-999, ...Object.values(b.lastChat));
+        if (t - lastAnyA < 8 || t - lastAnyB < 8) continue;
+        const pa = this.profiles.get(a.id)!;
+        const pb = this.profiles.get(b.id)!;
+        const rel = a.relationships[b.id];
+        const relFactor = rel ? 0.8 + Math.max(-0.5, rel.affinity) : 0.02 * ((pa.traits.curiosity + pb.traits.curiosity) / 2);
+        // Hurried people (a due commitment) rarely stop.
+        const hurryA = a.plan?.commitmentId ? 0.4 : 1;
+        const hurryB = b.plan?.commitmentId ? 0.4 : 1;
+        const p = 0.45 * hurryA * hurryB * (0.3 + (pa.traits.sociability + pb.traits.sociability) / 2) * relFactor;
+        const key = `street:${a.id}:${b.id}:${t}`;
+        if (!this.rng.chance(key, p)) continue;
+        const ev = this.converse(a, b, null, null, 'chance', { key, value: this.rng.next(key) });
+        if (!ev) continue;
+        for (const w of [a, b]) {
+          if (!w.travel) continue;
+          w.travel.pausedUntil = t + 2;
+          w.travel.expectedArrival += 2;
+          w.travel.delayEventIds.push(ev.id);
+        }
+      }
+    }
+  }
+
   /** A conversation between two inhabitants, with relationship effects and possible plan changes. */
-  private converse(a: AgentState, b: AgentState, loc: LocationId | null, cause: EventId | null, how: 'chance' | 'visit', draw?: RandomDraw, busId?: string) {
+  private converse(a: AgentState, b: AgentState, loc: LocationId | null, cause: EventId | null, how: 'chance' | 'visit', draw?: RandomDraw, busId?: string): SimEvent | null {
     const t = this.state.t;
     const pa = this.profiles.get(a.id)!;
     const pb = this.profiles.get(b.id)!;
@@ -2030,6 +2069,7 @@ export class Engine {
         break;
       }
     }
+    return ev;
   }
 
   // ---------------------------------------------------------------------

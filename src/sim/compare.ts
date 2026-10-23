@@ -101,7 +101,7 @@ export function compareRealities(A: Reality, B: Reality): Comparison {
       const b = lb[i];
       if (a && b) {
         const dt = b.t - a.t;
-        matches.push({ status: dt === 0 ? 'same' : 'shifted', a, b, dt, causal: affectedB.has(b.id) ? 'verified' : 'none', signature: sig });
+        matches.push({ status: dt === 0 && a.label === b.label ? 'same' : 'shifted', a, b, dt, causal: affectedB.has(b.id) ? 'verified' : 'none', signature: sig });
       } else if (a) {
         matches.push({ status: 'only_a', a, causal: 'none', signature: sig });
       } else if (b) {

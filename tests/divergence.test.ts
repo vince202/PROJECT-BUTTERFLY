@@ -1,8 +1,9 @@
+import type { SimEvent } from '../src/sim/types';
 import { describe, expect, it } from 'vitest';
 import { compareRealities, agentPositionsAt } from '../src/sim/compare';
 import { busDelayFor } from '../src/sim/interventions';
 import type { Intervention } from '../src/sim/types';
-import { BUS_SEED, NORMAL_SEED, fork, freshDay, runDay } from './helpers';
+import { BUS_SEED, NORMAL_SEED, fork, freshDay, runDay, findBoardingArrival } from './helpers';
 
 describe('Aucune divergence sans intervention', () => {
   it('A vs A2 (même graine, aucune intervention) : comparaison vide', () => {
@@ -48,7 +49,7 @@ describe('Aucune divergence sans intervention', () => {
 
 describe('Divergence avec un retard de bus (graine 29)', () => {
   const A = runDay(BUS_SEED);
-  const arrival = A.events.find((e) => e.type === 'bus_arrive' && e.t === 500)!;
+  const arrival = findBoardingArrival(A.events) as SimEvent;
   const iv = busDelayFor(arrival, 3);
   const B = fork(A, iv);
   const cmp = compareRealities(A, B);
@@ -153,7 +154,7 @@ describe('Divergence avec un retard de bus (graine 29)', () => {
     const before = agentPositionsAt(A, B, iv.t - 1);
     expect(before).toHaveLength(20);
     expect(before.every((p) => !p.differs)).toBe(true);
-    const during = agentPositionsAt(A, B, 502);
+    const during = agentPositionsAt(A, B, iv.t + 4);
     expect(during.some((p) => p.differs)).toBe(true);
   });
 });

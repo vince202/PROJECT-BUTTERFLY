@@ -9,8 +9,17 @@ import type { Intervention, SimEvent, WorldState } from '../src/sim/types';
 
 /** Seed used for "a normal day" in most tests. */
 export const NORMAL_SEED = 42;
-/** Seed with a known bus arrival at 08:20 (t = 500) at Les Lilas. */
-export const BUS_SEED = 29;
+/** Seed used for the bus-delay scenarios (the arrival is found dynamically, see findBoardingArrival). */
+export const BUS_SEED = 51;
+
+/** First morning bus arrival at which an inhabitant boards (same bus, stop and minute). */
+export function findBoardingArrival(events: { type: string; t: number; busId?: string; locationId?: string }[]) {
+  for (const e of events) {
+    if (e.type !== 'bus_arrive' || e.t < 420 || e.t > 660) continue;
+    if (events.some((b) => b.type === 'board_bus' && b.t === e.t && b.busId === e.busId && b.locationId === e.locationId)) return e;
+  }
+  throw new Error('no boarding arrival found');
+}
 
 const cache = new Map<string, Reality>();
 

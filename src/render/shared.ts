@@ -393,3 +393,24 @@ export function radialTexture(): THREE.CanvasTexture {
   radialTex.colorSpace = THREE.SRGBColorSpace;
   return radialTex;
 }
+
+// ---------------------------------------------------------------------------
+// Mood colours
+// ---------------------------------------------------------------------------
+
+/** Mood palette: cool blue-violet (low) -> soft neutral grey -> warm gold / orange (joy). */
+export const MOOD_LOW = new THREE.Color('#7a6cf2');
+export const MOOD_NEUTRAL = new THREE.Color('#c4c2be');
+export const MOOD_HIGH = new THREE.Color('#ffaa33');
+
+/**
+ * Colour for a mood in -1..1. Saturates at |mood| >= 0.5 and interpolates
+ * linearly through the neutral grey around 0.
+ */
+export function moodColor(mood: number, out: THREE.Color): THREE.Color {
+  const k = Math.max(-1, Math.min(1, mood * 2));
+  return k >= 0 ? out.lerpColors(MOOD_NEUTRAL, MOOD_HIGH, k) : out.lerpColors(MOOD_NEUTRAL, MOOD_LOW, -k);
+}
+
+/** Displayed (interpolated, smoothed) mood of each agent, written by <Agents/> every frame. */
+export const agentMood = new Map<string, number>();

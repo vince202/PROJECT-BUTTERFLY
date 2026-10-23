@@ -1,8 +1,9 @@
+import type { SimEvent } from '../src/sim/types';
 import { describe, expect, it } from 'vitest';
 import { INTERVENTION_TEMPLATES, busDelayFor, findAgent, findLocation, interpretFrench, normalize, validateIntervention } from '../src/sim/interventions';
 import { AGENTS } from '../src/sim/population';
 import type { Intervention } from '../src/sim/types';
-import { BUS_SEED, NORMAL_SEED, fork, runDay } from './helpers';
+import { BUS_SEED, NORMAL_SEED, fork, runDay, findBoardingArrival } from './helpers';
 
 const A = runDay(NORMAL_SEED);
 const ctx = { t: 500, events: A.events };
@@ -54,7 +55,7 @@ describe('interpretFrench : phrases précises', () => {
   });
 
   it('le retard de bus cible l’arrivée de bus sélectionnée quand il y en a une', () => {
-    const arrival = runDay(BUS_SEED).events.find((e) => e.type === 'bus_arrive' && e.t === 500)!;
+    const arrival = findBoardingArrival(runDay(BUS_SEED).events) as SimEvent;
     const r = interpretFrench('Et si le bus avait trois minutes de retard ?', { t: 400, selectedEvent: arrival });
     const iv = r.intervention as Extract<Intervention, { kind: 'bus_delay' }>;
     expect(iv.busId).toBe(arrival.busId);
@@ -263,7 +264,7 @@ describe('validateIntervention', () => {
 });
 
 describe('busDelayFor', () => {
-  const arrival = runDay(BUS_SEED).events.find((e) => e.type === 'bus_arrive' && e.t === 500)!;
+  const arrival = findBoardingArrival(runDay(BUS_SEED).events) as SimEvent;
 
   it('crée un bus_delay une minute avant l’arrivée visée', () => {
     const iv = busDelayFor(arrival, 4) as Extract<Intervention, { kind: 'bus_delay' }>;

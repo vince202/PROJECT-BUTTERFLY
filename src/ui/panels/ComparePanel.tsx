@@ -224,7 +224,7 @@ function Stat({ v, k, tone }: { v: number; k: string; tone?: string }) {
 function statusBadge(m: EventMatch) {
   if (m.status === 'only_b') return <Badge tone="b">B seulement</Badge>;
   if (m.status === 'only_a') return <Badge tone="a">n’a pas eu lieu (A seulement)</Badge>;
-  if (m.status === 'shifted') return <Badge tone="accent">décalé {m.dt! > 0 ? '+' : ''}{m.dt} min</Badge>;
+  if (m.status === 'shifted') return m.dt ? <Badge tone="accent">décalé {m.dt > 0 ? '+' : ''}{m.dt} min</Badge> : <Badge tone="accent">modifié</Badge>;
   return <Badge>identique</Badge>;
 }
 

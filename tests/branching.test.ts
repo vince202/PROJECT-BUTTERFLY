@@ -1,25 +1,25 @@
+import type { SimEvent } from '../src/sim/types';
 import { describe, expect, it } from 'vitest';
 import { compareRealities } from '../src/sim/compare';
 import { busDelayFor } from '../src/sim/interventions';
 import { forkReality } from '../src/sim/reality';
 import type { Intervention } from '../src/sim/types';
-import { BUS_SEED, NORMAL_SEED, fork, profile, runDay } from './helpers';
+import { BUS_SEED, NORMAL_SEED, fork, profile, runDay, findBoardingArrival } from './helpers';
 
-describe('Branchement : retard de bus de 3 minutes (graine 29, bus de 08:20)', () => {
+describe('Branchement : retard de bus de 3 minutes (graine 51)', () => {
   const A = runDay(BUS_SEED);
-  const arrival = A.events.find((e) => e.type === 'bus_arrive' && e.t === 500)!;
+  const arrival = findBoardingArrival(A.events) as SimEvent;
   const iv = busDelayFor(arrival, 3);
   const B = fork(A, iv, 'B');
 
-  it('le bus de 08:20 existe dans la réalité A, avec un passager qui monte à la même minute', () => {
+  it('le bus choisi existe dans la réalité A, avec un passager qui monte à la même minute', () => {
     expect(arrival).toBeDefined();
-    expect(arrival.locationId).toBe('stop_lilas');
-    expect(A.events.some((e) => e.type === 'board_bus' && e.t === 500 && e.busId === arrival.busId && e.locationId === arrival.locationId)).toBe(true);
+    expect(A.events.some((e) => e.type === 'board_bus' && e.t === arrival.t && e.busId === arrival.busId && e.locationId === arrival.locationId)).toBe(true);
   });
 
   it('l’intervention est posée une minute avant l’arrivée prévue', () => {
     expect(iv.kind).toBe('bus_delay');
-    expect(iv.t).toBe(499);
+    expect(iv.t).toBe(arrival.t - 1);
     expect(iv).toMatchObject({ minutes: 3, busId: 'L1-1' });
   });
 
@@ -53,12 +53,12 @@ describe('Branchement : retard de bus de 3 minutes (graine 29, bus de 08:20)', (
     const inB = B.events.find((e) => e.type === 'bus_arrive' && e.signature === arrival.signature)!;
     expect(inB).toBeDefined();
     expect(inB.t - arrival.t).toBe(3);
-    expect(inB.t).toBe(503);
+    expect(inB.t).toBe(arrival.t + 3);
     expect(inB.data?.delay).toBe(Number(arrival.data?.delay) + 3);
   });
 
   it('le passager qui attendait monte 3 minutes plus tard', () => {
-    const boardA = A.events.find((e) => e.type === 'board_bus' && e.t === 500 && e.busId === arrival.busId && e.locationId === arrival.locationId)!;
+    const boardA = A.events.find((e) => e.type === 'board_bus' && e.t === arrival.t && e.busId === arrival.busId && e.locationId === arrival.locationId)!;
     const boardB = B.events.find((e) => e.type === 'board_bus' && e.signature === boardA.signature && e.actors[0] === boardA.actors[0])!;
     expect(boardB.t - boardA.t).toBe(3);
   });
@@ -72,7 +72,8 @@ describe('Branchement : retard de bus de 3 minutes (graine 29, bus de 08:20)', (
     expect(cmp.consequences.length).toBeGreaterThanOrEqual(1);
     expect(cmp.firstConsequence).not.toBeNull();
     expect(cmp.firstConsequence!.causal).toBe('verified');
-    expect(cmp.affectedAgents).toContain('alice');
+    const boarder = A.events.find((e) => e.type === 'board_bus' && e.t === arrival.t && e.busId === arrival.busId && e.locationId === arrival.locationId)!.actors[0];
+    expect(cmp.affectedAgents).toContain(boarder);
   });
 
   it('après la fin de la journée, B reste complète (même nombre de frames)', () => {

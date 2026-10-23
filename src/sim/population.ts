@@ -411,4 +411,11 @@ export const COMMITMENT_SEEDS: CommitmentSeed[] = [
   { id: 'c_hugo_karim_gym', kind: 'meeting', label: 'Séance de sport avec Karim', locationId: 'gym', start: h(17, 30), end: h(18, 30), participants: ['hugo', 'karim'], tolerance: 20 },
   { id: 'c_nadia_yasmine_cafe', kind: 'meeting', label: 'Café entre amies', locationId: 'cafe', start: h(19, 30), end: h(20, 30), participants: ['nadia', 'yasmine'], tolerance: 15 },
   { id: 'c_chloe_antoine_dinner', kind: 'meeting', label: 'Dîner à la maison', locationId: 'villa_rosa', start: h(20), end: h(21), participants: ['chloe', 'antoine'], tolerance: 30 },
+  // Tight-margin commitments: small delays can make them fail.
+  { id: 'c_hugo_pastries', kind: 'errand', label: 'Chercher les viennoiseries pour le café', locationId: 'bakery', start: h(6, 45), end: h(6, 55), participants: ['hugo'], tolerance: 10 },
+  { id: 'c_ines_sophie_club', kind: 'meeting', label: 'Préparer le club de lecture', locationId: 'library', start: h(10, 15), end: h(10, 45), participants: ['ines', 'sophie'], tolerance: 6 },
+  { id: 'c_yasmine_flowers', kind: 'appointment', label: 'Fleurs pour la classe', locationId: 'florist', start: h(12, 10), end: h(12, 25), participants: ['yasmine', 'chloe'], tolerance: 8 },
+  { id: 'c_martin_townhall', kind: 'errand', label: 'Déposer un dossier à la mairie', locationId: 'townhall', start: h(16, 40), end: h(16, 55), participants: ['martin'], tolerance: 10 },
+  { id: 'c_mireille_elodie_cafe', kind: 'meeting', label: 'Thé avec Élodie', locationId: 'cafe', start: h(16, 45), end: h(17, 15), participants: ['mireille', 'elodie'], tolerance: 8 },
+  { id: 'c_noe_book', kind: 'errand', label: 'Emprunter le livre d’astronomie', locationId: 'library', start: h(17, 40), end: h(17, 55), participants: ['noe'], tolerance: 10 },
 ];

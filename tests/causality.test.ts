@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CausalGraph } from '../src/sim/causal';
 import { busDelayFor } from '../src/sim/interventions';
 import type { Intervention, SimEvent } from '../src/sim/types';
-import { BUS_SEED, NORMAL_SEED, fork, runDay } from './helpers';
+import { BUS_SEED, NORMAL_SEED, fork, runDay, findBoardingArrival } from './helpers';
 
 // Alice abandonne son déjeuner avec Sophie : elle est au bureau, donc réellement absente du restaurant.
 const cancelAlice: Intervention = { id: 'iv_cancel', kind: 'cancel_commitment', agentId: 'alice', commitmentId: 'c_alice_sophie_lunch', t: 420, description: 'Alice oublie son déjeuner' };
@@ -171,7 +171,7 @@ describe('meeting_missed : annulation par un participant déjà présent sur pla
 
 describe('Retards de bus et causalité', () => {
   const A = runDay(BUS_SEED);
-  const arrival = A.events.find((e) => e.type === 'bus_arrive' && e.t === 500)!;
+  const arrival = findBoardingArrival(A.events) as SimEvent;
   const iv = busDelayFor(arrival, 3);
   const B = fork(A, iv);
   const g = B.causal;

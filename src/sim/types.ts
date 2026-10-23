@@ -320,6 +320,8 @@ export interface Travel {
   delayEventIds: EventId[];
   /** Events of the trip (board / alight) for causal chaining. */
   legEventIds: EventId[];
+  /** The walker stopped to chat until this minute. */
+  pausedUntil?: Minute;
 }
 
 export interface Activity {

@@ -1,10 +1,11 @@
+import type { SimEvent } from '../src/sim/types';
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { compareRealities } from '../src/sim/compare';
 import { busDelayFor } from '../src/sim/interventions';
 import { agentSummary, answerQuestion, dayReport, reportToText, whoMetWhom } from '../src/sim/narrative';
 import { AGENTS } from '../src/sim/population';
-import { BUS_SEED, NORMAL_SEED, fork, runDay } from './helpers';
+import { BUS_SEED, NORMAL_SEED, fork, runDay, findBoardingArrival } from './helpers';
 
 const A = runDay(NORMAL_SEED, [], 'Réalité A');
 const report = dayReport(A);
@@ -51,7 +52,7 @@ describe('dayReport', () => {
 
   it('avec une comparaison, la section « Ce qui a changé » reprend le résumé', () => {
     const R29 = runDay(BUS_SEED);
-    const arrival = R29.events.find((e) => e.type === 'bus_arrive' && e.t === 500)!;
+    const arrival = findBoardingArrival(R29.events) as SimEvent;
     const B = fork(R29, busDelayFor(arrival, 3));
     const cmp = compareRealities(R29, B);
     const r = dayReport(B, cmp);
@@ -138,7 +139,7 @@ describe('answerQuestion', () => {
 
   it('avec une comparaison, « Qu’est-ce qui a changé ? » renvoie le résumé', () => {
     const R29 = runDay(BUS_SEED);
-    const arrival = R29.events.find((e) => e.type === 'bus_arrive' && e.t === 500)!;
+    const arrival = findBoardingArrival(R29.events) as SimEvent;
     const B = fork(R29, busDelayFor(arrival, 3));
     const cmp = compareRealities(R29, B);
     expect(answerQuestion('Qu\'est-ce qui a changé ?', B, cmp)).toBe(cmp.summary.join('\n'));

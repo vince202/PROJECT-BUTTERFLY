@@ -247,7 +247,11 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   if (agent.forcedPlan) {
     const f = agent.forcedPlan;
     const loc = f.locationId ?? defaultLocationFor(f.action, profile, city);
-    make(b, f.action, loc, defaultDuration(f.action), [{ label: 'Intervention de l’observateur', value: 10 }], { label: f.label, withAgent: f.withAgent });
+    const forcedCand = make(b, f.action, loc, defaultDuration(f.action), [{ label: 'Intervention de l’observateur', value: 10 }], { label: f.label, withAgent: f.withAgent });
+    if (forcedCand.rejected && forcedCand.rejected.startsWith('Pas le temps')) {
+      forcedCand.rejected = undefined;
+      forcedCand.score = forcedCand.components.reduce((x, y) => x + y.value, 0);
+    }
   }
 
   // Commitments
@@ -263,7 +267,7 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
       label = c.kind === 'work' || c.kind === 'shift' ? 'Retourner au travail' : c.kind === 'school' ? 'Retourner en cours' : `Reprendre : ${c.label}`;
     } else {
       const slack = c.start - t - travel.minutes;
-      const margin = 3 + 12 * tr.punctuality;
+      const margin = 2 + 9 * tr.punctuality;
       if (slack > margin + 30) continue; // far too early to leave: not an option yet
       if (slack > margin + 25) {
         comps.push({ label: 'Un peu tôt pour partir', value: 0.1 });
