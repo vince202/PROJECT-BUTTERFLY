@@ -6,6 +6,7 @@
 
 import type { AiStatus } from '../store/useSimStore';
 import type { Intervention, SimEvent } from '../sim/types';
+import type { AdviceAnswer, AdviceRequest, DecisionAdvisor } from '../sim/advisor';
 
 const BASE = '/api/ai';
 
@@ -52,4 +53,13 @@ export interface AiNarrateResponse {
 /** Ask the LLM to rewrite factual summaries into prose (facts only, no invention). */
 export function aiNarrate(facts: string, style: 'day' | 'agent' | 'causal' | 'compare'): Promise<AiNarrateResponse> {
   return post<AiNarrateResponse>('/narrate', { facts, style }, 60000);
+}
+
+/** Advisor that forwards open decisions to the server-side LLM adapter. */
+export class HttpAdvisor implements DecisionAdvisor {
+  readonly name = 'http';
+  async advise(requests: AdviceRequest[]): Promise<AdviceAnswer[]> {
+    const res = await post<{ ok: boolean; answers: AdviceAnswer[] }>('/decide', { requests }, 120000);
+    return res.ok ? res.answers : [];
+  }
 }

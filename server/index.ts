@@ -10,6 +10,7 @@
  *   GET  /api/ai/status     -> { enabled, model, message }
  *   POST /api/ai/interpret  -> { ok, intervention?, explanation, issues }
  *   POST /api/ai/narrate    -> { ok, text }
+ *   POST /api/ai/decide     -> { ok, answers }   (advisor for open decisions, see src/sim/advisor.ts)
  *
  * The LLM never writes to the simulation: `interpret` returns a validated
  * structured intervention and `narrate` only rephrases recorded facts.
@@ -22,6 +23,8 @@ import { AGENTS } from '../src/sim/population';
 import { LOCATIONS } from '../src/sim/city';
 import { busDelayFor, newInterventionId, validateIntervention } from '../src/sim/interventions';
 import { fmtTime } from '../src/sim/time';
+import { AnthropicAdvisor } from './advisor';
+import type { AdviceRequest } from '../src/sim/advisor';
 import { DAY_END, DAY_START, type ActionType, type Intervention, type SimEvent } from '../src/sim/types';
 
 const PORT = Number(process.env.BUTTERFLY_AI_PORT ?? 8787);
@@ -225,6 +228,7 @@ function toIntervention(r: StructuredInterpretation, ctx: InterpretContext): { i
 // ---------------------------------------------------------------------------
 
 const provider = createProvider();
+const advisor = provider ? new AnthropicAdvisor(MODEL, USE_FALLBACKS) : null;
 const cache = new Map<string, unknown>();
 const cacheKey = (...parts: unknown[]) => createHash('sha1').update(JSON.stringify(parts)).digest('hex');
 
@@ -272,6 +276,12 @@ const server = http.createServer(async (req, res) => {
         const { intervention, issues } = toIntervention(structured, ctx);
         cache.set(key, { ok: !!intervention, intervention, explanation: structured.explanation, issues, confidence: structured.confidence, source: provider.name });
       }
+      return json(res, 200, cache.get(key));
+    }
+    if (url.pathname === '/api/ai/decide') {
+      const requests = (Array.isArray(body.requests) ? body.requests : []).slice(0, 120) as AdviceRequest[];
+      const key = cacheKey('decide', requests.map((r) => [r.key, r.candidates.map((c) => c.choice)]));
+      if (!cache.has(key)) cache.set(key, { ok: true, answers: advisor ? await advisor.advise(requests) : [], source: provider.name });
       return json(res, 200, cache.get(key));
     }
     if (url.pathname === '/api/ai/narrate') {

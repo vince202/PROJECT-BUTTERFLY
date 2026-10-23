@@ -107,6 +107,7 @@ export function TopBar() {
 
       <SeedControl seed={seed} hasB={!!realityB} onSet={setSeed} />
       <DayControl />
+      <PolicyControl />
 
       <div className="seg reality" role="group" aria-label="Réalité affichée">
         <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title="Réalité A — la journée originale">
@@ -240,6 +241,24 @@ function DayControl() {
     <div className="seed" title="Les journées s'enchaînent : chaque matin reprend les relations et souvenirs de la veille">
       <button className="btn ghost sm" onClick={onNext} aria-label="Passer au jour suivant">
         📅 Jour <span className="mono">{day}</span> · suivant ›
+      </button>
+    </div>
+  );
+}
+
+
+/** Decision policy switch: utility scores alone, or an advisor (LLM when available, deterministic mock otherwise). */
+function PolicyControl() {
+  const mode = useSimStore((s) => s.policyMode);
+  const advising = useSimStore((s) => s.advising);
+  const info = useSimStore((s) => s.advisorInfo);
+  const aiEnabled = useSimStore((s) => s.ai.enabled);
+  const setPolicyMode = useSimStore((s) => s.setPolicyMode);
+  const title = `Politique de décision des habitants. « Conseiller » : les choix ouverts (scores proches) sont arbitrés par ${aiEnabled ? 'le modèle IA' : 'un conseiller simulé déterministe (aucune clé API)'} ; le moteur garde la validation. ${info ?? ''}`;
+  return (
+    <div className="seed" title={title}>
+      <button className={`btn ghost sm${advising ? ' busy' : ''}`} onClick={() => void setPolicyMode(mode === 'utility' ? 'advised' : 'utility')} disabled={advising} aria-label="Changer la politique de décision">
+        🧭 {advising ? 'Arbitrage…' : mode === 'utility' ? 'Décision : utilitaire' : `Décision : conseiller${aiEnabled ? ' IA' : ' simulé'}`}
       </button>
     </div>
   );

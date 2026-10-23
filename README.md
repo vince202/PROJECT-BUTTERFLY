@@ -111,6 +111,18 @@ Dans la réalité A, Gérard bavarde avec Antoine (le chauffeur) dans le bus et 
 
 Chaque maillon est inspectable dans l'explorateur causal, et le tirage aléatoire responsable de l'oubli (`lose:gerard:…`) est affiché avec sa valeur : la différence vient bien d'un autre instant, pas d'une autre « chance ».
 
+## Journées enchaînées, conseiller de décision, rencontres de rue
+
+- **Jour suivant** (barre du haut) : le lendemain démarre de l'état final de la réalité affichée (A ou B). Relations, souvenirs importants, argent, humeur amortie et portefeuilles perdus sont conservés ; chaque jour a ses propres flux aléatoires, et les journées passées sont rejouées au rechargement pour reconstruire le jour courant.
+- **Décision : utilitaire / conseiller** : en mode « conseiller », les choix réellement ouverts (deux options de scores proches, hors engagements dus et interventions) sont arbitrés par un conseiller via l'interface `DecisionPolicy` (`src/sim/advisor.ts`). Avec une clé API, c'est le modèle (`POST /api/ai/decide`) ; sans clé, un conseiller simulé déterministe joue le rôle pour tester le pipeline. Le moteur reste souverain : il construit les options, applique toutes les contraintes, valide chaque réponse et garde le choix utilitaire pour le reste. Les réponses sont mises en cache par clé stable (habitant, tranche de 10 minutes, options) et la journée est rejouée jusqu'à convergence, ce qui préserve le déterminisme et la comparaison A/B.
+- **Rencontres de rue** : deux piétons qui se croisent peuvent s'arrêter bavarder deux minutes ; le retard est enregistré comme cause de leur arrivée.
+- Six engagements à marge serrée (viennoiseries du café, club de lecture, fleurs pour la classe, dossier à la mairie, thé entre voisines, livre d'astronomie) rendent la journée plus sensible aux petits retards.
+
+```bash
+npm run cli:advised -- --seed 51 --advisor mock        # conseiller simulé, sans clé
+npm run cli:advised -- --seed 51 --advisor anthropic   # modèle réel (ANTHROPIC_API_KEY dans .env)
+```
+
 ## Interventions comprises sans LLM
 
 L'interprète par règles reconnaît notamment :
@@ -140,6 +152,6 @@ Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). En résumé :
 
 - Une seule ligne de bus (deux véhicules) et une ville de 22 lieux : l'échelle est volontairement petite pour rester lisible.
 - Le modèle de décision est utilitaire et réglé à la main ; il est conçu pour être remplacé (interface `DecisionPolicy`).
-- Les rencontres entre habitants ont lieu dans les lieux et les bus, pas dans la rue.
+- Le chemin « conseiller IA » a été construit et testé avec le conseiller simulé ; l'appel réel au modèle n'a pas pu être exercé dans l'environnement de développement (aucune clé disponible).
 - Les habitants n'ont pas de téléphone : un rendez-vous abandonné n'est pas annoncé à l'autre partie (c'est un choix de conception pour l'effet papillon).
 - La narration IA dépend d'une clé API ; sans clé, les rapports sont factuels et non narrés.

@@ -9,6 +9,8 @@
 import { create } from 'zustand';
 import { compareRealities, type Comparison } from '../sim/compare';
 import { Reality, forkReality, nextDayReality } from '../sim/reality';
+import { AdvisedPolicy, MockAdvisor, generateWithAdvisor, type DecisionAdvisor } from '../sim/advisor';
+import { HttpAdvisor } from '../ai/client';
 import { DAY_END, DAY_START, type AgentId, type EventId, type Intervention, type Minute } from '../sim/types';
 
 export type Speed = 1 | 2 | 10 | 60;
@@ -97,7 +99,16 @@ export interface SimStore {
   setAi: (ai: AiStatus) => void;
   /** Start the next day from the end of the currently displayed reality (A or B). */
   nextDay: () => void;
+  /** Decision policy: pure utility scores, or open choices arbitrated by an advisor (LLM when available, deterministic mock otherwise). */
+  policyMode: PolicyMode;
+  advising: boolean;
+  advisorInfo: string | null;
+  setPolicyMode: (mode: PolicyMode) => Promise<void>;
+  /** Ask the advisor about the open choices of the current realities (advised mode only). */
+  refineAdvised: () => Promise<void>;
 }
+
+export type PolicyMode = 'utility' | 'advised';
 
 function buildA(seed: number): Reality {
   return new Reality({ id: 'A', name: 'Réalité A — originale', seed, interventions: [] }).generate();
@@ -126,6 +137,9 @@ const initialA = initialHistory.length ? rebuildDays(initialSeed, initialHistory
 const initialB = persisted?.interventionsB?.length ? buildB(initialA, persisted.interventionsB) : null;
 
 export const useSimStore = create<SimStore>((set, get) => ({
+  policyMode: 'utility',
+  advising: false,
+  advisorInfo: null,
   seed: initialSeed,
   day: initialHistory.length + 1,
   history: initialHistory,
@@ -191,6 +205,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
     const comparison = compareRealities(s.realityA, realityB);
     set((st) => ({ realityB, comparison, activeRealityId: 'B', generation: st.generation + 1, panel: 'compare' }));
     persist({ seed: s.seed, interventionsB: realityB.def.interventions, time: s.time, selectedAgentId: s.selectedAgentId, history: s.history });
+    if (s.policyMode === 'advised') void get().refineAdvised();
   },
   discardRealityB: () => {
     set((s) => ({ realityB: null, comparison: null, activeRealityId: 'A', generation: s.generation + 1 }));
@@ -205,6 +220,47 @@ export const useSimStore = create<SimStore>((set, get) => ({
     const history = [...s.history, kept.def.interventions];
     set((st) => ({ realityA, realityB: null, comparison: null, activeRealityId: 'A', day: st.day + 1, history, time: DAY_START, playing: false, selectedEventId: null, panel: null, generation: st.generation + 1 }));
     persist({ seed: s.seed, interventionsB: [], time: DAY_START, selectedAgentId: s.selectedAgentId, history });
+    if (s.policyMode === 'advised') void get().refineAdvised();
+  },
+  setPolicyMode: async (mode) => {
+    const s = get();
+    if (s.advising || mode === s.policyMode) return;
+    if (mode === 'utility') {
+      const realityA = new Reality({ ...s.realityA.def, policy: undefined }).generate();
+      const realityB = s.realityB ? new Reality({ ...s.realityB.def, policy: undefined }).generate() : null;
+      set((st) => ({ policyMode: 'utility', realityA, realityB, comparison: realityB ? compareRealities(realityA, realityB) : null, advisorInfo: null, generation: st.generation + 1 }));
+      return;
+    }
+    set({ policyMode: 'advised', advising: true, advisorInfo: 'Consultation du conseiller…' });
+    await get().refineAdvised();
+  },
+  refineAdvised: async () => {
+    const s = get();
+    const advisor: DecisionAdvisor = s.ai.enabled ? new HttpAdvisor() : new MockAdvisor();
+    const online = advisor.name === 'http';
+    const policy = s.realityA.def.policy instanceof AdvisedPolicy ? s.realityA.def.policy : new AdvisedPolicy();
+    set({ advising: true, advisorInfo: online ? 'Le conseiller IA arbitre les choix ouverts…' : 'Le conseiller simulé arbitre les choix ouverts…' });
+    try {
+      const opts = { policy, maxPasses: online ? 4 : 6, maxRequestsPerPass: online ? 40 : 150 };
+      const { policy: _ignoredA, ...defA } = s.realityA.def;
+      void _ignoredA;
+      const resA = await generateWithAdvisor(defA, advisor, opts);
+      let realityA = resA.reality;
+      let realityB: Reality | null = null;
+      let applied = resA.applied;
+      if (s.realityB) {
+        const { policy: _ignoredB, ...defB } = s.realityB.def;
+        void _ignoredB;
+        const resB = await generateWithAdvisor(defB, advisor, opts);
+        realityB = resB.reality;
+        applied += resB.applied;
+        // Keep A consistent with the final shared cache.
+        realityA = new Reality({ ...defA, policy }).generate();
+      }
+      set((st) => ({ realityA, realityB, comparison: realityB ? compareRealities(realityA, realityB) : null, advising: false, advisorInfo: `${online ? 'Conseiller IA' : 'Conseiller simulé (sans clé API)'} : ${applied} décisions arbitrées`, generation: st.generation + 1 }));
+    } catch (err) {
+      set({ advising: false, advisorInfo: `Conseiller indisponible (${err instanceof Error ? err.message : String(err)}) — scores utilitaires conservés` });
+    }
   },
 }));
 

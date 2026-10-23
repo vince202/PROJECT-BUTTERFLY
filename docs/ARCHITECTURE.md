@@ -109,9 +109,19 @@ Dans tous les cas, c'est le moteur qui exécute l'intervention et calcule les co
 
 `dayReport()` construit, à partir des événements : vue chronologique, rencontres, occasions manquées, événements inattendus, évolution des relations, décisions importantes, situations non résolues, chaînes causales les plus influentes, et un résumé par habitant. `answerQuestion()` répond à « Qu'est-il arrivé à Alice ? », « Qui a rencontré qui ? », « Quel événement a eu le plus d'impact ? », « Qu'est-ce qui a changé entre les deux réalités ? ». Avec une clé API, l'adaptateur peut réécrire ces faits en prose ; sans clé, le résumé factuel est affiché et la narration IA est signalée comme désactivée.
 
+## Conseiller de décision (`src/sim/advisor.ts`)
+
+`AdvisedPolicy` implémente `DecisionPolicy` au-dessus de la politique utilitaire. Pour chaque décision, elle calcule les candidats et leurs contraintes comme d'habitude ; si au moins deux options valides ont des scores proches (écart ≤ 0,25), qu'aucune intervention ni aucun engagement dû n'impose le choix, et qu'il ne s'agit pas d'une simple réévaluation périodique, la décision est « ouverte ». Le moteur étant synchrone et déterministe, l'avis externe passe par un **cache oracle** : `generateWithAdvisor()` simule la journée, collecte les décisions ouvertes sans réponse (clé = habitant + tranche de 10 minutes + ensemble d'options), interroge le conseiller par lots, met les réponses en cache et rejoue, jusqu'à convergence ou épuisement du budget de passes. Une réponse qui ne désigne pas une option proposée est ignorée. La relecture finale avec le cache complet est strictement déterministe, et la réalité B partage le même cache que A.
+
+Conseillers fournis : `MockAdvisor` (déterministe, fondé sur la personnalité ; sert aux tests et au mode hors ligne), `HttpAdvisor` (navigateur → `/api/ai/decide`) et `AnthropicAdvisor` (serveur, sortie JSON contrainte par schéma). Un modèle appris s'ajoute en implémentant `DecisionAdvisor.advise()`.
+
+## Journées enchaînées
+
+`Engine.nextDayState(prev)` construit l'état initial du jour suivant : état frais (positions, besoins, engagements du jour, flux aléatoires du jour via `daySeed`), puis report des relations (légèrement relâchées vers leur niveau de base), des souvenirs importants (préfixés « Hier »), de l'argent, d'une humeur amortie et des portefeuilles perdus. `nextDayReality()` enchaîne les réalités ; le store conserve la branche retenue de chaque journée pour reconstruire le jour courant au rechargement.
+
 ## Évolutions prévues
 
 - **Échelle** : la ville et la population sont des données ; ajouter des habitants, des lieux ou une seconde ligne de bus ne touche pas le moteur. Pour plusieurs centaines d'habitants, déplacer le moteur dans un Web Worker (il n'a aucune dépendance au DOM).
 - **Décision** : brancher un modèle appris ou un LLM via `DecisionPolicy` ; les candidats et contraintes restent calculés par le moteur, qui garantit la validité.
 - **Fournisseurs IA** : implémenter `AiProvider` dans `server/index.ts` pour un autre fournisseur ou un modèle spécialisé.
-- **Journées multiples** : les relations et souvenirs persistent dans `AgentState` ; un état de fin de journée peut servir d'état initial au lendemain.
+- **Journées multiples** : implémentées (voir ci-dessus) ; prochaine étape, des engagements qui naissent d'une journée pour la suivante (une invitation lancée aujourd'hui devient un rendez-vous demain).
