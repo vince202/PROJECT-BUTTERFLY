@@ -391,7 +391,15 @@ select.input { padding-right: 4px; }
   background: rgba(0, 0, 0, 0.22); backdrop-filter: none; -webkit-backdrop-filter: none; border-color: var(--border-soft);
 }
 
+.full-day-icon { display: none; }
+
 @media (max-width: 1560px) { .brand-sub { display: none; } }
+@media (max-width: 1600px) {
+  .topbar { gap: 10px; }
+  .full-day .tb-label, .goto label, .clock-weather-text { display: none; }
+  .full-day-icon { display: inline; }
+  .full-day { padding: 0 8px; }
+}
 @media (max-width: 1440px) { .ai-badge:not(.full) { max-width: 34px; padding: 0 9px; } .ai-badge:not(.full) .ai-text { display: none; } }
 @media (max-width: 1340px) { .panel-btn-label { display: none; } .goto label { display: none; } }
 

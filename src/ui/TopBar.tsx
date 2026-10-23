@@ -5,16 +5,45 @@
  * Keyboard shortcuts live in ui/mode.ts (useGlobalShortcuts).
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useSimStore, type PanelId, type Speed } from '../store/useSimStore';
 import { fmtTime, periodOfDay } from '../sim/time';
 import { DAY_END, DAY_START } from '../sim/types';
 import { parseClock, weatherLabel } from './format';
 import { useActiveReality, useMinute } from './hooks';
-import { useMediaQuery } from './mode';
 
-/** Below this width the secondary controls move into the « ⋯ Plus » popover. */
-const COMPACT_QUERY = '(max-width: 1720px)';
+/**
+ * True when the full top bar does not fit: the secondary controls are then
+ * folded into the « ⋯ Plus » popover. Measured (not a fixed breakpoint) so the
+ * bar never wraps nor overflows whatever the labels and fonts.
+ */
+function useFitsOrCompact(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [compact, setCompact] = useState(false);
+  const fullWidth = useRef(0);
+  const compactRef = useRef(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => {
+      if (!compactRef.current) {
+        if (el.scrollWidth > el.clientWidth + 1) {
+          fullWidth.current = el.scrollWidth;
+          compactRef.current = true;
+          setCompact(true);
+        }
+      } else if (el.clientWidth >= fullWidth.current) {
+        compactRef.current = false;
+        setCompact(false);
+      }
+    };
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return compact;
+}
 
 const SPEEDS: Speed[] = [1, 2, 10, 60];
 
@@ -39,11 +68,12 @@ export function TopBar() {
   const frame = reality.frameAt(minute);
   const weather = weatherLabel(frame?.weather);
 
-  const compact = useMediaQuery(COMPACT_QUERY);
+  const barRef = useRef<HTMLElement>(null);
+  const compact = useFitsOrCompact(barRef);
   const setUiMode = useSimStore((s) => s.setUiMode);
 
   return (
-    <header className="topbar">
+    <header className={`topbar ${compact ? 'compact' : ''}`} ref={barRef}>
       <div className="brand" title="BUTTERFLY — laboratoire de simulation causale">
         <span className="brand-mark" aria-hidden>
           🦋
@@ -59,7 +89,7 @@ export function TopBar() {
         <span className="clock-meta">
           <span className="clock-period">{periodOfDay(minute)}</span>
           <span className="clock-weather" title={`Météo : ${weather.text}`}>
-            {weather.icon} {weather.text}
+            {weather.icon} <span className="clock-weather-text">{weather.text}</span>
           </span>
         </span>
       </div>
@@ -78,8 +108,11 @@ export function TopBar() {
             </button>
           ))}
         </div>
-        <button className="btn ghost sm" onClick={generateAll} title="Voir la journée entière : aller directement à 24:00">
-          Journée complète
+        <button className="btn ghost sm full-day" onClick={generateAll} title="Voir la journée entière : aller directement à 24:00" aria-label="Journée complète">
+          <span className="full-day-icon" aria-hidden>
+            ⏭
+          </span>
+          <span className="tb-label">Journée complète</span>
         </button>
         <GoTo onGo={seek} />
       </div>

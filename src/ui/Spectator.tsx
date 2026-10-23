@@ -12,7 +12,7 @@ import { useSimStore, type Speed } from '../store/useSimStore';
 import { AGENTS } from '../sim/population';
 import { fmtTime, periodOfDay } from '../sim/time';
 import { DAY_END, DAY_LENGTH, DAY_START, type AgentId } from '../sim/types';
-import { eventFamily, eventTypeLabel, locName, moodColor, moodWord, weatherLabel } from './format';
+import { eventFamily, eventTypeLabel, fold, locName, moodColor, moodWord, weatherLabel } from './format';
 import { useActiveReality, useMinute } from './hooks';
 import { usePresence } from './mode';
 
@@ -218,6 +218,9 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
   const tr = reality.frameAt(minute)?.agents[id];
   const where = tr ? (tr.riding ? 'Dans le bus' : locName(tr.loc)) : '—';
   const mood = tr?.mood ?? 0;
+  const act = tr?.act ?? '—';
+  // Activity labels often already name the place ("Travaille — Agence Horizon", "En chemin").
+  const showWhere = !!tr && !fold(act).includes(fold(where));
   const why = () => {
     selectEvent(null);
     if (useSimStore.getState().selectedAgentId !== id) selectAgent(id);
@@ -245,8 +248,8 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
         )}
       </header>
       <div className="spec-card-now">
-        <span className="spec-card-act">{tr?.act ?? '—'}</span>
-        <span className="spec-card-loc">· {where}</span>
+        <span className="spec-card-act">{act}</span>
+        {showWhere && <span className="spec-card-loc"> · {where}</span>}
       </div>
       <div className="spec-card-mood" style={{ color: moodColor(mood) }}>
         <span className="mood-dot" style={{ background: moodColor(mood) }} aria-hidden />
