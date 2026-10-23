@@ -45,6 +45,9 @@ if (busEvent) {
   await act('setPanel', 'butterfly'); await act('seek', 18 * 60 + 53); await act('selectAgent', 'martin'); await shot('09-reality-b-evening');
 }
 await act('seek', 21 * 60 + 30); await shot('10-night');
+// Chained days: start day 2 from the end of the displayed reality.
+await page.evaluate(() => { window.confirm = () => true; window.__butterfly.getState().nextDay(); });
+await act('seek', 12 * 60 + 30); await act('selectAgent', 'alice'); await shot('11-day2');
 console.log(errors.length ? `Errors:\n${errors.join('\n')}` : 'No page errors');
 await browser.close();
 stop(0);

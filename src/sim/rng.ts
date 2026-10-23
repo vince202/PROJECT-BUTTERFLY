@@ -68,3 +68,8 @@ export function seedFromString(s: string): number {
   if (Number.isFinite(n) && s.trim() !== '') return Math.floor(n) >>> 0;
   return fnv1a(s);
 }
+
+/** Seed of a given day: the random streams of consecutive days are independent. */
+export function daySeed(seed: number, day: number): number {
+  return (seed + Math.max(0, day - 1) * 1000003) >>> 0;
+}

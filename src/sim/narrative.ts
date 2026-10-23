@@ -193,7 +193,8 @@ export function dayReport(reality: Reality, comparison?: Comparison | null): Day
   const chats = ev.filter((e) => e.type === 'encounter' || e.type === 'conversation').length;
   const intro = `Journée simulée avec la graine ${reality.seed}${reality.def.interventions.length ? ` et ${reality.def.interventions.length} intervention(s)` : ''} : ${n} événements enregistrés, ${meetings} rendez-vous tenus, ${missedN} manqué${missedN > 1 ? 's' : ''}, ${chats} conversations, ${ev.filter((e) => e.type === 'board_bus').length} montées dans le bus${endState.weatherSchedule.some((w) => w.condition === 'rain') ? ', une averse' : ', pas de pluie'}.`;
 
-  return { title: `Rapport de la journée — ${reality.def.name}`, intro, sections, perAgent: AGENTS.map((a) => agentSummary(reality, a.id)) };
+  const dayLabel = (reality.def.day ?? 1) > 1 ? `Jour ${reality.def.day} — ` : '';
+  return { title: `Rapport de la journée — ${dayLabel}${reality.def.name}`, intro, sections, perAgent: AGENTS.map((a) => agentSummary(reality, a.id)) };
 }
 
 /** Answer simple French questions about a day (and optionally about a comparison). */

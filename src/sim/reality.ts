@@ -6,6 +6,7 @@
  */
 
 import { Engine } from './engine';
+import type { DecisionPolicy } from './decision';
 import { CausalGraph } from './causal';
 import { DAY_END, DAY_START, type AgentId, type EventId, type Intervention, type Minute, type SimEvent, type TraceFrame, type WorldState } from './types';
 
@@ -14,6 +15,12 @@ export interface RealityDef {
   name: string;
   seed: number;
   interventions: Intervention[];
+  /** Day index (1 by default). */
+  day?: number;
+  /** Starting state for days after the first (end state of the previous day, transformed). */
+  initialState?: WorldState;
+  /** Decision policy (defaults to the utility policy). */
+  policy?: DecisionPolicy;
 }
 
 export const SNAPSHOT_INTERVAL = 15;
@@ -63,7 +70,7 @@ export class Reality {
 
   constructor(def: RealityDef) {
     this.def = def;
-    this.engine = new Engine(def.seed, def.interventions);
+    this.engine = new Engine(def.seed, def.interventions, { day: def.day, initialState: def.initialState ? structuredClone(def.initialState) : undefined, policy: def.policy });
     this.snapshots.set(DAY_START, structuredClone(this.engine.state));
   }
 
@@ -117,7 +124,7 @@ export class Reality {
     const snapshot = structuredClone(this.snapshots.get(base)!);
     if (base === target) return snapshot;
     const priorEvents = this.events.filter((e) => e.t < base);
-    const scratch = Engine.fromState(snapshot, priorEvents, this.def.interventions);
+    const scratch = Engine.fromState(snapshot, priorEvents, this.def.interventions, { policy: this.def.policy });
     while (scratch.state.t < target) scratch.step();
     return scratch.state;
   }
@@ -150,5 +157,12 @@ export class Reality {
 
 /** Fork: build a new reality from the same seed with an extra intervention. */
 export function forkReality(base: Reality, intervention: Intervention, id: string, name: string): Reality {
-  return new Reality({ id, name, seed: base.def.seed, interventions: [...base.def.interventions, intervention] });
+  return new Reality({ ...base.def, id, name, interventions: [...base.def.interventions, intervention] });
+}
+
+/** The next day of a reality: same seed, day + 1, starting from the transformed end state. */
+export function nextDayReality(prev: Reality, id = 'A', name = 'Réalité A — originale'): Reality {
+  if (!prev.isComplete) prev.generate();
+  const day = (prev.def.day ?? 1) + 1;
+  return new Reality({ id, name, seed: prev.def.seed, interventions: [], day, initialState: Engine.nextDayState(prev.engine.state), policy: prev.def.policy });
 }

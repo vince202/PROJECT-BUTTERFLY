@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import { compareRealities, type Comparison } from '../sim/compare';
-import { Reality, forkReality } from '../sim/reality';
+import { Reality, forkReality, nextDayReality } from '../sim/reality';
 import { DAY_END, DAY_START, type AgentId, type EventId, type Intervention, type Minute } from '../sim/types';
 
 export type Speed = 1 | 2 | 10 | 60;
@@ -24,6 +24,8 @@ interface Persisted {
   interventionsB: Intervention[];
   time: number;
   selectedAgentId: AgentId | null;
+  /** Interventions of the branch kept for each past day (to rebuild the current day). */
+  history?: Intervention[][];
 }
 
 function loadPersisted(): Persisted | null {
@@ -52,6 +54,10 @@ export interface AiStatus {
 
 export interface SimStore {
   seed: number;
+  /** Current day index (1 = first day). */
+  day: number;
+  /** Kept branch (interventions) of each previous day. */
+  history: Intervention[][];
   realityA: Reality;
   realityB: Reality | null;
   comparison: Comparison | null;
@@ -89,10 +95,22 @@ export interface SimStore {
   discardRealityB: () => void;
   switchReality: (id: RealityId) => void;
   setAi: (ai: AiStatus) => void;
+  /** Start the next day from the end of the currently displayed reality (A or B). */
+  nextDay: () => void;
 }
 
 function buildA(seed: number): Reality {
   return new Reality({ id: 'A', name: 'Réalité A — originale', seed, interventions: [] }).generate();
+}
+
+/** Rebuild day N by replaying the kept branch of every previous day. */
+function rebuildDays(seed: number, history: Intervention[][]): Reality {
+  let r = buildA(seed);
+  for (const interventions of history) {
+    const kept = interventions.length ? buildB(r, interventions) : r;
+    r = nextDayReality(kept).generate();
+  }
+  return r;
 }
 
 function buildB(a: Reality, interventions: Intervention[]): Reality {
@@ -103,11 +121,14 @@ function buildB(a: Reality, interventions: Intervention[]): Reality {
 
 const persisted = loadPersisted();
 const initialSeed = persisted?.seed ?? DEMO_SEED;
-const initialA = buildA(initialSeed);
+const initialHistory = persisted?.history ?? [];
+const initialA = initialHistory.length ? rebuildDays(initialSeed, initialHistory) : buildA(initialSeed);
 const initialB = persisted?.interventionsB?.length ? buildB(initialA, persisted.interventionsB) : null;
 
 export const useSimStore = create<SimStore>((set, get) => ({
   seed: initialSeed,
+  day: initialHistory.length + 1,
+  history: initialHistory,
   realityA: initialA,
   realityB: initialB,
   comparison: initialB ? compareRealities(initialA, initialB) : null,
@@ -127,12 +148,12 @@ export const useSimStore = create<SimStore>((set, get) => ({
 
   setSeed: (seed) => {
     const realityA = buildA(seed);
-    set((s) => ({ seed, realityA, realityB: null, comparison: null, activeRealityId: 'A', time: DAY_START, playing: false, selectedEventId: null, generation: s.generation + 1 }));
-    persist({ seed, interventionsB: [], time: DAY_START, selectedAgentId: get().selectedAgentId });
+    set((s) => ({ seed, day: 1, history: [], realityA, realityB: null, comparison: null, activeRealityId: 'A', time: DAY_START, playing: false, selectedEventId: null, generation: s.generation + 1 }));
+    persist({ seed, interventionsB: [], time: DAY_START, selectedAgentId: get().selectedAgentId, history: [] });
   },
   restart: () => {
     set({ time: DAY_START, playing: false });
-    persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time: DAY_START, selectedAgentId: get().selectedAgentId });
+    persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time: DAY_START, selectedAgentId: get().selectedAgentId, history: get().history });
   },
   play: () => set((s) => ({ playing: true, time: s.time >= DAY_END ? DAY_START : s.time })),
   pause: () => set({ playing: false }),
@@ -141,7 +162,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   seek: (t) => {
     const time = Math.max(DAY_START, Math.min(DAY_END, t));
     set({ time });
-    persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time, selectedAgentId: get().selectedAgentId });
+    persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time, selectedAgentId: get().selectedAgentId, history: get().history });
   },
   tick: (dtSeconds) => {
     const s = get();
@@ -157,7 +178,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   },
   selectAgent: (id) => {
     set({ selectedAgentId: id, selectedEventId: null, followAgentId: id ? get().followAgentId : null });
-    persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time: get().time, selectedAgentId: id });
+    persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time: get().time, selectedAgentId: id, history: get().history });
   },
   followAgent: (id) => set({ followAgentId: id, selectedAgentId: id ?? get().selectedAgentId }),
   selectEvent: (id) => set({ selectedEventId: id }),
@@ -169,14 +190,22 @@ export const useSimStore = create<SimStore>((set, get) => ({
     const realityB = forkReality(base, intervention, 'B', 'Réalité B — modifiée').generate();
     const comparison = compareRealities(s.realityA, realityB);
     set((st) => ({ realityB, comparison, activeRealityId: 'B', generation: st.generation + 1, panel: 'compare' }));
-    persist({ seed: s.seed, interventionsB: realityB.def.interventions, time: s.time, selectedAgentId: s.selectedAgentId });
+    persist({ seed: s.seed, interventionsB: realityB.def.interventions, time: s.time, selectedAgentId: s.selectedAgentId, history: s.history });
   },
   discardRealityB: () => {
     set((s) => ({ realityB: null, comparison: null, activeRealityId: 'A', generation: s.generation + 1 }));
-    persist({ seed: get().seed, interventionsB: [], time: get().time, selectedAgentId: get().selectedAgentId });
+    persist({ seed: get().seed, interventionsB: [], time: get().time, selectedAgentId: get().selectedAgentId, history: get().history });
   },
   switchReality: (id) => set({ activeRealityId: id === 'B' && !get().realityB ? 'A' : id }),
   setAi: (ai) => set({ ai }),
+  nextDay: () => {
+    const s = get();
+    const kept = s.activeRealityId === 'B' && s.realityB ? s.realityB : s.realityA;
+    const realityA = nextDayReality(kept).generate();
+    const history = [...s.history, kept.def.interventions];
+    set((st) => ({ realityA, realityB: null, comparison: null, activeRealityId: 'A', day: st.day + 1, history, time: DAY_START, playing: false, selectedEventId: null, panel: null, generation: st.generation + 1 }));
+    persist({ seed: s.seed, interventionsB: [], time: DAY_START, selectedAgentId: s.selectedAgentId, history });
+  },
 }));
 
 /** Convenience selector: the reality currently displayed. */

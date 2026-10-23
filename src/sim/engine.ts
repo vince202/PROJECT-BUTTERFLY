@@ -13,7 +13,7 @@ import { ACTION_LABELS, UtilityPolicy, agentNode, defaultDuration, defaultLocati
 import { Timetable, TERMINAL_LAYOVER, stopPath } from './bus';
 import { getCity, polylineLength, pointAlong, type City } from './city';
 import { AGENTS, BUS_DRIVERS, COMMITMENT_SEEDS, type CommitmentSeed } from './population';
-import { Rng } from './rng';
+import { Rng, daySeed } from './rng';
 import { fmtTime } from './time';
 import { initBuses } from './bus';
 import {
@@ -100,6 +100,8 @@ const IMPORTANCE: Partial<Record<EventType, number>> = {
 export interface EngineOptions {
   policy?: DecisionPolicy;
   city?: City;
+  /** Day index for a fresh start (ignored when initialState is given). */
+  day?: number;
   /** Resume from this state instead of building the initial one. */
   initialState?: WorldState;
   /** Events emitted before the resumed state (needed for some look-ups). */
@@ -120,11 +122,43 @@ export class Engine {
     this.city = opts.city ?? getCity();
     this.timetable = new Timetable(this.city, this.city.lines);
     this.profiles = new Map(AGENTS.map((a) => [a.id, a]));
-    this.rng = new Rng(seed);
+    const day = opts.initialState?.day ?? opts.day ?? 1;
+    this.rng = new Rng(daySeed(seed, day));
     this.policy = opts.policy ?? new UtilityPolicy();
     this.interventions = [...interventions].sort((a, b) => a.t - b.t);
-    this.state = opts.initialState ?? this.createInitialState(seed);
+    this.state = opts.initialState ?? this.createInitialState(seed, day);
     if (opts.priorEvents) this.events = [...opts.priorEvents];
+  }
+
+  /**
+   * Initial state of the next day, carrying over what persists between days:
+   * relationships, important memories, money, a damped mood and lost wallets.
+   */
+  static nextDayState(prev: WorldState): WorldState {
+    const engine = new Engine(prev.seed, [], { day: prev.day + 1 });
+    const fresh = engine.state;
+    for (const a of Object.values(fresh.agents)) {
+      const old = prev.agents[a.id];
+      if (!old) continue;
+      a.relationships = structuredClone(old.relationships);
+      const baseline = new Map(engine.profiles.get(a.id)!.relationships.map((r) => [r.to, r.affinity]));
+      for (const r of Object.values(a.relationships)) {
+        r.lastInteraction = undefined;
+        // Bonds relax a little overnight towards their long-term baseline.
+        const base = baseline.get(r.to) ?? 0;
+        r.affinity = base + (r.affinity - base) * 0.9;
+      }
+      const kept = old.memories.filter((m) => m.importance >= 0.5).slice(-12).map((m) => ({ ...m, text: `Hier — ${m.text}`, importance: m.importance * 0.8 }));
+      a.memories = kept;
+      a.money = Math.max(0, old.money) + 20; // a little daily income
+      a.emotions.mood = old.emotions.mood * 0.4;
+      a.emotions.stress = old.emotions.stress * 0.5;
+      a.groceries = Math.max(0, old.groceries - 1);
+      if (!old.inventory.includes('wallet')) {
+        a.memories.push({ t: DAY_START, text: 'Hier — Portefeuille perdu (un nouveau a été préparé)', eventId: 'e0', importance: 0.5, valence: -0.3, about: [] });
+      }
+    }
+    return fresh;
   }
 
   /** Engine resuming from a snapshot (deterministic replay). */
@@ -136,9 +170,9 @@ export class Engine {
   // Initial state
   // ---------------------------------------------------------------------
 
-  createInitialState(seed: number): WorldState {
+  createInitialState(seed: number, day = 1): WorldState {
     const city = this.city;
-    const rng = new Rng(seed);
+    const rng = new Rng(daySeed(seed, day));
     const agents: Record<AgentId, AgentState> = {};
     for (const p of AGENTS) {
       const startLoc = p.startLocationId ?? p.homeId;
@@ -250,6 +284,7 @@ export class Engine {
     return {
       t: DAY_START,
       seed,
+      day,
       agents,
       buses,
       locations,
@@ -359,7 +394,7 @@ export class Engine {
     const t = this.state.t;
     if (t >= DAY_END) return [];
     if (t === DAY_START) {
-      const start = this.emit({ type: 'day_start', actors: [], label: 'La journée commence (06:00)', description: 'Vingt habitants, une journée, une infinité de possibilités.' });
+      const start = this.emit({ type: 'day_start', actors: [], label: this.state.day > 1 ? `Jour ${this.state.day} — la journée commence (06:00)` : 'La journée commence (06:00)', description: 'Vingt habitants, une journée, une infinité de possibilités.' });
       for (const bus of Object.values(this.state.buses)) {
         if (!bus.driverId) continue;
         const d = this.state.agents[bus.driverId];

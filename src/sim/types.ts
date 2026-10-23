@@ -610,6 +610,8 @@ export type InterventionKind = Intervention['kind'];
 export interface WorldState {
   t: Minute;
   seed: number;
+  /** Day index (1 = first simulated day). Later days start from the previous day's end state. */
+  day: number;
   agents: Record<AgentId, AgentState>;
   buses: Record<string, BusState>;
   locations: Record<LocationId, LocationState>;

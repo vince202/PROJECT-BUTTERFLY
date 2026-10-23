@@ -106,6 +106,7 @@ export function TopBar() {
       <div className="tb-spacer" />
 
       <SeedControl seed={seed} hasB={!!realityB} onSet={setSeed} />
+      <DayControl />
 
       <div className="seg reality" role="group" aria-label="Réalité affichée">
         <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title="Réalité A — la journée originale">
@@ -220,6 +221,26 @@ function SeedControl({ seed, hasB, onSet }: { seed: number; hasB: boolean; onSet
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+/** Day counter and "next day" button: the next day starts from the end of the displayed reality. */
+function DayControl() {
+  const day = useSimStore((s) => s.day);
+  const activeId = useSimStore((s) => s.activeRealityId);
+  const hasB = useSimStore((s) => !!s.realityB);
+  const nextDay = useSimStore((s) => s.nextDay);
+  const onNext = () => {
+    const from = activeId === 'B' && hasB ? 'la réalité B' : 'la réalité A';
+    if (window.confirm(`Passer au jour ${day + 1} à partir de la fin de ${from} ? Les relations, souvenirs importants et portefeuilles perdus sont conservés ; la réalité B est abandonnée.`)) nextDay();
+  };
+  return (
+    <div className="seed" title="Les journées s'enchaînent : chaque matin reprend les relations et souvenirs de la veille">
+      <button className="btn ghost sm" onClick={onNext} aria-label="Passer au jour suivant">
+        📅 Jour <span className="mono">{day}</span> · suivant ›
+      </button>
     </div>
   );
 }
