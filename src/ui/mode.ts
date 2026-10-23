@@ -1,6 +1,6 @@
 /**
- * UI-mode helpers: the animated spectator / laboratory switch, media queries,
- * exit-animation presence and global keyboard shortcuts.
+ * UI-mode helpers: the animated spectator / laboratory switch, exit-animation
+ * presence and global keyboard shortcuts.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -11,21 +11,6 @@ export const MODE_OUT_MS = 200;
 
 export function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-}
-
-/** Live `matchMedia` result (false during server rendering). */
-export function useMediaQuery(query: string): boolean {
-  const get = () => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches;
-  const [matches, setMatches] = useState(get);
-  useEffect(() => {
-    const mq = window.matchMedia?.(query);
-    if (!mq) return;
-    const on = () => setMatches(mq.matches);
-    on();
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, [query]);
-  return matches;
 }
 
 /**

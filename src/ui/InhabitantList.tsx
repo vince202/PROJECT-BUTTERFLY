@@ -60,6 +60,8 @@ const AgentCard = memo(function AgentCard({ a, tr, selected, followed, hovered }
   const { selectAgent, followAgent, hoverAgent } = useSimStore.getState();
   const where = tr ? (tr.riding ? 'Dans le bus' : locName(tr.loc)) : '—';
   const mood = tr?.mood ?? 0;
+  // Activity labels often already name the place ("Travaille — Agence Horizon", "En chemin").
+  const showWhere = !!tr && !fold(tr.act).includes(fold(where));
   return (
     <li
       className={`agent-card ${selected ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${tr?.asleep ? 'asleep' : ''}`}
@@ -80,7 +82,7 @@ const AgentCard = memo(function AgentCard({ a, tr, selected, followed, hovered }
           <span className="agent-occ">{a.occupation}</span>
           <span className="agent-now">
             <span className="agent-act">{tr?.act ?? '—'}</span>
-            <span className="agent-loc">· {where}</span>
+            {showWhere && <span className="agent-loc"> · {where}</span>}
           </span>
         </span>
       </button>

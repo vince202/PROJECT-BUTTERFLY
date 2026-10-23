@@ -22,6 +22,30 @@ const UNIT = {
   prism: makePrism(),
   torus: new THREE.TorusGeometry(0.5, 0.18, 6, 14).toNonIndexed(),
   plane: new THREE.PlaneGeometry(1, 1).toNonIndexed(),
+  cone8: new THREE.ConeGeometry(0.5, 1, 8).toNonIndexed(),
+  cone12: new THREE.ConeGeometry(0.5, 1, 12).toNonIndexed(),
+  sphere: new THREE.IcosahedronGeometry(0.5, 1).toNonIndexed(),
+  dodeca: new THREE.DodecahedronGeometry(0.5, 0).toNonIndexed(),
+  cyl12: new THREE.CylinderGeometry(0.5, 0.5, 1, 12).toNonIndexed(),
+  cyl6: new THREE.CylinderGeometry(0.5, 0.5, 1, 6).toNonIndexed(),
+  /** Half cylinder (barrel vault), axis along z, flat side down, radius 0.5, length 1. */
+  barrel: (() => {
+    const g = new THREE.CylinderGeometry(0.5, 0.5, 1, 12, 1, false, -Math.PI / 2, Math.PI);
+    g.rotateX(Math.PI / 2);
+    g.rotateZ(Math.PI / 2);
+    return g.toNonIndexed();
+  })(),
+  /** Slab with a round arch on top: width 1, height 1 (arch spring at 0.68), depth 1. */
+  arch: makeArchSlab(),
+  /** Pyramid with a square base 1x1 and height 1, base at y = 0. */
+  pyramid: (() => {
+    const g = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1);
+    g.rotateY(Math.PI / 4);
+    g.translate(0, 0.5, 0);
+    return g.toNonIndexed();
+  })(),
+  /** Stepped gable end (Flemish) profile: width 1, height 1, depth 1, base at y = 0. */
+  stepGable: makeStepGable(),
 };
 export type UnitShape = keyof typeof UNIT;
 
@@ -40,6 +64,109 @@ function makePrism(): THREE.BufferGeometry {
   const n = g.index ? g.toNonIndexed() : g;
   n.computeVertexNormals();
   return n;
+}
+
+function makeArchSlab(): THREE.BufferGeometry {
+  const sh = new THREE.Shape();
+  sh.moveTo(-0.5, 0);
+  sh.lineTo(0.5, 0);
+  sh.lineTo(0.5, 0.68);
+  sh.absarc(0, 0.68, 0.5, 0, Math.PI, false);
+  sh.lineTo(-0.5, 0);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false, curveSegments: 6 });
+  g.translate(0, 0, -0.5);
+  g.scale(1, 1 / 1.18, 1);
+  const n = g.index ? g.toNonIndexed() : g;
+  n.computeVertexNormals();
+  return n;
+}
+
+function makeStepGable(): THREE.BufferGeometry {
+  const sh = new THREE.Shape();
+  const steps = 4;
+  sh.moveTo(-0.5, 0);
+  sh.lineTo(0.5, 0);
+  for (let i = 0; i < steps; i++) {
+    const x = 0.5 - (i * 0.5) / steps;
+    const y0 = i / steps;
+    sh.lineTo(x, y0 + 1 / steps);
+    sh.lineTo(x - 0.5 / steps, y0 + 1 / steps);
+  }
+  for (let i = steps - 1; i >= 0; i--) {
+    const x = -0.5 + (i * 0.5) / steps;
+    const y0 = i / steps;
+    sh.lineTo(x + 0.5 / steps, y0 + 1 / steps);
+    sh.lineTo(x, y0 + 1 / steps);
+  }
+  sh.lineTo(-0.5, 0);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 1, bevelEnabled: false });
+  g.translate(0, 0, -0.5);
+  const n = g.index ? g.toNonIndexed() : g;
+  n.computeVertexNormals();
+  return n;
+}
+
+/**
+ * Hip roof over a rectangle sx (x) by sz (z), height h, base at y = 0.
+ * The ridge runs along the longer side; equal slopes on all four sides.
+ */
+export function hipRoofGeometry(sx: number, sz: number, h: number): THREE.BufferGeometry {
+  const ax = sx / 2;
+  const az = sz / 2;
+  const alongX = sx >= sz;
+  const r = alongX ? ax - az : az - ax;
+  const p = (x: number, y: number, z: number) => [x, y, z];
+  const A = p(-ax, 0, -az), B = p(ax, 0, -az), C = p(ax, 0, az), D = p(-ax, 0, az);
+  const R1 = alongX ? p(-r, h, 0) : p(0, h, -r);
+  const R2 = alongX ? p(r, h, 0) : p(0, h, r);
+  const tris: number[][] = alongX
+    ? [[A, R1, R2], [A, R2, B], [C, R2, R1], [C, R1, D], [D, R1, A], [B, R2, C]].flat()
+    : [[A, R1, B], [B, R1, R2], [B, R2, C], [C, R2, D], [D, R2, R1], [D, R1, A]].flat();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(tris.flat(), 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/**
+ * Mansard roof: steep lower slopes rising by `h1` to a rectangle inset by `inset`,
+ * then a shallow hip of height `h2`. Base at y = 0.
+ */
+export function mansardGeometry(sx: number, sz: number, h1: number, inset: number, h2: number): THREE.BufferGeometry {
+  const ax = sx / 2, az = sz / 2;
+  const bx = ax - inset, bz = az - inset;
+  const v = (x: number, y: number, z: number) => [x, y, z];
+  const A = v(-ax, 0, -az), B = v(ax, 0, -az), C = v(ax, 0, az), D = v(-ax, 0, az);
+  const a = v(-bx, h1, -bz), b = v(bx, h1, -bz), c = v(bx, h1, bz), d = v(-bx, h1, bz);
+  const quad = (p: number[], q: number[], r: number[], s: number[]) => [p, q, r, p, r, s];
+  const lower = [...quad(A, a, b, B), ...quad(B, b, c, C), ...quad(C, c, d, D), ...quad(D, d, a, A)];
+  const top = hipRoofGeometry(bx * 2, bz * 2, h2);
+  top.translate(0, h1, 0);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(lower.flat(), 3));
+  g.computeVertexNormals();
+  const merged = mergeGeometries([g, top], false)!;
+  return merged;
+}
+
+/** Flat horizontal slab with a rounded-rectangle outline (x0..x1, z0..z1), top at y = top. */
+export function roundedSlabGeometry(x0: number, z0: number, x1: number, z1: number, radius: number, thickness: number, top: number): THREE.BufferGeometry {
+  const r = Math.max(0.01, Math.min(radius, (x1 - x0) / 2 - 0.01, (z1 - z0) / 2 - 0.01));
+  const sh = new THREE.Shape();
+  sh.moveTo(x0 + r, z0);
+  sh.lineTo(x1 - r, z0);
+  sh.absarc(x1 - r, z0 + r, r, -Math.PI / 2, 0, false);
+  sh.lineTo(x1, z1 - r);
+  sh.absarc(x1 - r, z1 - r, r, 0, Math.PI / 2, false);
+  sh.lineTo(x0 + r, z1);
+  sh.absarc(x0 + r, z1 - r, r, Math.PI / 2, Math.PI, false);
+  sh.lineTo(x0, z0 + r);
+  sh.absarc(x0 + r, z0 + r, r, Math.PI, Math.PI * 1.5, false);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: thickness, bevelEnabled: false, curveSegments: 5 });
+  // Shape is drawn in (x, y=z); extrude along +z. Map to (x, y up, z).
+  g.rotateX(Math.PI / 2);
+  g.translate(0, top, 0);
+  return g;
 }
 
 const tmpM = new THREE.Matrix4();
@@ -106,6 +233,14 @@ export class StaticBatch {
   prism(x: number, y0: number, z: number, sx: number, sy: number, sz: number, color: THREE.ColorRepresentation, ridgeX = false, parent?: THREE.Matrix4): void {
     if (ridgeX) this.shape('prism', x, y0, z, sz, sy, sx, color, { y: Math.PI / 2 }, parent);
     else this.shape('prism', x, y0, z, sx, sy, sz, color, undefined, parent);
+  }
+
+  /** Add an arbitrary geometry with a local transform (parent applied last). */
+  geo(geo: THREE.BufferGeometry, x: number, y: number, z: number, color: THREE.ColorRepresentation, rotY = 0, parent?: THREE.Matrix4, sx = 1, sy = 1, sz = 1): void {
+    tmpQ.setFromEuler(tmpE.set(0, rotY, 0));
+    tmpM.compose(tmpP.set(x, y, z), tmpQ, tmpS.set(sx, sy, sz));
+    if (parent) tmpM.premultiply(parent);
+    this.add(geo, tmpM, color);
   }
 
   get size(): number {

@@ -5,45 +5,12 @@
  * Keyboard shortcuts live in ui/mode.ts (useGlobalShortcuts).
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useSimStore, type PanelId, type Speed } from '../store/useSimStore';
 import { fmtTime, periodOfDay } from '../sim/time';
 import { DAY_END, DAY_START } from '../sim/types';
 import { parseClock, weatherLabel } from './format';
 import { useActiveReality, useMinute } from './hooks';
-
-/**
- * True when the full top bar does not fit: the secondary controls are then
- * folded into the « ⋯ Plus » popover. Measured (not a fixed breakpoint) so the
- * bar never wraps nor overflows whatever the labels and fonts.
- */
-function useFitsOrCompact(ref: React.RefObject<HTMLElement | null>): boolean {
-  const [compact, setCompact] = useState(false);
-  const fullWidth = useRef(0);
-  const compactRef = useRef(false);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const check = () => {
-      if (!compactRef.current) {
-        if (el.scrollWidth > el.clientWidth + 1) {
-          fullWidth.current = el.scrollWidth;
-          compactRef.current = true;
-          setCompact(true);
-        }
-      } else if (el.clientWidth >= fullWidth.current) {
-        compactRef.current = false;
-        setCompact(false);
-      }
-    };
-    check();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return compact;
-}
 
 const SPEEDS: Speed[] = [1, 2, 10, 60];
 
@@ -53,6 +20,40 @@ const PANELS: { id: Exclude<PanelId, null>; label: string; icon: string; title: 
   { id: 'compare', label: 'Comparer', icon: '⇄', title: 'Comparer la réalité A et la réalité B' },
   { id: 'report', label: 'Rapport', icon: '📜', title: 'Rapport narratif de la journée' },
 ];
+
+/**
+ * True when the full top bar does not fit: the secondary controls are then
+ * folded into the « ⋯ Plus » popover. Measured (not a fixed breakpoint) so the
+ * bar never wraps nor overflows whatever the labels and fonts.
+ */
+function useFitsOrCompact(ref: RefObject<HTMLElement | null>): boolean {
+  const [compact, setCompact] = useState(false);
+  const state = useRef({ compact: false, fullWidth: 0 });
+  const check = useRef(() => {
+    const el = ref.current;
+    if (!el) return;
+    const st = state.current;
+    if (!st.compact) {
+      if (el.scrollWidth > el.clientWidth + 1) {
+        st.fullWidth = el.scrollWidth;
+        st.compact = true;
+        setCompact(true);
+      }
+    } else if (el.clientWidth >= st.fullWidth) {
+      st.compact = false;
+      setCompact(false);
+    }
+  }).current;
+  // Content can change width too (AI status, reality B…): re-check after every render.
+  useLayoutEffect(check);
+  useLayoutEffect(() => {
+    if (!ref.current || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(check);
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, [ref, check]);
+  return compact;
+}
 
 export function TopBar() {
   const minute = useMinute();
