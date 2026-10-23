@@ -20,3 +20,4 @@ Les modèles de `public/models/quaternius/` proviennent des packs de **Quaterniu
 | `medieval/` | Medieval Village Pack (déc. 2020) : maisons à colombages, auberge, clocher, moulin, étals de marché, puits, kiosque, bancs, charrette… |
 | `buildings/` | Buildings Pack : maisons, boutique, banque, hôpital, immeubles |
 | `street/` | Street Pack : lampadaires, panneaux, feu |
+| `characters/` | Ultimate Animated Character Pack (nov. 2019) : personnages animés (marche, course, repos, assis…), convertis de FBX en glTF avec FBX2glTF |
