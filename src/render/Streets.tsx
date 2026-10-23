@@ -111,8 +111,7 @@ export function streetLamps(): LampDef[] {
   // Mid-block lamps along horizontal streets.
   for (let z = 0; z <= CITY_HEIGHT; z += STREET_SPACING) {
     for (let x = 60; x < CITY_WIDTH; x += STREET_SPACING) {
-      const side = (hashString(`mid${x}_${z}`) & 1 ? 1 : -1) * (z === 0 ? -1 : 1) * (z === CITY_HEIGHT ? -1 : 1);
-      const s = z === 0 ? 1 : z === CITY_HEIGHT ? -1 : side;
+      const s = z === 0 ? 1 : z === CITY_HEIGHT ? -1 : hashString(`mid${x}_${z}`) & 1 ? 1 : -1;
       const lx = x + 22;
       const lz = z + s * off;
       if (nearStop(lx, lz) || footprintAt(lx - 8, z - 8, lx + 8, z + 8)) continue;
@@ -288,13 +287,6 @@ export function Streets() {
       for (let z = 0; z <= CITY_HEIGHT; z += STREET_SPACING) {
         for (const sx of [-1, 1]) {
           for (const sz of [-1, 1]) {
-            const hx = has(x, z, sx > 0 ? '+x' : '-x');
-            const hz = has(x, z, sz > 0 ? '+z' : '-z');
-            if (!hx && !hz) {
-              // Outer corner of the grid: fill the whole quadrant up to the sidewalk.
-              ground.box(x + sx * corner, -0.1, z + sz * corner, SIDEWALK, LAYER.sidewalk + 0.1, SIDEWALK, COLORS.sidewalk);
-              continue;
-            }
             ground.box(x + sx * corner, -0.1, z + sz * corner, SIDEWALK, LAYER.sidewalk + 0.1, SIDEWALK, COLORS.sidewalk);
           }
         }
@@ -367,7 +359,17 @@ const POINT_LIGHTS: [number, number][] = [
 const BULB_DAY = new THREE.Color('#d9d4c4');
 const BULB_NIGHT = new THREE.Color('#ffd27a').multiplyScalar(1.8);
 
-export function LampGlow({ bulbs }: { bulbs: THREE.Vector3[] }) {
+/** How much lamps are switched on for a given night factor (smooth ramp at dusk / dawn). */
+export function lampsOn(night: number): number {
+  return THREE.MathUtils.smoothstep(night, 0.15, 0.6);
+}
+
+/** Colour of an emissive lamp bulb for a given night factor. */
+export function bulbColor(out: THREE.Color, night: number): THREE.Color {
+  return out.copy(BULB_DAY).lerp(BULB_NIGHT, lampsOn(night));
+}
+
+export function LampGlow({ bulbs, withLights = true }: { bulbs: THREE.Vector3[]; withLights?: boolean }) {
   const lights = useRef<(THREE.PointLight | null)[]>([]);
 
   const { bulbGeo, poolGeo } = useMemo(() => {
@@ -413,9 +415,8 @@ export function LampGlow({ bulbs }: { bulbs: THREE.Vector3[] }) {
   );
 
   useFrame(() => {
-    // Lamps switch on with a little hysteresis-free smooth ramp around dusk / dawn.
-    const on = THREE.MathUtils.smoothstep(env.night, 0.15, 0.6);
-    bulbMat.color.copy(BULB_DAY).lerp(BULB_NIGHT, on);
+    const on = lampsOn(env.night);
+    bulbColor(bulbMat.color, env.night);
     poolMat.opacity = on * 0.55;
     poolMat.visible = on > 0.01;
     for (const l of lights.current) if (l) l.intensity = on * 420;
@@ -425,7 +426,7 @@ export function LampGlow({ bulbs }: { bulbs: THREE.Vector3[] }) {
     <group>
       {bulbGeo && <mesh geometry={bulbGeo} material={bulbMat} />}
       {poolGeo && <mesh geometry={poolGeo} material={poolMat} renderOrder={1} />}
-      {POINT_LIGHTS.map(([x, z], i) => (
+      {withLights && POINT_LIGHTS.map(([x, z], i) => (
         <pointLight
           key={i}
           ref={(el) => {
