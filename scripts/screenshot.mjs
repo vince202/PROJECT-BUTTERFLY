@@ -48,6 +48,12 @@ await act('seek', 21 * 60 + 30); await shot('10-night');
 // Chained days: start day 2 from the end of the displayed reality.
 await page.evaluate(() => { window.confirm = () => true; window.__butterfly.getState().nextDay(); });
 await act('seek', 12 * 60 + 30); await act('selectAgent', 'alice'); await shot('11-day2');
+// Advised decision policy (mock advisor when no API key).
+await page.evaluate(() => window.__butterfly.getState().setPolicyMode('advised'));
+await page.waitForFunction(() => !window.__butterfly.getState().advising, null, { timeout: 60000 });
+const advised = await page.evaluate(() => { const r = window.__butterfly.getState().realityA; const e = r.events.find((x) => x.type === 'decision' && String(x.description).includes('Arbitrage')); return e ? { id: e.id, t: e.t, agent: e.actors[0] } : null; });
+console.log('advised decision', advised, await page.evaluate(() => window.__butterfly.getState().advisorInfo));
+if (advised) { await act('seek', advised.t + 1); await act('selectAgent', advised.agent); await shot('12-advised'); }
 console.log(errors.length ? `Errors:\n${errors.join('\n')}` : 'No page errors');
 await browser.close();
 stop(0);

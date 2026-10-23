@@ -103,12 +103,17 @@ export interface SimStore {
   policyMode: PolicyMode;
   advising: boolean;
   advisorInfo: string | null;
+  uiMode: UiMode;
+  setUiMode: (m: UiMode) => void;
+  toggleUiMode: () => void;
   setPolicyMode: (mode: PolicyMode) => Promise<void>;
   /** Ask the advisor about the open choices of the current realities (advised mode only). */
   refineAdvised: () => Promise<void>;
 }
 
 export type PolicyMode = 'utility' | 'advised';
+/** Spectator: immersive city with minimal overlays. Laboratory: full analytical interface. */
+export type UiMode = 'spectator' | 'lab';
 
 function buildA(seed: number): Reality {
   return new Reality({ id: 'A', name: 'Réalité A — originale', seed, interventions: [] }).generate();
@@ -140,6 +145,9 @@ export const useSimStore = create<SimStore>((set, get) => ({
   policyMode: 'utility',
   advising: false,
   advisorInfo: null,
+  uiMode: 'lab',
+  setUiMode: (uiMode) => set({ uiMode }),
+  toggleUiMode: () => set((s) => ({ uiMode: s.uiMode === 'lab' ? 'spectator' : 'lab' })),
   seed: initialSeed,
   day: initialHistory.length + 1,
   history: initialHistory,
