@@ -1,4 +1,4 @@
-import { describe, expect, it, test } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CausalGraph } from '../src/sim/causal';
 import { busDelayFor } from '../src/sim/interventions';
 import type { Intervention, SimEvent } from '../src/sim/types';
@@ -9,7 +9,7 @@ const cancelAlice: Intervention = { id: 'iv_cancel', kind: 'cancel_commitment', 
 // Martin abandonne une réunion qui a lieu sur son lieu de travail (il est donc physiquement présent).
 const cancelMartin: Intervention = { id: 'iv_cancel_m', kind: 'cancel_commitment', agentId: 'martin', commitmentId: 'c_martin_thomas', t: 420, description: 'Martin oublie sa réunion' };
 
-/** 'e0' est l'identifiant factice de l'activité initiale du chauffeur de bus (voir test.fails plus bas). */
+/** 'e0' est l'identifiant factice de l'activité initiale du chauffeur de bus (voir it plus bas). */
 const DRIVER_PLACEHOLDER = 'e0';
 
 describe.each([NORMAL_SEED, BUS_SEED, 7])('Intégrité du graphe causal (graine %i)', (seed) => {
@@ -33,7 +33,7 @@ describe.each([NORMAL_SEED, BUS_SEED, 7])('Intégrité du graphe causal (graine 
   // `activity.startEventId` are the placeholder 'e0', which is not an event. Any 'encounter' between
   // the driver and a passenger (and other events citing the driver's activity) then gets 'e0' in `causes`.
   // Repro: seed 42, event e792 (t=622, Antoine/Mireille in bus L1-1) has causes [..., 'e0', ...].
-  test.fails(`graine ${seed} : aucune cause dangling (le chauffeur de bus injecte l’id factice « e0 »)`, () => {
+  it(`graine ${seed} : aucune cause dangling (le chauffeur de bus injecte l’id factice « e0 »)`, () => {
     const dangling = R.events.flatMap((e) => e.causes.filter((c) => !byId.has(c)).map((c) => `${e.id}→${c}`));
     expect(dangling).toEqual([]);
   });
@@ -152,7 +152,7 @@ describe('meeting_missed : annulation par un participant déjà présent sur pla
   // attendu 17 min » (empty subject) and the `commitment_cancelled` event is NOT among its causes.
   // Repro: seed 42 + cancel_commitment(martin, c_martin_thomas, t=420) -> meeting_missed e(557) has
   // causes [e353, e238] without the commitment_cancelled event.
-  test.fails('le meeting_missed d’une réunion annulée par un participant présent cite l’annulation parmi ses ancêtres', () => {
+  it('le meeting_missed d’une réunion annulée par un participant présent cite l’annulation parmi ses ancêtres', () => {
     const R = runDay(NORMAL_SEED, [cancelMartin]);
     const missed = R.events.find((e) => e.type === 'meeting_missed' && e.data?.commitmentId === 'c_martin_thomas')!;
     const cancelled = R.events.find((e) => e.type === 'commitment_cancelled' && e.data?.commitmentId === 'c_martin_thomas')!;
@@ -199,7 +199,7 @@ describe('Retards de bus et causalité', () => {
   });
 
   it('les board_bus de l’habitant retardé descendent de l’intervention', () => {
-    const boardAfter = B.events.find((e) => e.type === 'board_bus' && e.busId === iv.busId && e.locationId === arrival.locationId && e.t >= iv.t);
+    const boardAfter = B.events.find((e) => e.type === 'board_bus' && e.busId === arrival.busId && e.locationId === arrival.locationId && e.t >= iv.t);
     expect(boardAfter).toBeDefined();
     const ancestors = g.ancestors(boardAfter!.id);
     const interventionEvent = B.events.find((e) => e.type === 'intervention')!;

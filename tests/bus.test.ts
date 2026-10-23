@@ -1,4 +1,4 @@
-import { describe, expect, it, test } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Timetable, buildTimetable, planBusTrip, initBuses } from '../src/sim/bus';
 import { CITY_HEIGHT, CITY_WIDTH, WALK_SPEED, getCity } from '../src/sim/city';
 import { BUS_DRIVERS } from '../src/sim/population';
@@ -219,7 +219,7 @@ describe.each([NORMAL_SEED, BUS_SEED])('Bus dans la simulation (graine %i)', (se
       const delay = Number(a.data!.delay);
       expect(delay, a.id).toBe(Math.max(0, a.t - scheduled));
       if (a.t < scheduled) {
-        // Avance tolérée uniquement pour la première arrivée de la journée (voir test.fails ci-dessous).
+        // Avance tolérée uniquement pour la première arrivée de la journée (voir it ci-dessous).
         expect(a.data!.trip, a.id).toBe(0);
         expect(scheduled - a.t, a.id).toBeLessThanOrEqual(1);
         expect(a.t, a.id).toBeLessThan(380);
@@ -231,7 +231,7 @@ describe.each([NORMAL_SEED, BUS_SEED])('Bus dans la simulation (graine %i)', (se
   // but updateBuses() decrements it *before* testing `> 0`, so the first departure happens one minute
   // too early: at 06:09 instead of 06:10 (bus_depart data.delay = -1) and the first stop is reached
   // at 06:10 instead of 06:11 (bus_arrive e12/e13 of every seed). dwellRemaining should be +1.
-  test.fails(`graine ${seed} : aucun bus ne part ni n’arrive avant l’heure planifiée (bug suspecté : off-by-one au premier départ)`, () => {
+  it(`graine ${seed} : aucun bus ne part ni n’arrive avant l’heure planifiée (bug suspecté : off-by-one au premier départ)`, () => {
     for (const e of R.events.filter((e) => e.type === 'bus_depart' || e.type === 'bus_arrive')) {
       const scheduled = Number(e.data!.scheduled);
       expect(e.t, `${e.id} ${e.label}`).toBeGreaterThanOrEqual(scheduled);

@@ -1,4 +1,4 @@
-import { describe, expect, it, test } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { compareRealities } from '../src/sim/compare';
 import { busDelayFor } from '../src/sim/interventions';
 import { forkReality } from '../src/sim/reality';
@@ -155,7 +155,7 @@ describe('Intervention stay_home', () => {
   // and the work option is rejected ("Doit rester à la maison (intervention)"); the rejected work option
   // is chosen anyway: at 09:00 Alice walks to the office (arrives 09:10, "en retard") although she
   // must stay home until 12:00.  Repro: seed 42, stay_home(alice, t=360, until=720).
-  test.fails('« ne quitte pas son appartement ce matin » : Alice reste chez elle jusqu’à 12:00 (bug suspecté)', () => {
+  it('« ne quitte pas son appartement ce matin » : Alice reste chez elle jusqu’à 12:00 (bug suspecté)', () => {
     const iv: Intervention = { id: 'sh4', kind: 'stay_home', agentId: 'alice', t: 360, until: 720, description: 'Alice reste chez elle ce matin' };
     const B = fork(A, iv);
     const away: string[] = [];

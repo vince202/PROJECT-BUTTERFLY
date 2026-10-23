@@ -111,7 +111,7 @@ export class Reality {
   /** Full world state at minute t, rebuilt from the nearest snapshot by deterministic replay. */
   stateAt(t: Minute): WorldState {
     const target = Math.max(DAY_START, Math.min(this.generatedUntil, Math.floor(t)));
-    if (target === this.engine.state.t) return this.engine.state;
+    if (target === this.engine.state.t) return structuredClone(this.engine.state);
     let base = DAY_START;
     for (const k of this.snapshots.keys()) if (k <= target && k > base) base = k;
     const snapshot = structuredClone(this.snapshots.get(base)!);

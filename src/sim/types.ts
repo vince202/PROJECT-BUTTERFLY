@@ -366,13 +366,17 @@ export interface AgentState {
   /** The agent must stay home until this minute (intervention). */
   confinedUntil?: Minute;
   /** Forced action injected by an intervention, consumed at the next decision. */
-  forcedPlan?: { action: ActionType; locationId?: LocationId; t: Minute; interventionEventId: EventId; label: string };
+  forcedPlan?: { action: ActionType; locationId?: LocationId; t: Minute; interventionEventId: EventId; label: string; withAgent?: AgentId };
   /** Timestamp of the latest interaction with each agent (to avoid chatter spam). */
   lastChat: Record<AgentId, Minute>;
   /** Count of completed objectives (commitments done). */
   objectivesDone: number;
   /** Minute at which each action was last completed (avoids repeating the same thing). */
   recent: Partial<Record<ActionType, Minute>>;
+  /** Minute of the last movement step (prevents moving twice in one minute). */
+  movedAt?: Minute;
+  /** Locations the agent has found closed today (they will not try again). */
+  knownClosed?: LocationId[];
 }
 
 // ---------------------------------------------------------------------------

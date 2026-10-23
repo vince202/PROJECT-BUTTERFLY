@@ -99,12 +99,17 @@ export function agentNode(agent: AgentState, city: City): string {
   return city.nearestNode(agent.pos);
 }
 
-export function isLocationOpen(city: City, world: WorldState, id: LocationId, t: Minute): boolean {
+/**
+ * Is a location open at minute t? With `known = true` only the official opening
+ * hours are used: inhabitants plan with what they know and discover unexpected
+ * closures (sold out, intervention) when they arrive.
+ */
+export function isLocationOpen(city: City, world: WorldState, id: LocationId, t: Minute, known = false): boolean {
   const def = city.location(id);
   const st = world.locations[id];
-  if (st?.closedEarlyAt !== undefined && t >= st.closedEarlyAt) return false;
-  const opens = st?.opens ?? def.opens;
-  const closes = st?.closes ?? def.closes;
+  if (!known && st?.closedEarlyAt !== undefined && t >= st.closedEarlyAt) return false;
+  const opens = known ? def.opens : st?.opens ?? def.opens;
+  const closes = known ? def.closes : st?.closes ?? def.closes;
   if (opens !== undefined && t < opens) return false;
   if (closes !== undefined && t >= closes) return false;
   return true;
@@ -187,8 +192,12 @@ function make(b: Builder, action: ActionType, locationId: LocationId, duration: 
   const cost = ACTION_COSTS[action] ?? 0;
   if (!cand.rejected && cost > 0 && b.agent.money < cost) cand.rejected = `Pas assez d’argent (${cost} €)`;
   if (!cand.rejected && cost > 0 && !b.agent.inventory.includes('wallet')) cand.rejected = 'Portefeuille introuvable';
-  if (!cand.rejected && def.kind !== 'home' && def.kind !== 'bus_stop' && !isLocationOpen(city, world, locationId, t + Math.max(0, travel.minutes - 2))) {
+  const atLocation = b.agent.locationId === locationId;
+  if (!cand.rejected && def.kind !== 'home' && def.kind !== 'bus_stop' && !isLocationOpen(city, world, locationId, t + Math.max(0, travel.minutes - 2), !atLocation)) {
     cand.rejected = `${def.name} est fermé`;
+  }
+  if (!cand.rejected && def.kind !== 'home' && (b.agent.knownClosed ?? []).includes(locationId)) {
+    cand.rejected = `${def.name} est fermé (constaté)`;
   }
   if (!cand.rejected && def.capacity !== undefined && b.agent.locationId !== locationId && occupancy(world, locationId) >= def.capacity) {
     cand.rejected = `${def.name} est complet`;
@@ -197,7 +206,8 @@ function make(b: Builder, action: ActionType, locationId: LocationId, duration: 
     cand.rejected = 'Doit rester à la maison (intervention)';
   }
   // Time budget before the next commitment
-  if (!cand.rejected && !cand.commitmentId && action !== 'sleep') {
+  const confinedHome = b.agent.confinedUntil !== undefined && t < b.agent.confinedUntil && locationId === b.profile.homeId;
+  if (!cand.rejected && !cand.commitmentId && action !== 'sleep' && !confinedHome) {
     const next = nextCommitmentAfter(b.agent, t);
     if (next) {
       const back = city.nodeDistance(def.node, city.location(next.locationId).node) / walkSpeed(world);
@@ -237,7 +247,7 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   if (agent.forcedPlan) {
     const f = agent.forcedPlan;
     const loc = f.locationId ?? defaultLocationFor(f.action, profile, city);
-    make(b, f.action, loc, defaultDuration(f.action), [{ label: 'Intervention de l’observateur', value: 10 }], { label: f.label });
+    make(b, f.action, loc, defaultDuration(f.action), [{ label: 'Intervention de l’observateur', value: 10 }], { label: f.label, withAgent: f.withAgent });
   }
 
   // Commitments
@@ -515,7 +525,13 @@ export class UtilityPolicy implements DecisionPolicy {
     }
     const valid = candidates.filter((c) => !c.rejected);
     valid.sort((a, b) => b.score - a.score || a.action.localeCompare(b.action));
-    const chosen = valid[0] ?? candidates[0];
+    let chosen = valid[0];
+    if (!chosen) {
+      // Every option is impossible: stay where you are (or at home when confined) for ten minutes.
+      const here = agent.locationId ?? profile.homeId;
+      chosen = { action: here === profile.homeId ? 'rest_home' : 'wait', label: 'Attend, aucune option possible', locationId: here, duration: 10, score: 0, components: [{ label: 'Aucune option valide', value: 0 }], travelMinutes: 0, mode: 'walk' };
+      candidates.push(chosen);
+    }
     const top = [...chosen.components].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 3);
     const reasons = top.map((c) => `${c.label} (${c.value >= 0 ? '+' : ''}${c.value.toFixed(2)})`);
     return { chosen, candidates: candidates.sort((a, b) => b.score - a.score), reasons };

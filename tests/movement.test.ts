@@ -1,4 +1,4 @@
-import { describe, expect, it, test } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CITY_HEIGHT, CITY_WIDTH, WALK_SPEED, getCity } from '../src/sim/city';
 import type { Intervention, SimEvent, TraceFrame } from '../src/sim/types';
 import { BUS_SEED, NORMAL_SEED, runDay } from './helpers';
@@ -45,13 +45,13 @@ describe('Mouvement des habitants', () => {
   // minute, so the walker covers two steps (up to 120-144 m) in one minute.
   // Repro: seed 29, Hugo leaves the park at 984 because of the rain: 106.6 m between t=984 and t=985
   // (path 225 m at 60 m/min in the rain takes 3 steps instead of 4: arrival 986 although expected 988).
-  test.fails('graine 29 : aucun saut de marche quand la pluie chasse quelqu’un du parc (bug suspecté : double déplacement)', () => {
+  it('graine 29 : aucun saut de marche quand la pluie chasse quelqu’un du parc (bug suspecté : double déplacement)', () => {
     const { violations } = walkingViolations(runDay(BUS_SEED));
     expect(violations).toEqual([]);
   });
 
   // Same root cause, triggered by an intervention (applied before the agent loop).
-  test.fails('une décision forcée par intervention ne fait pas marcher deux fois dans la même minute (bug suspecté)', () => {
+  it('une décision forcée par intervention ne fait pas marcher deux fois dans la même minute (bug suspecté)', () => {
     const iv: Intervention = { id: 'iv_force', kind: 'force_action', agentId: 'martin', t: 420, action: 'coffee', locationId: 'cafe', description: 'Martin prend un café' };
     const R = runDay(NORMAL_SEED, [iv]);
     const { violations } = walkingViolations(R, 420 - 360);

@@ -207,7 +207,7 @@ export class Engine {
       locations[l.id] = { id: l.id, items: [], stock: l.stock ?? 0, visitsToday: 0 };
     }
     const buses = initBuses(city, city.lines);
-    for (const b of Object.values(buses)) b.dwellRemaining = city.lines[0].firstDeparture - DAY_START;
+    for (const b of Object.values(buses)) b.dwellRemaining = city.lines[0].firstDeparture - DAY_START + 1;
     for (const d of BUS_DRIVERS) {
       const bus = buses[d.busId];
       const a = agents[d.agentId];
@@ -358,7 +358,18 @@ export class Engine {
     const start = this.events.length;
     const t = this.state.t;
     if (t >= DAY_END) return [];
-    if (t === DAY_START) this.emit({ type: 'day_start', actors: [], label: 'La journée commence (06:00)', description: 'Vingt habitants, une journée, une infinité de possibilités.' });
+    if (t === DAY_START) {
+      const start = this.emit({ type: 'day_start', actors: [], label: 'La journée commence (06:00)', description: 'Vingt habitants, une journée, une infinité de possibilités.' });
+      for (const bus of Object.values(this.state.buses)) {
+        if (!bus.driverId) continue;
+        const d = this.state.agents[bus.driverId];
+        const p = this.profiles.get(bus.driverId)!;
+        const ev = this.emit({ type: 'activity_start', actors: [bus.driverId], busId: bus.id, locationId: 'station', label: `${p.firstName} prend son service au volant du bus ${bus.id}`, causes: [start.id], mechanism: 'Début de service du chauffeur', sig: `driver:${bus.id}` });
+        if (d.travel) d.travel.departEventId = ev.id;
+        if (d.activity) d.activity.startEventId = ev.id;
+        d.lastArrivalEventId = ev.id;
+      }
+    }
 
     this.applyInterventions();
     this.applyWeather();
@@ -495,7 +506,7 @@ export class Engine {
             const a = this.state.agents[id];
             if (!a) continue;
             const other = id === iv.agentA ? iv.agentB : iv.agentA;
-            a.forcedPlan = { action: 'visit', locationId: iv.locationId, t, interventionEventId: root.id, label: `Rejoindre ${this.name(other)} (${this.locName(iv.locationId)})` };
+            a.forcedPlan = { action: 'visit', locationId: iv.locationId, t, interventionEventId: root.id, label: `Rejoindre ${this.name(other)} (${this.locName(iv.locationId)})`, withAgent: other };
             this.influence(a, root, 'Intervention de l’observateur');
             if (a.asleep) this.wakeUp(a, root.id);
             if (a.travel && a.travel.stage !== 'riding') this.cancelTravel(a);
@@ -998,6 +1009,8 @@ export class Engine {
     const tr = a.travel!;
     const t = this.state.t;
     if (tr.stage === 'riding') return; // position synced by the bus
+    if (a.movedAt === t) return; // already walked this minute (travel started outside the agent loop)
+    a.movedAt = t;
     if (tr.stage === 'waiting') {
       // Give up on the bus after a long wait and walk instead.
       const waited = t - (tr.waitingSince ?? t);
@@ -1105,6 +1118,7 @@ export class Engine {
         sig: dest,
       });
       this.remember(a, closed, `${def.name} était fermé à ${fmtTime(t)}`, 0.4, -0.3);
+      a.knownClosed = [...(a.knownClosed ?? []), dest];
       this.influence(a, closed, `${def.name} fermé`);
       this.mood(a, -0.1, 0.05);
       if (a.plan.commitmentId) this.failCommitment(a, a.plan.commitmentId, closed.id, 'lieu fermé');
@@ -1214,9 +1228,16 @@ export class Engine {
       }
     }
 
-    // Visiting someone who is no longer there
+    // Visiting someone who is no longer there (or not there yet)
     if (plan.action === 'visit' && plan.withAgent) {
       const other = this.state.agents[plan.withAgent];
+      const otherComing = !!other && other.locationId !== loc && ((other.plan?.locationId === loc) || (other.travel?.destinationId === loc) || other.forcedPlan?.locationId === loc);
+      if (other && otherComing) {
+        const ev = this.emit({ type: 'wait_start', actors: [a.id], locationId: loc, label: `${p.firstName} attend ${this.name(plan.withAgent)} à ${this.locName(loc)}`, causes: [cause], mechanism: `${this.name(plan.withAgent)} est en chemin`, sig: `visit:${plan.withAgent}` });
+        a.activity = { action: 'wait', label: `Attend ${this.name(plan.withAgent)}`, locationId: loc, since: t, until: t + 25, withAgent: plan.withAgent, startEventId: ev.id, interruptible: false };
+        a.plan = null;
+        return;
+      }
       if (!other || other.locationId !== loc) {
         const ev = this.emit({ type: 'activity_end', actors: [a.id], locationId: loc, label: `${p.firstName} ne trouve pas ${this.name(plan.withAgent)} à ${this.locName(loc)}`, causes: [cause], mechanism: 'La personne est partie entre-temps', sig: `missed_visit:${plan.withAgent}` });
         this.remember(a, ev, `${this.name(plan.withAgent)} n’était plus à ${this.locName(loc)}`, 0.35, -0.2, [plan.withAgent]);
@@ -1682,9 +1703,10 @@ export class Engine {
 
   private checkMeetingTimeout(c: Commitment, copies: Commitment[], participants: AgentId[], cancelled: boolean) {
     const t = this.state.t;
+    const cancelledIds = new Set(participants.filter((id) => this.state.agents[id]?.commitments.find((x) => x.id === c.id)?.status === 'cancelled'));
     const waiting = participants.filter((id) => {
       const s = this.state.agents[id];
-      return s && s.locationId === c.locationId && !s.asleep;
+      return s && s.locationId === c.locationId && !s.asleep && !cancelledIds.has(id);
     });
     const absent = participants.filter((id) => !waiting.includes(id));
     // Patience of the people waiting extends the tolerance a little.
@@ -1704,7 +1726,7 @@ export class Engine {
     for (const id of absent) {
       const s = this.state.agents[id];
       const name = this.name(id);
-      if (cancelled) {
+      if (cancelled && cancelledIds.has(id)) {
         const cancel = this.events.filter((e) => e.type === 'commitment_cancelled' && e.actors[0] === id && e.data?.commitmentId === c.id).pop();
         if (cancel) causes.push(cancel.id);
         mech.push(`${name} a renoncé sans prévenir`);
@@ -1727,7 +1749,7 @@ export class Engine {
       type: 'meeting_missed',
       actors: participants,
       locationId: c.locationId,
-      label: nobodyCame ? `« ${c.label} » : personne n’est venu` : `${absentNames} manque${absent.length > 1 ? 'nt' : ''} « ${c.label} » : ${waitingNames} a attendu ${t - Math.min(c.start, t)} min`,
+      label: nobodyCame || !waiting.length ? `« ${c.label} » n’a pas lieu : ${absentNames || 'personne'} ${absent.length > 1 ? 'ne sont pas venus' : 'n’est pas venu'}` : `${absentNames} manque${absent.length > 1 ? 'nt' : ''} « ${c.label} » : ${waitingNames} a attendu ${t - Math.min(c.start, t)} min`,
       causes,
       mechanism: mech.join(' ; ') || 'Délai d’attente dépassé',
       data: { commitmentId: c.id, waited: Math.max(0, t - c.start), absent: absent },
