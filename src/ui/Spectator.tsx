@@ -7,12 +7,13 @@
  * the pointer, so the city can be orbited everywhere else.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSimStore } from '../store/useSimStore';
 import { SPEEDS, speedTitle } from '../store/speed';
 import { AGENTS } from '../sim/population';
 import { fmtTime, periodOfDay } from '../sim/time';
-import { DAY_END, DAY_LENGTH, DAY_START, type AgentId } from '../sim/types';
+import { DAY_END, DAY_LENGTH, DAY_START, type AgentId, type SimEvent } from '../sim/types';
+import { arcStatusAt, dramaSubject, isDramaHighlight, truncate } from './drama';
 import { eventFamily, eventTypeLabel, fold, locName, moodColor, moodWord, weatherLabel } from './format';
 import { useActiveReality, useMinute } from './hooks';
 import { usePresence } from './mode';
@@ -202,6 +203,7 @@ function ContextCards() {
   const hov = usePresence<AgentId>(hoveredId && hoveredId !== selectedId ? hoveredId : null, 160);
   return (
     <div className="spec-cards">
+      <DramaFeed />
       {hov.value && hov.value !== sel.value && <AgentContextCard key={`h-${hov.value}`} id={hov.value} leaving={hov.leaving} />}
       {sel.value && <AgentContextCard key={`s-${sel.value}`} id={sel.value} selected leaving={sel.leaving} />}
     </div>
@@ -212,6 +214,8 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
   const reality = useActiveReality();
   const minute = useMinute();
   const followed = useSimStore((s) => s.followAgentId === id);
+  const generation = useSimStore((s) => s.generation);
+  const arcAt = useMemo(() => arcStatusAt(reality, id, minute), [reality, id, minute, generation]);
   const { followAgent, selectAgent, selectEvent, setUiMode, hoverAgent } = useSimStore.getState();
   const profile = AGENTS.find((a) => a.id === id);
   if (!profile) return null;
@@ -255,6 +259,14 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
         <span className="mood-dot" style={{ background: moodColor(mood) }} aria-hidden />
         {moodWord(mood)}
       </div>
+      {arcAt && (
+        <div className={`spec-card-arc st-${arcAt.status}`} title={arcAt.seed.desire}>
+          <span className="fam-dot fam-drama" aria-hidden />
+          <span className="spec-card-arc-text">
+            Aujourd’hui : <strong>{arcAt.seed.title}</strong> — {arcAt.statusLabel}
+          </span>
+        </div>
+      )}
       {selected && (
         <div className="spec-card-actions">
           <button className={`spec-chip ${followed ? 'on' : ''}`} onClick={() => followAgent(followed ? null : id)} aria-pressed={followed} title={followed ? `Ne plus suivre ${profile.firstName}` : `Suivre ${profile.firstName} avec la caméra`}>
@@ -266,6 +278,97 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
         </div>
       )}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bottom-left, above the cards: « fil dramatique » (turning points as they pass)
+// ---------------------------------------------------------------------------
+
+/** How long a drama toast stays (real time, ms); hovering the feed holds it. */
+const DRAMA_TOAST_MS = 6000;
+/** Exit animation of a toast (ms). Must match `.drama-toast.leaving` in styles.css. */
+const DRAMA_TOAST_OUT_MS = 300;
+/** A jump of more than this many simulated minutes in one update is a seek, not playback. */
+const MAX_PLAY_STEP = 3;
+
+interface DramaToast {
+  e: SimEvent;
+  until: number;
+  leaving?: boolean;
+}
+
+/**
+ * Shows each new drama highlight (turning point, confidence, rumour reaching
+ * its target, dilemma) as the playhead passes it during playback. Listens to
+ * the store outside React and only sets state when a highlight is crossed, so
+ * nothing runs per frame in React. Seeking (backwards, or a forward jump) is
+ * ignored. Hovering the feed holds the toasts.
+ */
+function DramaFeed() {
+  const reality = useActiveReality();
+  const generation = useSimStore((s) => s.generation);
+  const [toasts, setToasts] = useState<DramaToast[]>([]);
+  const [held, setHeld] = useState(false);
+  const highlights = useMemo(() => reality.events.filter(isDramaHighlight), [reality, generation]);
+
+  useEffect(() => {
+    let last = Math.floor(useSimStore.getState().time);
+    setToasts([]);
+    return useSimStore.subscribe((s) => {
+      const cur = Math.floor(s.time);
+      if (cur === last) return;
+      const prev = last;
+      last = cur;
+      if (!s.playing || cur < prev || cur - prev > MAX_PLAY_STEP) return;
+      const fresh = highlights.filter((e) => e.t > prev && e.t <= cur);
+      if (!fresh.length) return;
+      const until = performance.now() + DRAMA_TOAST_MS;
+      setToasts((ts) => [...ts.filter((x) => !fresh.includes(x.e)), ...fresh.map((e) => ({ e, until }))].slice(-2));
+    });
+  }, [highlights]);
+
+  // Expiry: a toast first plays its exit animation, then is removed.
+  useEffect(() => {
+    if (held || !toasts.length) return;
+    const next = Math.min(...toasts.map((x) => x.until));
+    const timer = window.setTimeout(() => {
+      const now = performance.now();
+      setToasts((ts) => ts.flatMap((x) => (x.until > now + 20 ? [x] : x.leaving ? [] : [{ ...x, leaving: true, until: now + DRAMA_TOAST_OUT_MS }])));
+    }, Math.max(0, next - performance.now()));
+    return () => window.clearTimeout(timer);
+  }, [toasts, held]);
+
+  if (!toasts.length) return null;
+  const { selectAgent } = useSimStore.getState();
+  return (
+    <div
+      className="drama-feed"
+      role="log"
+      aria-label="Fil dramatique"
+      aria-live="polite"
+      onMouseEnter={() => {
+        setHeld(true);
+        setToasts((ts) => ts.map((x) => ({ ...x, leaving: false })));
+      }}
+      onMouseLeave={() => {
+        setHeld(false);
+        const until = performance.now() + 2500;
+        setToasts((ts) => ts.map((x) => ({ ...x, leaving: false, until: Math.max(x.until, until) })));
+      }}
+    >
+      {toasts.map(({ e, leaving }) => {
+        const who = dramaSubject(e);
+        return (
+          <button key={e.id} className={`drama-toast glass ${leaving ? 'leaving' : ''}`} onClick={() => who && selectAgent(who)} title={`${eventTypeLabel(e.type)} — ${e.label}`}>
+            <span className={`fam-dot fam-${eventFamily(e.type)}`} aria-hidden />
+            <span className="drama-toast-time mono">{fmtTime(e.t)}</span>
+            <span className="drama-toast-kind">{eventTypeLabel(e.type)}</span>
+            <span className="drama-toast-text">{truncate(e.label, 90)}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

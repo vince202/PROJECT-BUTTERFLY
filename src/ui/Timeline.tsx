@@ -122,6 +122,9 @@ function TimeLabel({ name, isB }: { name: string; isB: boolean }) {
 function Legend({ hasComparison }: { hasComparison: boolean }) {
   return (
     <div className="tl-legend" aria-label="Légende">
+      <span title="Temps forts, points de bascule, confidences, rumeurs et dilemmes">
+        <i className="fam-dot fam-drama" /> Drame
+      </span>
       <span>
         <i className="fam-dot fam-social" /> Rencontres
       </span>

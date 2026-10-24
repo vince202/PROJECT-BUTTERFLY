@@ -4,12 +4,14 @@
 
 import { useMemo, useState } from 'react';
 import { useSimStore } from '../../store/useSimStore';
-import { agentPositionsAt, type EventMatch } from '../../sim/compare';
+import { agentPositionsAt, type ArcChange, type EventMatch } from '../../sim/compare';
+import { ARC_STATUS_LABELS } from '../../sim/drama';
 import { profileOf } from '../../sim/population';
 import { fmtTime } from '../../sim/time';
 import type { SimEvent } from '../../sim/types';
 import { AgentDot, Badge, Empty, FamilyDot, Section } from '../common';
 import { firstName, locName, moodColor, signed } from '../format';
+import { ARC_STATUS_TONE } from '../drama';
 import { useGoToEvent, useMinute } from '../hooks';
 
 export function ComparePanel() {
@@ -62,19 +64,32 @@ export function ComparePanel() {
         ))}
       </ul>
 
-      <div className="stats">
+      <div className="stats compare-stats">
         <Stat v={comparison.same} k="identiques" />
         <Stat v={comparison.shifted.length} k="décalés" tone="accent" />
         <Stat v={comparison.onlyA.length} k="seulement A" tone="a" />
         <Stat v={comparison.onlyB.length} k="seulement B" tone="b" />
         <Stat v={comparison.consequences.length} k="conséquences vérifiées" tone="ok" />
         <Stat v={comparison.affectedAgents.length} k="habitants touchés" tone="danger" />
+        <Stat v={comparison.arcChanges.length} k="destins modifiés" tone="warn" />
       </div>
 
       <div className="two-cards">
         <MatchCard title="Première divergence" m={comparison.firstDivergence} onOpen={openMatch} tone="div" />
         <MatchCard title="Première conséquence" m={comparison.firstConsequence} onOpen={openMatch} tone="ok" />
       </div>
+
+      <Section title="Destins modifiés" count={comparison.arcChanges.length} className="destinies">
+        {comparison.arcChanges.length ? (
+          <ul className="destiny-list">
+            {comparison.arcChanges.map((c) => (
+              <DestinyRow key={c.arcId} c={c} onOpen={() => (c.eventB ? go(c.eventB, { reality: 'B', seek: true }) : c.eventA ? go(c.eventA, { reality: 'A', seek: true }) : selectAgent(c.agentId))} />
+            ))}
+          </ul>
+        ) : (
+          <Empty>Aucun destin modifié : chaque histoire du jour a la même issue dans les deux réalités.</Empty>
+        )}
+      </Section>
 
       <Section title="Chronologie de la divergence" count={comparison.consequences.length}>
         {comparison.consequences.length ? (
@@ -218,6 +233,34 @@ function Stat({ v, k, tone }: { v: number; k: string; tone?: string }) {
       <span className="stat-v">{v}</span>
       <span className="stat-k">{k}</span>
     </div>
+  );
+}
+
+function DestinyRow({ c, onOpen }: { c: ArcChange; onOpen: () => void }) {
+  const e = c.eventB ?? c.eventA;
+  const where = c.eventB ? 'B' : c.eventA ? 'A' : null;
+  return (
+    <li className="destiny">
+      <button className="destiny-main" onClick={onOpen} title={where ? `Voir le point de bascule dans la réalité ${where}${e ? ` (${fmtTime(e.t)})` : ''}` : `Ouvrir la fiche de ${firstName(c.agentId)}`}>
+        <AgentDot id={c.agentId} />
+        <span className="destiny-text">
+          <span>
+            <span className="strong">{firstName(c.agentId)}</span> <span className="muted">— « {c.title} »</span>
+          </span>
+          {e && <span className="destiny-sub">{fmtTime(e.t)} · {e.label}</span>}
+        </span>
+      </button>
+      <span className="destiny-badges">
+        <Badge tone={ARC_STATUS_TONE[c.statusA]} title="Issue dans la réalité A">A · {ARC_STATUS_LABELS[c.statusA]}</Badge>
+        <span className="muted" aria-hidden>→</span>
+        <Badge tone={ARC_STATUS_TONE[c.statusB]} title="Issue dans la réalité B">B · {ARC_STATUS_LABELS[c.statusB]}</Badge>
+        {c.verified ? (
+          <Badge tone="ok" title="Le point de bascule en B descend causalement de l’intervention">vérifié</Badge>
+        ) : (
+          <Badge tone="muted" title="Issue différente, mais le graphe causal ne la relie pas à l’intervention">sans lien prouvé</Badge>
+        )}
+      </span>
+    </li>
   );
 }
 

@@ -75,6 +75,11 @@ export function dramaSubject(e: SimEvent): AgentId | undefined {
   return e.actors[0];
 }
 
+/** Lower-case the first letter only (« Graphiste à l’Agence Horizon » → « graphiste à l’Agence Horizon »). */
+export function lowerFirst(s: string): string {
+  return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+}
+
 export function truncate(s: string, n = 90): string {
   return s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
 }
@@ -95,13 +100,13 @@ export function morningFacts(report: DayReport, reality: Reality, withSecrets: b
     if (!a) continue;
     const p = profileOf(s.agentId);
     const seed = arcSeed(a.arcId);
-    const parts = [`- ${p.name} (${p.age} ans, ${p.occupation.toLowerCase()}) — « ${a.title} » (${a.kind.toLowerCase()}${a.attempt > 1 ? `, ${a.attempt}e tentative après un échec la veille` : ''}).`];
+    const parts = [`- ${p.name} (${p.age} ans, ${lowerFirst(p.occupation)}) — « ${a.title} » (${a.kind.toLowerCase()}${a.attempt > 1 ? `, ${a.attempt}e tentative après un échec la veille` : ''}).`];
     parts.push(`Désir : ${a.desire}`);
     parts.push(`Tension : ${a.tension}`);
     parts.push(`Échéance : ${fmtTime(a.deadline)}. Enjeu : ${STAKES_WORDS[stakesLevel(a.stakes)]}.`);
     if (withSecrets && a.secret) {
       const knownAtStart = start ? (arcOf(start, s.agentId)?.knownBy ?? []) : [];
-      parts.push(`Secret : ${a.secret}${seed.secretAbout ? ` (caché à ${firstName(seed.secretAbout)})` : ''}${knownAtStart.length ? ` — déjà connu de ${knownAtStart.map(firstName).join(', ')}` : ''}.`);
+      parts.push(`Secret : ${a.secret.replace(/\.$/, '')}${seed.secretAbout ? ` (caché à ${firstName(seed.secretAbout)})` : ''}${knownAtStart.length ? ` — déjà connu de ${knownAtStart.map(firstName).join(', ')}` : ''}.`);
     }
     lines.push(parts.join(' '));
   }
@@ -149,7 +154,7 @@ export function dialogueFacts(e: SimEvent, state: WorldState): string {
     const p = profileOf(id);
     const a = state.agents[id];
     const other = people.find((o) => o !== id);
-    const parts = [`Personnage : ${p.name}, ${p.age} ans, ${p.occupation.toLowerCase()}.`];
+    const parts = [`Personnage : ${p.name}, ${p.age} ans, ${lowerFirst(p.occupation)}.`];
     if (other) {
       const r = a.relationships[other];
       parts.push(r ? `Relation avec ${firstName(other)} : ${RELATIONSHIP_LABELS[r.kind] ?? r.kind}, affinité ${r.affinity.toFixed(2)} (de −1 à +1).` : `Ne connaît pas encore ${firstName(other)}.`);

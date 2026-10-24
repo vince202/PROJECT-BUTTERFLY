@@ -5,14 +5,21 @@
 
 import { useMemo, useState } from 'react';
 import { useSimStore } from '../../store/useSimStore';
-import { aiNarrate } from '../../ai/client';
+import { aiNarrate, type NarrationStyle } from '../../ai/client';
 import { answerQuestion, dayReport, reportToText } from '../../sim/narrative';
 import { fmtTime } from '../../sim/time';
-import { AgentDot, Badge, Empty, Section } from '../common';
+import { AgentDot, AiButton, Empty, NarrationBox, Section } from '../common';
+import { counterfactualFacts, morningFacts } from '../drama';
 import { moodColor } from '../format';
 import { useActiveReality } from '../hooks';
 
-const QUESTIONS = ['Qu’est-il arrivé à Alice ?', 'Qui a rencontré qui ?', 'Quel événement a eu le plus d’impact ?', 'Qu’est-ce qui a changé entre les deux réalités ?'];
+const QUESTIONS = ['Qu’est-il arrivé à Alice ?', 'Qui a rencontré qui ?', 'Quel événement a eu le plus d’impact ?', 'Qu’est-ce qui a changé entre les deux réalités ?', 'Quelle était l’histoire de Noé ?'];
+
+const NARRATION_LABELS: Partial<Record<NarrationStyle, string>> = {
+  day: 'Récit du jour',
+  morning: 'Ce matin, dans la ville',
+  counterfactual: 'Ce qui aurait pu arriver',
+};
 
 export function ReportPanel() {
   const reality = useActiveReality();
@@ -20,12 +27,23 @@ export function ReportPanel() {
   const realityB = useSimStore((s) => s.realityB);
   const generation = useSimStore((s) => s.generation);
   const ai = useSimStore((s) => s.ai);
-  const { selectEvent, seek, selectAgent } = useSimStore.getState();
+  const lab = useSimStore((s) => s.uiMode === 'lab');
+  const { selectEvent, seek, selectAgent, switchReality } = useSimStore.getState();
+  /** Report items may cite events of the other reality (comparison section): switch to it first. */
+  const openItem = (id: string, t?: number) => {
+    if (!reality.eventById(id)) {
+      const s = useSimStore.getState();
+      if (s.realityB?.eventById(id) && s.activeRealityId !== 'B') switchReality('B');
+      else if (s.realityA.eventById(id) && s.activeRealityId !== 'A') switchReality('A');
+    }
+    selectEvent(id);
+    if (t !== undefined) seek(t);
+  };
   const cmp = realityB ? comparison : null;
   const report = useMemo(() => dayReport(reality, cmp), [reality, cmp, generation]);
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState<string | null>(null);
-  const [narr, setNarr] = useState<{ busy: boolean; text?: string; error?: string }>({ busy: false });
+  const [narr, setNarr] = useState<{ style?: NarrationStyle; busy: boolean; text?: string; error?: string }>({ busy: false });
 
   const ask = (q: string) => {
     if (!q.trim()) return;
@@ -45,15 +63,17 @@ export function ReportPanel() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const narrate = async () => {
-    setNarr({ busy: true });
+  const narrate = async (style: NarrationStyle) => {
+    const facts = style === 'morning' ? morningFacts(report, reality, lab) : style === 'counterfactual' && cmp && realityB ? counterfactualFacts(cmp, realityB) : reportToText(report);
+    setNarr({ style, busy: true });
     try {
-      const res = await aiNarrate(reportToText(report), 'day');
-      setNarr(res.ok ? { busy: false, text: res.text } : { busy: false, error: 'L’IA n’a pas pu produire de récit.' });
+      const res = await aiNarrate(facts, style);
+      setNarr(res.ok && res.text ? { style, busy: false, text: res.text } : { style, busy: false, error: 'L’IA n’a pas pu produire de récit.' });
     } catch {
-      setNarr({ busy: false, error: 'Service IA injoignable.' });
+      setNarr({ style, busy: false, error: 'Service IA injoignable.' });
     }
   };
+  const off = `Narration IA indisponible${ai.message ? ` — ${ai.message}` : ''}`;
 
   return (
     <div className="report">
@@ -63,24 +83,29 @@ export function ReportPanel() {
         <button className="btn sm" onClick={exportTxt} title="Télécharger le rapport au format texte">
           ⬇ Exporter (.txt)
         </button>
-        {ai.enabled ? (
-          <button className="btn sm accent" onClick={narrate} disabled={narr.busy} title="Réécrire le rapport en prose (l’IA reformule uniquement les faits enregistrés)">
-            {narr.busy ? 'Narration en cours…' : '✒ Version narrée par l’IA'}
-          </button>
-        ) : (
-          <span className="muted small">Narration IA désactivée (aucune clé API) — résumé factuel</span>
-        )}
       </div>
+      <div className="narr-group" role="group" aria-label="Narration par le modèle">
+        <span className="narr-group-k">✒ Narration</span>
+        <AiButton enabled={ai.enabled} busy={narr.busy} onClick={() => narrate('day')} tone={narr.style === 'day' ? 'on' : ''} title="Récit de la journée en prose, à partir du rapport factuel" disabledTitle={off}>
+          {narr.busy && narr.style === 'day' ? 'Écriture…' : 'Récit du jour'}
+        </AiButton>
+        <AiButton enabled={ai.enabled} busy={narr.busy} onClick={() => narrate('morning')} tone={narr.style === 'morning' ? 'on' : ''} title="Qui veut quoi, qui cache quoi, avant que la journée n’ait lieu (aucune issue n’est transmise)" disabledTitle={off}>
+          {narr.busy && narr.style === 'morning' ? 'Écriture…' : 'Ce matin, dans la ville'}
+        </AiButton>
+        <AiButton
+          enabled={ai.enabled && !!cmp}
+          busy={narr.busy}
+          onClick={() => narrate('counterfactual')}
+          tone={narr.style === 'counterfactual' ? 'on' : ''}
+          title="Raconter la réalité A puis la réalité B, et ce qui a basculé"
+          disabledTitle={!ai.enabled ? off : 'Créez d’abord une réalité B (🦋 Et si…) pour comparer'}
+        >
+          {narr.busy && narr.style === 'counterfactual' ? 'Écriture…' : 'Ce qui aurait pu arriver'}
+        </AiButton>
+      </div>
+      {!ai.enabled && <p className="muted small">Narration IA désactivée — le rapport ci-dessous reste entièrement factuel.</p>}
       <p className="muted small">Le rapport couvre la journée entière (06:00 – 24:00), indépendamment de l’heure affichée.</p>
-      {(narr.text || narr.error) && (
-        <div className="narration">
-          <div className="row gap center">
-            <Badge tone="b">IA</Badge>
-            <span className="muted small">L’IA reformule seulement les faits enregistrés ; elle n’invente aucun événement.</span>
-          </div>
-          {narr.error ? <div className="error">{narr.error}</div> : <div className="prose">{narr.text}</div>}
-        </div>
-      )}
+      <NarrationBox label={NARRATION_LABELS[narr.style ?? 'day'] ?? 'Narration'} busy={narr.busy} text={narr.text} error={narr.error} />
 
       <Section title="Posez une question">
         <form
@@ -107,7 +132,7 @@ export function ReportPanel() {
 
       {report.sections.map((s) =>
         s.items.length ? (
-          <Section key={s.title} title={s.title} count={s.items.filter((i) => i.t !== undefined || !i.text.startsWith('—')).length} defaultOpen={s.title === 'Vue chronologique' || s.title.startsWith('Ce qui a changé')}>
+          <Section key={s.title} title={s.title} count={s.items.filter((i) => i.t !== undefined || !i.text.startsWith('—')).length} defaultOpen={s.title === 'Vue chronologique' || s.title.startsWith('Arcs du jour') || s.title.startsWith('Ce qui a changé')}>
             <ul className="report-items">
               {s.items.map((it, i) => {
                 const heading = it.t === undefined && it.text.startsWith('—');
@@ -119,9 +144,7 @@ export function ReportPanel() {
                       className="report-item"
                       disabled={!clickable}
                       onClick={() => {
-                        if (!it.eventId) return;
-                        selectEvent(it.eventId);
-                        if (it.t !== undefined) seek(it.t);
+                        if (it.eventId) openItem(it.eventId, it.t);
                       }}
                       title={clickable ? 'Voir cet événement' : undefined}
                     >
