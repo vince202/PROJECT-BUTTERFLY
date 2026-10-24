@@ -13,6 +13,7 @@ import { AdvisedPolicy, MockAdvisor, generateWithAdvisor, type DecisionAdvisor }
 import { HttpAdvisor, createEmbedder } from '../ai/client';
 import { DAY_END, DAY_START, type AgentId, type EventId, type Intervention, type Minute } from '../sim/types';
 import { normalizeSpeed, simMinutes, type Speed } from './speed';
+import { canApplyGesture, closeLoop, newGame, nextLoop, type GameState } from '../sim/game';
 
 export type { Speed } from './speed';
 export type RealityId = 'A' | 'B';
@@ -21,6 +22,7 @@ export type PanelId = 'butterfly' | 'causal' | 'compare' | 'report' | null;
 /** Seed used by the demonstration scenario (see README). */
 export const DEMO_SEED = 51;
 const STORAGE_KEY = 'butterfly:v1';
+const GAME_KEY = 'butterfly:game';
 
 interface Persisted {
   seed: number;
@@ -39,6 +41,24 @@ function loadPersisted(): Persisted | null {
     return raw ? (JSON.parse(raw) as Persisted) : null;
   } catch {
     return null;
+  }
+}
+
+function loadGame(): GameState | null {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(GAME_KEY) : null;
+    return raw ? (JSON.parse(raw) as GameState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistGame(game: GameState | null) {
+  try {
+    if (game) localStorage.setItem(GAME_KEY, JSON.stringify(game));
+    else localStorage.removeItem(GAME_KEY);
+  } catch {
+    /* storage unavailable */
   }
 }
 
@@ -122,6 +142,20 @@ export interface SimStore {
   setPolicyMode: (mode: PolicyMode) => Promise<void>;
   /** Ask the advisor about the open choices of the current realities (advised mode only). */
   refineAdvised: () => Promise<void>;
+
+  // --- Time-loop game (the player follows one inhabitant) ---
+  /** Current game, or null when the app is used as a free laboratory. */
+  game: GameState | null;
+  /** Start a game: follow `agentId`, loop 1, reality B starts as a copy of A, clock at 06:00. */
+  startGame: (agentId: AgentId) => void;
+  /** Leave the game (keeps the realities as they are). */
+  abandonGame: () => void;
+  /** Spend a gesture: apply an intervention to reality B (forward only, within budget). */
+  applyGesture: (iv: Intervention) => { ok: boolean; reason?: string };
+  /** Close the loop at the current time (midnight by default): record outcome and gestures. */
+  endLoop: () => void;
+  /** Start the next loop of the same quest: fresh reality B, clock at 06:00. */
+  restartLoop: () => void;
 }
 
 export type PolicyMode = 'utility' | 'advised';
@@ -192,7 +226,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
     set({ time: DAY_START, playing: false });
     persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time: DAY_START, selectedAgentId: get().selectedAgentId, history: get().history });
   },
-  play: () => set((s) => ({ playing: true, time: s.time >= DAY_END ? DAY_START : s.time })),
+  play: () => set((s) => ({ playing: true, time: s.time >= DAY_END ? (s.game && s.game.phase !== 'playing' ? DAY_END : DAY_START) : s.time })),
   pause: () => set({ playing: false }),
   togglePlay: () => (get().playing ? get().pause() : get().play()),
   setSpeed: (speed) => {
@@ -201,7 +235,10 @@ export const useSimStore = create<SimStore>((set, get) => ({
     persist({ seed: s.seed, interventionsB: s.realityB?.def.interventions ?? [], time: s.time, selectedAgentId: s.selectedAgentId, history: s.history, speed });
   },
   seek: (t) => {
-    const time = Math.max(DAY_START, Math.min(DAY_END, t));
+    const s0 = get();
+    // In a game, time only flows forward: no rewinding inside a loop.
+    const floor = s0.game && s0.game.phase === 'playing' ? Math.floor(s0.time) : DAY_START;
+    const time = Math.max(floor, Math.min(DAY_END, t));
     set({ time });
     persist({ seed: get().seed, interventionsB: get().realityB?.def.interventions ?? [], time, selectedAgentId: get().selectedAgentId, history: get().history });
   },
@@ -209,8 +246,10 @@ export const useSimStore = create<SimStore>((set, get) => ({
     const s = get();
     if (!s.playing) return;
     const next = s.time + simMinutes(dtSeconds, s.speed);
-    if (next >= DAY_END) set({ time: DAY_END, playing: false });
-    else set({ time: next });
+    if (next >= DAY_END) {
+      set({ time: DAY_END, playing: false });
+      if (s.game && s.game.phase === 'playing') get().endLoop();
+    } else set({ time: next });
   },
   generateAll: () => {
     get().realityA.generate();
@@ -248,6 +287,48 @@ export const useSimStore = create<SimStore>((set, get) => ({
     set((st) => ({ realityA, realityB: null, comparison: null, activeRealityId: 'A', day: st.day + 1, history, time: DAY_START, playing: false, selectedEventId: null, panel: null, generation: st.generation + 1 }));
     persist({ seed: s.seed, interventionsB: [], time: DAY_START, selectedAgentId: s.selectedAgentId, history });
     if (s.policyMode === 'advised') void get().refineAdvised();
+  },
+  game: loadGame(),
+  startGame: (agentId) => {
+    const s = get();
+    const game = newGame(s.realityA, agentId);
+    persistGame(game);
+    set((st) => ({ game, realityB: null, comparison: null, activeRealityId: 'A', time: DAY_START, playing: false, selectedAgentId: agentId, followAgentId: agentId, selectedEventId: null, panel: null, uiMode: 'spectator', generation: st.generation + 1 }));
+    persist({ seed: s.seed, interventionsB: [], time: DAY_START, selectedAgentId: agentId, history: s.history });
+  },
+  abandonGame: () => {
+    persistGame(null);
+    set({ game: null, followAgentId: null });
+  },
+  applyGesture: (iv) => {
+    const s = get();
+    if (!s.game) return { ok: false, reason: 'Aucune partie en cours.' };
+    const current = s.realityB?.def.interventions ?? [];
+    const check = canApplyGesture(s.game, current, iv, s.time);
+    if (!check.ok) return check;
+    const base = s.realityB ?? s.realityA;
+    const realityB = forkReality(base, iv, 'B', 'Réalité B — votre boucle').generate();
+    const comparison = compareRealities(s.realityA, realityB);
+    set((st) => ({ realityB, comparison, activeRealityId: 'B', generation: st.generation + 1 }));
+    persist({ seed: s.seed, interventionsB: realityB.def.interventions, time: s.time, selectedAgentId: s.selectedAgentId, history: s.history });
+    return { ok: true };
+  },
+  endLoop: () => {
+    const s = get();
+    if (!s.game || s.game.phase !== 'playing') return;
+    const played = s.realityB ?? s.realityA;
+    const destinies = s.comparison?.arcChanges.map((c) => c.text) ?? [];
+    const game = closeLoop(s.game, played, destinies, Math.min(DAY_END, Math.floor(s.time)));
+    persistGame(game);
+    set({ game, playing: false, time: DAY_END });
+  },
+  restartLoop: () => {
+    const s = get();
+    if (!s.game) return;
+    const game = nextLoop(s.game);
+    persistGame(game);
+    set((st) => ({ game, realityB: null, comparison: null, activeRealityId: 'A', time: DAY_START, playing: false, selectedEventId: null, followAgentId: game.agentId, selectedAgentId: game.agentId, generation: st.generation + 1 }));
+    persist({ seed: s.seed, interventionsB: [], time: DAY_START, selectedAgentId: game.agentId, history: s.history });
   },
   setPolicyMode: async (mode) => {
     const s = get();
