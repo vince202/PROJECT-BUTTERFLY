@@ -58,13 +58,18 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   new_commitment: 'Nouvel engagement',
   commitment_cancelled: 'Engagement annulé',
   mood_shift: 'Changement d’humeur',
+  arc_beat: 'Temps fort',
+  arc_resolved: 'Point de bascule',
+  revelation: 'Confidence',
+  gossip: 'Rumeur',
+  dilemma: 'Dilemme',
   day_end: 'Fin de journée',
 };
 
 export const eventTypeLabel = (t: EventType): string => EVENT_TYPE_LABELS[t] ?? t;
 
 /** Visual family of an event type (drives marker colour and timeline lane). */
-export type EventFamily = 'social' | 'trouble' | 'bus' | 'world' | 'decision' | 'intervention' | 'routine';
+export type EventFamily = 'social' | 'trouble' | 'bus' | 'world' | 'decision' | 'drama' | 'intervention' | 'routine';
 
 export function eventFamily(t: EventType): EventFamily {
   switch (t) {
@@ -102,6 +107,12 @@ export function eventFamily(t: EventType): EventFamily {
     case 'plan_change':
     case 'mood_shift':
       return 'decision';
+    case 'arc_beat':
+    case 'arc_resolved':
+    case 'revelation':
+    case 'gossip':
+    case 'dilemma':
+      return 'drama';
     default:
       return 'routine';
   }
@@ -113,6 +124,7 @@ export const FAMILY_LABELS: Record<EventFamily, string> = {
   bus: 'Bus',
   world: 'Objets, météo, commerces',
   decision: 'Décisions',
+  drama: 'Drame',
   intervention: 'Intervention',
   routine: 'Routine',
 };

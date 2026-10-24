@@ -27,6 +27,7 @@ import type {
   WorldState,
 } from './types';
 import { Rng } from './rng';
+import { applyDesire } from './drama';
 
 export interface TravelEstimate {
   mode: TravelMode;
@@ -294,8 +295,9 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   }
 
   // Sleep
+  // Exhaustion long before bedtime calls for a nap at home (rest_home), not for the night.
   const bedtime = profile.routine.bedtime;
-  if (t >= bedtime - 30 || needs.fatigue >= 85) {
+  if (t >= bedtime - 30 || (needs.fatigue >= 85 && t >= bedtime - 120)) {
     const comps: ScoreComponent[] = [
       { label: 'Heure du coucher', value: t >= bedtime ? 0.9 : 0.45 },
       { label: 'Fatigue', value: (needs.fatigue / 100) * 0.4 },
@@ -395,6 +397,7 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   const waitingForCommitment = upcoming && upcoming.start - t <= 110 && upcoming.start - t > 0;
   make(b, 'rest_home', home, 45, [
     { label: 'Fatigue', value: (needs.fatigue / 100) * 0.5 },
+    { label: 'Épuisement : une sieste s’impose', value: needs.fatigue >= 80 && t < bedtime - 120 ? 0.35 : 0 },
     { label: 'En attendant le prochain engagement', value: waitingForCommitment ? 0.22 : 0 },
     { label: 'Stress', value: agent.emotions.stress > 0.5 ? 0.15 : 0 },
     { label: 'Soirée', value: evening ? 0.2 : 0 },
@@ -433,6 +436,9 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   if (agent.locationId) {
     make(b, 'wait', agent.locationId, 10, [{ label: 'Rien de mieux à faire', value: 0.04 }], { label: 'Rester sur place' });
   }
+
+  // The desire of the day bends the scores a little (dramaturgy layer).
+  applyDesire(b.out, agent, world, ctx.profiles, t);
 
   return b.out;
 }

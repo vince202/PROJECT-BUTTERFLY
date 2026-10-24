@@ -110,7 +110,8 @@ describe('Divergence avec un retard de bus (graine 29)', () => {
     const shifted = cmp.matches.filter((m) => m.status === 'shifted');
     expect(shifted.length).toBeGreaterThan(0);
     for (const m of shifted) {
-      expect(m.dt).not.toBe(0);
+      // dt = 0 only when the same event happens at the same minute with a different label (« modifié »)
+      if (m.dt === 0) expect(m.a!.label).not.toBe(m.b!.label);
       expect(m.dt).toBe(m.b!.t - m.a!.t);
       expect(m.a!.signature).toBe(m.b!.signature);
     }
@@ -138,7 +139,7 @@ describe('Divergence avec un retard de bus (graine 29)', () => {
   it('les matches sont triés par temps et le résumé mentionne les conséquences', () => {
     const times = cmp.matches.map((m) => Math.min(m.a?.t ?? Infinity, m.b?.t ?? Infinity));
     for (let i = 1; i < times.length; i++) expect(times[i]).toBeGreaterThanOrEqual(times[i - 1]);
-    expect(cmp.summary).toHaveLength(3 + (cmp.consequences.some((m) => ((m.b ?? m.a)!.importance) >= 0.6) ? 1 : 0));
+    expect(cmp.summary).toHaveLength(3 + (cmp.consequences.some((m) => ((m.b ?? m.a)!.importance) >= 0.6) ? 1 : 0) + (cmp.arcChanges.length ? 1 : 0));
     expect(cmp.summary[1]).toContain(`${cmp.consequences.length} conséquences`);
   });
 

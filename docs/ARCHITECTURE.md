@@ -45,6 +45,7 @@ Le moteur (`src/sim`) ne dépend ni de React ni de Three.js : il tourne tel quel
 | 11. Rendu et animation | `src/render/*` (React Three Fiber, géométrie procédurale) |
 | 12. Interface | `src/ui/*` (français) |
 | 13. Rapport narratif | `src/sim/narrative.ts` : résumés factuels, par habitant, questions-réponses |
+| (ajout) Dramaturgie | `src/sim/drama.ts` : désirs, secrets, points de bascule, jours enchaînés (voir plus bas) |
 
 ## Déterminisme et aléa stable
 
@@ -107,7 +108,7 @@ Dans tous les cas, c'est le moteur qui exécute l'intervention et calcule les co
 
 ## Rapport narratif
 
-`dayReport()` construit, à partir des événements : vue chronologique, rencontres, occasions manquées, événements inattendus, évolution des relations, décisions importantes, situations non résolues, chaînes causales les plus influentes, et un résumé par habitant. `answerQuestion()` répond à « Qu'est-il arrivé à Alice ? », « Qui a rencontré qui ? », « Quel événement a eu le plus d'impact ? », « Qu'est-ce qui a changé entre les deux réalités ? ». Avec une clé API, l'adaptateur peut réécrire ces faits en prose ; sans clé, le résumé factuel est affiché et la narration IA est signalée comme désactivée.
+`dayReport()` construit, à partir des événements : vue chronologique, rencontres, occasions manquées, événements inattendus, évolution des relations, décisions importantes, situations non résolues, chaînes causales les plus influentes, les arcs du jour (« ce que chacun voulait »), les confidences, rumeurs et dilemmes, et un résumé par habitant. `answerQuestion()` répond à « Qu'est-il arrivé à Alice ? », « Qui a rencontré qui ? », « Quel événement a eu le plus d'impact ? », « Qu'est-ce qui a changé entre les deux réalités ? ». Avec une clé API, l'adaptateur peut réécrire ces faits en prose ; sans clé, le résumé factuel est affiché et la narration IA est signalée comme désactivée.
 
 ## Conseiller de décision (`src/sim/advisor.ts`)
 
@@ -118,6 +119,47 @@ Conseillers fournis : `MockAdvisor` (déterministe, fondé sur la personnalité 
 ## Journées enchaînées
 
 `Engine.nextDayState(prev)` construit l'état initial du jour suivant : état frais (positions, besoins, engagements du jour, flux aléatoires du jour via `daySeed`), puis report des relations (légèrement relâchées vers leur niveau de base), des souvenirs importants (préfixés « Hier »), de l'argent, d'une humeur amortie et des portefeuilles perdus. `nextDayReality()` enchaîne les réalités ; le store conserve la branche retenue de chaque journée pour reconstruire le jour courant au rechargement.
+
+## Dramaturgie (`src/sim/drama.ts`)
+
+Chaque habitant porte une histoire du jour (un *arc*) : un désir, un secret facultatif, une tension, une échéance et des enjeux. La couche dramatique transforme des événements ordinaires en **temps forts** et **points de bascule**, sans jamais écrire hors du journal causal.
+
+**Données et mécanique séparées.**
+
+- `ArcSeed` (`types.ts`, données statiques dans `ARC_SEEDS`) : au moins deux graines par habitant, dans l'ordre des jours ; un `ArcGoal` typé (`talk_to`, `avoid`, `commitment`, `on_time`, `be_at`, `keep_wallet`, `sell_out`, `conversations`, `money_floor`, `bus_on_time`) dit à quels événements l'histoire est sensible.
+- `ArcState` vit dans `WorldState.arcs` (avec `lastLeft`, dernier lieu public quitté par chacun, pour les occasions manquées de peu). Comme tout le reste de l'état, il est clonable : instantanés, `stateAt`, `Engine.fromState` et le branchement A/B fonctionnent sans code particulier.
+- Fonctions pures : `evaluateBeat(arc, event, world, profiles)` renvoie le temps fort que l'événement représente pour l'arc (progression, issue éventuelle `fulfilled | failed | twisted`, phrase française, mécanisme, importance) ; `deadlineOutcome` donne l'issue par défaut quand l'échéance passe (`avoid`, `keep_wallet`, `money_floor`, `bus_on_time` sont accomplis par défaut, les autres échouent). Aucune ne modifie l'état ni ne tire au hasard.
+
+**Branchement dans le moteur.**
+
+| Point d'accroche | Rôle |
+|---|---|
+| `Engine.processDrama` (fin de chaque `step`) | évalue les événements de la minute contre chaque arc ouvert, émet `arc_beat` ou `arc_resolved`, applique les échéances |
+| `Engine.shareSecrets` (appelé par `converse`, hors disputes) | confidence du propriétaire à un proche (`revelation`), puis rumeur des détenteurs (`gossip`) ; une rumeur qui atteint `secretAbout` bouleverse l'arc du propriétaire |
+| `applyDecision` + `detectDilemma` | émet `dilemma` quand le choix retenu et son dauphin (écart ≤ 0,3) opposent le désir à un engagement |
+| `buildCandidates` → `applyDesire` | ajoute la composante « Désir du jour : … » aux candidats qui servent (ou trahissent) le but, puis recalcule leur score |
+| `startTravel` | met à jour `lastLeft` |
+
+**Déterminisme.** Le seul aléa de la couche dramatique passe par `rng.chance` avec des clés sémantiques : `reveal:<arc>:<auditeur>:<minute>` et `gossip:<arc>:<détenteur>:<auditeur>:<minute>`. Les probabilités (`revealChance`, `gossipChance`) dépendent de la relation, de la sociabilité, de la curiosité et de l'honnêteté ; une confidence n'est possible qu'entre amis, partenaires, famille ou béguin avec une affinité d'au moins 0,5. Une intervention ne déplace donc aucun tirage dramatique d'habitants dont la situation n'a pas changé, et les tirages sont enregistrés dans `randomDraws`.
+
+**Attribution causale.** Un temps fort cite l'événement qui le déclenche (`causes = [événement]`). Une confidence cite la conversation ; une rumeur cite la conversation et la confidence ou rumeur dont elle découle ; un dilemme cite la décision. Un échec à l'échéance cite le dernier temps fort de l'arc, la dernière décision et la dernière arrivée de l'habitant. Les `arc_resolved` ont toujours des causes non vides, ce qui permet à `compareRealities` de dire si un destin modifié (`ArcChange`, ligne « Destins modifiés ») descend de l'intervention. Une rumeur peut bouleverser un arc déjà résolu : un second `arc_resolved` (toujours `twisted`, cité sur la rumeur) remplace alors `resolutionEventId`.
+
+**Journées enchaînées.** `Engine.nextDayState` appelle `nextDayArcs(prev)` : un arc accompli ou bouleversé laisse place à la graine suivante de l'habitant (rotation circulaire) ; un arc échoué est retenté (`attempt + 1`, jusqu'à trois essais, puis rotation) avec des enjeux relevés (`effectiveStakes = stakes + 0,15 × (attempt − 1)`, plafonné à 1) et conserve `knownBy`. L'issue de la veille est ajoutée aux souvenirs de l'habitant.
+
+**Ajouter un type de but.**
+
+1. Étendre l'union `ArcGoal` dans `types.ts`.
+2. Ajouter le cas dans `evaluateBeat` (quels événements font avancer ou résolvent l'arc) et dans `deadlineOutcome` (issue à l'échéance) ; TypeScript signale les `switch` incomplets.
+3. Facultatif : ajouter le cas dans `applyDesire` pour que le but infléchisse les décisions.
+4. Ajouter une graine dans `ARC_SEEDS`, puis lancer `tests/drama.test.ts`, qui vérifie les références (engagements, habitants, lieux) et les invariants (arcs résolus, causes existantes, déterminisme, relecture).
+
+## Mémoire par similarité (`src/sim/recall.ts`)
+
+Le rappel de souvenirs suit la recette des agents génératifs : score = 0,55 × similarité + 0,20 × récence + 0,25 × importance. La similarité est fournie par un `Embedder` : `LexicalEmbedder` (sac de mots haché signé, 256 dimensions, déterministe, synchrone, utilisable dans l'interface et les tests) ou, côté serveur, `OllamaEmbedder` (`server/embed.ts`, `POST /api/ai/embed`, modèle local `embeddinggemma` par défaut) atteint depuis le navigateur par `HttpEmbedder`, qui retombe sur l'embedder lexical en cas d'échec. `CachedEmbedder` mémorise les vecteurs par texte. Le rappel est branché dans `generateWithAdvisor()` (`attachRelevantMemories`) : chaque demande au conseiller porte une `situation` (lieu, personnes présentes, prochain engagement, désir du jour) et un vivier de souvenirs ; le vivier est remplacé par les souvenirs les plus pertinents avant l'envoi. Le moteur n'utilise jamais le rappel directement : la journée reste déterministe et rejouable, et les conseillers reçoivent simplement un meilleur contexte. Les souvenirs importants traversent les jours (`nextDayState`), si bien que le rappel est naturellement inter-journées.
+
+## Conseillers et enjeux
+
+Les demandes au conseiller (`AdviceRequest`) comportent aussi `stakes` : titre, désir, tension, état et échéance de l'arc du jour, ainsi que le secret et le nombre de personnes qui le connaissent. Jev le reçoit dans `state.enjeu_du_jour`, le conseiller Anthropic dans une ligne « Enjeu du jour ».
 
 ## Évolutions prévues
 

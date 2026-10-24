@@ -484,6 +484,11 @@ export type EventType =
   | 'new_commitment'
   | 'commitment_cancelled'
   | 'mood_shift'
+  | 'arc_beat'
+  | 'arc_resolved'
+  | 'revelation'
+  | 'gossip'
+  | 'dilemma'
   | 'day_end';
 
 export interface StateChange {
@@ -604,6 +609,72 @@ export type Intervention =
 export type InterventionKind = Intervention['kind'];
 
 // ---------------------------------------------------------------------------
+// Dramaturgy — daily arcs
+// ---------------------------------------------------------------------------
+
+export type ArcKind = 'romance' | 'ambition' | 'reconciliation' | 'duty' | 'curiosity' | 'courage' | 'care' | 'pride';
+
+/**
+ * What an arc is about, in terms the engine can check against events and state.
+ * Every goal maps to concrete event types, so an arc's outcome is always traceable.
+ */
+export type ArcGoal =
+  | { type: 'talk_to'; target: AgentId; deep?: boolean; after?: Minute }
+  | { type: 'avoid'; target: AgentId }
+  | { type: 'commitment'; commitmentId: string }
+  | { type: 'on_time'; commitmentId: string }
+  | { type: 'be_at'; locationId: LocationId; withAgent?: AgentId; after?: Minute }
+  | { type: 'keep_wallet' }
+  | { type: 'sell_out'; locationId: LocationId }
+  | { type: 'conversations'; min: number }
+  | { type: 'money_floor'; min: number }
+  | { type: 'bus_on_time'; busId: string; maxDelay: Minute };
+
+export interface ArcSeed {
+  id: string;
+  agentId: AgentId;
+  kind: ArcKind;
+  /** Short title, e.g. « Oser parler à Hugo ». */
+  title: string;
+  /** What the inhabitant wants today (one sentence). */
+  desire: string;
+  /** What the inhabitant hides; may be confided, then spread. */
+  secret?: string;
+  /** Who must not learn the secret (a gossip reaching them is a twist). */
+  secretAbout?: AgentId;
+  /** What is at stake / the obstacle (one sentence). */
+  tension: string;
+  /** Minute by which the arc must resolve (default: end of day). */
+  deadline?: Minute;
+  /** 0..1 — how much the arc weighs on decisions and on the report. */
+  stakes: number;
+  goal: ArcGoal;
+}
+
+export type ArcStatus = 'open' | 'advancing' | 'fulfilled' | 'failed' | 'twisted';
+
+export interface ArcState {
+  id: string;
+  agentId: AgentId;
+  seedId: string;
+  status: ArcStatus;
+  /** 0..1 */
+  progress: number;
+  /** Events that moved the arc (beats), in order. */
+  beats: EventId[];
+  /** Agents who know the secret. */
+  knownBy: AgentId[];
+  resolvedAt?: Minute;
+  resolutionEventId?: EventId;
+  /** Internal counters (conversations, etc.). */
+  count: number;
+  /** Minute of the last dilemma recorded for this arc (anti-spam). */
+  lastDilemma?: Minute;
+  /** Number of days this arc has been attempted (chained days). */
+  attempt: number;
+}
+
+// ---------------------------------------------------------------------------
 // World state
 // ---------------------------------------------------------------------------
 
@@ -624,6 +695,10 @@ export interface WorldState {
   appliedInterventions: string[];
   /** Root event ids per intervention (for causal attribution). */
   interventionEventIds: Record<string, EventId>;
+  /** Dramatic arcs of the day, one per inhabitant (keyed by arc id). */
+  arcs: Record<string, ArcState>;
+  /** Last public place each agent left, and when (for near-miss beats). */
+  lastLeft: Record<AgentId, { locationId: LocationId; t: Minute }>;
 }
 
 export interface TraceAgent {

@@ -25,12 +25,13 @@ import { busDelayFor, newInterventionId, validateIntervention } from '../src/sim
 import { fmtTime } from '../src/sim/time';
 import { AnthropicAdvisor } from './advisor';
 import { JevAdvisor } from './jev';
+import { OllamaEmbedder } from './embed';
 import type { DecisionAdvisor } from '../src/sim/advisor';
 import type { AdviceRequest } from '../src/sim/advisor';
 import { DAY_END, DAY_START, type ActionType, type Intervention, type SimEvent } from '../src/sim/types';
 
 const PORT = Number(process.env.BUTTERFLY_AI_PORT ?? 8787);
-const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-5-5';
+const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-5-5';
 const USE_FALLBACKS = process.env.ANTHROPIC_FALLBACKS !== 'off';
 
 // ---------------------------------------------------------------------------
@@ -131,7 +132,7 @@ class AnthropicProvider implements AiProvider {
       'Tu es le narrateur de BUTTERFLY, une simulation de ville miniature. On te donne des faits enregistrés par le moteur de simulation (heures, lieux, personnes, événements).',
       'Réécris-les en français, en prose élégante, vivante et sobre, à la troisième personne, au passé. Garde toutes les heures et tous les noms exacts.',
       'Interdiction absolue d’inventer un événement, une rencontre, un dialogue, un lieu ou une motivation qui ne figure pas dans les faits. Si un élément manque, n’en parle pas.',
-      style === 'agent' ? 'Format : un portrait de 2 à 4 paragraphes.' : style === 'causal' ? 'Format : explique la chaîne de causes et d’effets pas à pas, en soulignant ce qui est prouvé et ce qui est seulement probable.' : style === 'compare' ? 'Format : raconte ce qui a changé entre les deux réalités, en distinguant conséquences vérifiées et simples différences.' : 'Format : un récit de la journée en sections courtes avec titres, puis un paragraphe par habitant cité.',
+      style === 'agent' ? 'Format : un portrait de 2 à 4 paragraphes, qui met en avant ce que la personne voulait aujourd’hui (son histoire du jour), ce qui l’a aidée ou empêchée, et comment cela finit.' : style === 'morning' ? 'Format : « Ce matin, dans la ville » — un paragraphe court par habitant cité, au présent, qui dit qui il est, ce qu’il veut aujourd’hui, ce qu’il cache et ce qui le menace, à partir des seuls faits fournis. Pas de conclusion : la journée n’a pas encore eu lieu.' : style === 'dialogue' ? 'Format : une scène dialoguée en français, entre les seules personnes citées, au lieu et à l’heure indiqués. Les répliques sont imaginées, mais elles ne peuvent contenir que des informations présentes dans les faits (ce que chacun sait, veut, cache, a vécu). Commence par une ligne « Scène imaginée à partir des faits enregistrés ». 8 à 16 répliques, puis une phrase de didascalie finale.' : style === 'counterfactual' ? 'Format : « Ce qui aurait pu arriver » — raconte la réalité A puis la réalité B, puis un paragraphe sur ce qui a basculé et pour qui, en distinguant les conséquences vérifiées (liées causalement à l’intervention) des simples différences. Ne tire aucune leçon morale.' : style === 'causal' ? 'Format : explique la chaîne de causes et d’effets pas à pas, en soulignant ce qui est prouvé et ce qui est seulement probable.' : style === 'compare' ? 'Format : raconte ce qui a changé entre les deux réalités, en distinguant conséquences vérifiées et simples différences.' : 'Format : un récit de la journée en sections courtes avec titres, puis un paragraphe par habitant cité.',
     ].join('\n');
     const common = {
       model: this.model,
@@ -244,6 +245,13 @@ function createAdvisor(): DecisionAdvisor | null {
   return null;
 }
 const advisor = createAdvisor();
+const embedder = process.env.BUTTERFLY_EMBED === 'off' ? null : new OllamaEmbedder({ model: process.env.OLLAMA_EMBED_MODEL, baseUrl: process.env.OLLAMA_URL });
+let embedderReady: boolean | null = null;
+async function embedderStatus(): Promise<boolean> {
+  if (!embedder) return false;
+  if (embedderReady === null || !embedderReady) embedderReady = await embedder.probe();
+  return embedderReady;
+}
 const cache = new Map<string, unknown>();
 const cacheKey = (...parts: unknown[]) => createHash('sha1').update(JSON.stringify(parts)).digest('hex');
 
@@ -277,11 +285,18 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {
     if (url.pathname === '/api/ai/status') {
-      const advisorInfo = advisor ? { advisor: advisor.name, advisorModel: 'model' in advisor ? (advisor as { model: string }).model : undefined } : { advisor: null };
+      const embedOk = await embedderStatus();
+      const advisorInfo = { ...(advisor ? { advisor: advisor.name, advisorModel: 'model' in advisor ? (advisor as { model: string }).model : undefined } : { advisor: null }), embedder: embedOk && embedder ? embedder.name : null, embedModel: embedOk && embedder ? embedder.model : undefined };
       return json(res, 200, provider ? { enabled: true, model: provider.model, provider: provider.name, fallbacks: USE_FALLBACKS, message: `Narration IA activée (${provider.model})`, ...advisorInfo } : { enabled: false, message: advisor ? `Narration IA désactivée (aucune clé Anthropic) — conseiller de décision ${advisor.name} actif.` : 'Aucune clé API configurée — narration IA désactivée, repli déterministe local.', ...advisorInfo });
     }
     if (req.method !== 'POST') return json(res, 405, { ok: false, explanation: 'Méthode non autorisée', issues: [] });
     const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+    if (url.pathname === '/api/ai/embed') {
+      if (!embedder || !(await embedderStatus())) return json(res, 503, { ok: false, vectors: [], explanation: 'Aucun serveur d’embeddings local (Ollama) disponible.' });
+      const texts = (Array.isArray(body.texts) ? body.texts : []).slice(0, 512).map((t) => String(t).slice(0, 2000));
+      const vectors = await embedder.embed(texts);
+      return json(res, 200, { ok: true, vectors, model: embedder.model });
+    }
     if (url.pathname === '/api/ai/decide') {
       if (!advisor) return json(res, 503, { ok: false, answers: [], explanation: 'Aucun conseiller de décision configuré (TYPESAFE_API_KEY ou ANTHROPIC_API_KEY).' });
       const requests = (Array.isArray(body.requests) ? body.requests : []).slice(0, 120) as AdviceRequest[];

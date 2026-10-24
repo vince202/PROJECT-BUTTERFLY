@@ -14,7 +14,7 @@ import { useActiveReality } from './hooks';
 
 const pos = (t: number) => ((Math.max(DAY_START, Math.min(DAY_END, t)) - DAY_START) / DAY_LENGTH) * 100;
 
-const LANES: EventFamily[] = ['social', 'trouble', 'bus', 'world', 'decision'];
+const LANES: EventFamily[] = ['drama', 'social', 'trouble', 'bus', 'world', 'decision'];
 const laneOf = (f: EventFamily) => {
   const i = LANES.indexOf(f === 'routine' ? 'decision' : f);
   return i < 0 ? LANES.length - 1 : i;

@@ -17,7 +17,9 @@ import { UtilityPolicy, type DecisionContext, type DecisionOutcome, type Decisio
 import { profileOf } from './population';
 import { Reality, type RealityDef } from './reality';
 import { fmtTime } from './time';
-import type { AgentId, AgentProfile, AgentState, Candidate, Minute } from './types';
+import { ARC_STATUS_LABELS, arcDeadline, arcOf, arcSeed } from './drama';
+import { presentNames, recallMemories, situationQuery, type Embedder } from './recall';
+import type { AgentId, AgentProfile, AgentState, Candidate, Memory, Minute } from './types';
 
 export interface AdviceCandidate {
   /** Stable identity of the option: `${action}@${locationId}`. */
@@ -43,6 +45,14 @@ export interface AdviceRequest {
   recentMemories: string[];
   influences: string[];
   nextCommitment?: string;
+  /** Dramaturgical stakes of the day (desire, tension, deadline, state), when an arc is open. */
+  stakes?: string;
+  /** One-line description of the situation (query for memory recall). */
+  situation: string;
+  /** Memories ranked by relevance to the situation (filled by the recall step). */
+  relevantMemories?: string[];
+  /** All memories at decision time (consumed by the recall step, not sent to advisors). */
+  memoryPool?: Memory[];
   candidates: AdviceCandidate[];
   /** The utility policy's own pick (baseline). */
   baseline: string;
@@ -99,7 +109,19 @@ function describeAgent(agent: AgentState, profile: AgentProfile, ctx: DecisionCo
     recentMemories: agent.memories.slice(-4).map((m) => `${fmtTime(m.t)} ${m.text}`),
     influences: agent.influences.map((i) => i.reason),
     nextCommitment: next ? `${next.label} à ${fmtTime(next.start)} (${ctx.city.location(next.locationId).name})` : undefined,
+    stakes: describeStakes(agent, ctx),
+    situation: situationQuery(agent, profile, { t: ctx.t, locationName: agent.locationId ? ctx.city.location(agent.locationId).name : 'dans la rue', present: presentNames(agent, ctx.world.agents, ctx.profiles), nextCommitment: next?.label, desire: arcOf(ctx.world, agent.id) ? arcSeed(arcOf(ctx.world, agent.id)!.seedId).desire : undefined }),
+    memoryPool: agent.memories.slice(-40),
   };
+}
+
+function describeStakes(agent: AgentState, ctx: DecisionContext): string | undefined {
+  const arc = arcOf(ctx.world, agent.id);
+  if (!arc) return undefined;
+  const seed = arcSeed(arc.seedId);
+  const state = arc.status === 'open' || arc.status === 'advancing' ? `encore en jeu (${Math.round(arc.progress * 100)} %), échéance ${fmtTime(arcDeadline(arc))}` : ARC_STATUS_LABELS[arc.status];
+  const secret = seed.secret ? ` Secret : ${seed.secret}${arc.knownBy.length ? ` (connu de ${arc.knownBy.length} personne${arc.knownBy.length > 1 ? 's' : ''})` : ''}` : '';
+  return `« ${seed.title} » — ${seed.desire} ${seed.tension} État : ${state}.${secret}`;
 }
 
 /** Decision policy that defers open choices to an advisor through a replayable cache. */
@@ -170,7 +192,7 @@ export interface AdvisedRunResult {
  * Simulate a day with an advisor: iterate "simulate → ask → cache" until no
  * open decision is left unanswered (or the pass budget is spent).
  */
-export async function generateWithAdvisor(def: Omit<RealityDef, 'policy'>, advisor: DecisionAdvisor, opts: { maxPasses?: number; maxRequestsPerPass?: number; policy?: AdvisedPolicy; onPass?: (info: { pass: number; pending: number; answered: number }) => void } = {}): Promise<AdvisedRunResult> {
+export async function generateWithAdvisor(def: Omit<RealityDef, 'policy'>, advisor: DecisionAdvisor, opts: { maxPasses?: number; maxRequestsPerPass?: number; policy?: AdvisedPolicy; onPass?: (info: { pass: number; pending: number; answered: number }) => void; embedder?: Embedder; recallK?: number } = {}): Promise<AdvisedRunResult> {
   const policy = opts.policy ?? new AdvisedPolicy();
   const maxPasses = opts.maxPasses ?? 6;
   const maxReq = opts.maxRequestsPerPass ?? 120;
@@ -186,6 +208,7 @@ export async function generateWithAdvisor(def: Omit<RealityDef, 'policy'>, advis
     log.push(`passe ${pass} : ${policy.pending.size} décisions ouvertes sans réponse, ${policy.applied} conseils appliqués`);
     opts.onPass?.({ pass, pending: policy.pending.size, answered });
     if (!requests.length) break;
+    await attachRelevantMemories(requests, opts.embedder, opts.recallK ?? 5);
     const answers = await advisor.advise(requests);
     const byKey = new Map(requests.map((r) => [r.key, r]));
     for (const a of answers) {
@@ -208,6 +231,30 @@ export async function generateWithAdvisor(def: Omit<RealityDef, 'policy'>, advis
   const unresolved = policy.pending.size;
   log.push(`relecture finale : ${policy.applied} conseils appliqués, ${unresolved} décisions ouvertes restantes (choix utilitaire)`);
   return { reality, policy, passes: Math.min(pass, maxPasses), answered, applied: policy.applied, unresolved, log };
+}
+
+/**
+ * Replace « recent memories » by the memories most relevant to each situation
+ * (similarity + recency + importance). Without an embedder, the recent ones stay.
+ * The memory pool is dropped either way so that advisors receive a compact request.
+ */
+export async function attachRelevantMemories(requests: AdviceRequest[], embedder: Embedder | undefined, k = 5): Promise<void> {
+  if (embedder) {
+    const texts = new Set<string>();
+    for (const r of requests) {
+      texts.add(r.situation);
+      for (const m of r.memoryPool ?? []) texts.add(m.text);
+    }
+    // Warm the embedder in one batch (it may be remote).
+    await embedder.embed([...texts]);
+    for (const r of requests) {
+      const pool = r.memoryPool ?? [];
+      if (!pool.length) continue;
+      const ranked = await recallMemories(pool, r.situation, embedder, r.t, k);
+      r.relevantMemories = ranked.map((x) => `${fmtTime(x.memory.t)} ${x.memory.text}`);
+    }
+  }
+  for (const r of requests) delete r.memoryPool;
 }
 
 /**

@@ -14,6 +14,7 @@ import { Timetable, TERMINAL_LAYOVER, stopPath } from './bus';
 import { getCity, polylineLength, pointAlong, type City } from './city';
 import { AGENTS, BUS_DRIVERS, COMMITMENT_SEEDS, type CommitmentSeed } from './population';
 import { Rng, daySeed } from './rng';
+import { ARC_STATUS_LABELS, arcDeadline, arcOf, arcSeed, deadlineOutcome, detectDilemma, effectiveStakes, evaluateBeat, gossipChance, initialArcs, nextDayArcs, revealChance, secretsToSpread, type Beat } from './drama';
 import { fmtTime } from './time';
 import { initBuses } from './bus';
 import {
@@ -23,6 +24,7 @@ import {
   type AgentId,
   type AgentProfile,
   type AgentState,
+  type ArcState,
   type BusState,
   type Candidate,
   type Commitment,
@@ -57,6 +59,11 @@ export interface EmitSpec {
 }
 
 const IMPORTANCE: Partial<Record<EventType, number>> = {
+  arc_beat: 0.55,
+  arc_resolved: 0.85,
+  revelation: 0.8,
+  gossip: 0.7,
+  dilemma: 0.55,
   day_start: 0.2,
   day_end: 0.2,
   wake: 0.05,
@@ -157,7 +164,13 @@ export class Engine {
       if (!old.inventory.includes('wallet')) {
         a.memories.push({ t: DAY_START, text: 'Hier — Portefeuille perdu (un nouveau a été préparé)', eventId: 'e0', importance: 0.5, valence: -0.3, about: [] });
       }
+      const arc = arcOf(prev, a.id);
+      if (arc && arc.status !== 'open') {
+        const seed = arcSeed(arc.seedId);
+        a.memories.push({ t: DAY_START, text: `Hier — « ${seed.title} » : ${ARC_STATUS_LABELS[arc.status]}`, eventId: arc.resolutionEventId ?? 'e0', importance: 0.6, valence: arc.status === 'fulfilled' ? 0.5 : arc.status === 'failed' ? -0.5 : 0.1, about: [] });
+      }
     }
+    fresh.arcs = nextDayArcs(prev.arcs ?? {});
     return fresh;
   }
 
@@ -294,6 +307,8 @@ export class Engine {
       commitmentSeq: seq,
       appliedInterventions: [],
       interventionEventIds: {},
+      arcs: initialArcs(),
+      lastLeft: {},
     };
   }
 
@@ -415,6 +430,7 @@ export class Engine {
     this.handleEncounters();
     this.updateLocations();
     this.growNeeds();
+    this.processDrama(start);
 
     if (t === DAY_END - 1) this.emit({ type: 'day_end', actors: [], label: 'Minuit — fin de la journée simulée' });
     this.state.t = t + 1;
@@ -926,6 +942,15 @@ export class Engine {
     });
     a.lastDecision = { t, eventId: ev.id, chosen: c, candidates: outcome.candidates, influences: a.influences.map((i) => i.eventId), reasons: outcome.reasons };
     a.influences = [];
+    const arc = arcOf(this.state, a.id);
+    const dilemma = detectDilemma(c, outcome.candidates, arc, t);
+    if (arc && dilemma) {
+      arc.lastDilemma = t;
+      const seed = arcSeed(arc.seedId);
+      const d = this.emit({ type: 'dilemma', actors: [a.id], locationId: a.locationId ?? undefined, label: `${p.firstName} ${dilemma.text}`, causes: [ev.id], mechanism: `Deux options proches (écart ${(c.score - dilemma.other.score).toFixed(2)}) ; enjeu du jour : « ${seed.title} »`, data: { arcId: arc.id, chosen: c.label, other: dilemma.other.label }, sig: `${arc.id}:${c.action}` });
+      arc.beats.push(d.id);
+      this.remember(a, d, `Dilemme : ${c.label} plutôt que ${dilemma.other.label}`, 0.5, 0, []);
+    }
     if (forced) a.forcedPlan = undefined;
     const plan: Plan = {
       action: c.action,
@@ -991,6 +1016,7 @@ export class Engine {
       data: { to: plan.locationId, mode: plan.mode, expected },
       sig: `${fromLoc ?? ''}>${plan.locationId}`,
     });
+    if (fromLoc && this.city.location(fromLoc).kind !== 'home') (this.state.lastLeft ??= {})[a.id] = { locationId: fromLoc, t };
     // Leaving a public place: distracted people sometimes forget their wallet.
     if (fromLoc && a.inventory.includes('wallet')) {
       const def = this.city.location(fromLoc);
@@ -1931,6 +1957,8 @@ export class Engine {
     a.lastChat[b.id] = t;
     b.lastChat[a.id] = t;
 
+    const busyKinds = new Set(['work', 'school', 'commitment', 'drive_bus', 'morning_routine']);
+    const bothFree = !(a.activity && busyKinds.has(a.activity.action)) && !(b.activity && busyKinds.has(b.activity.action));
     let type: EventType = 'encounter';
     let label = `${pa.firstName} et ${pb.firstName} discutent ${where}`;
     let mechanism = how === 'visit' ? `${pa.firstName} est venu retrouver ${pb.firstName}` : 'Présents au même endroit au même moment (graine aléatoire)';
@@ -2010,7 +2038,7 @@ export class Engine {
       } else if (kindA === 'crush' || kindB === 'crush') {
         const admirer = kindA === 'crush' ? a : b;
         const pAdm = this.profiles.get(admirer.id)!;
-        if (roll < 0.2 + pAdm.traits.sociability * 0.25) {
+        if (bothFree && roll < 0.2 + pAdm.traits.sociability * 0.25) {
           type = 'conversation';
           label = `${pAdm.firstName} ose enfin une vraie conversation avec ${admirer === a ? pb.firstName : pa.firstName} ${where}`;
           dA = 0.15;
@@ -2040,6 +2068,15 @@ export class Engine {
           label = `${pa.firstName} et ${pb.firstName} bavardent joyeusement ${where}`;
           moodA = 0.12;
           moodB = 0.12;
+          if (bothFree && (how === 'visit' ? roll < 0.5 : roll < 0.3)) {
+            type = 'conversation';
+            label = `${pa.firstName} et ${pb.firstName} ont une vraie conversation ${where}`;
+            importance = 0.6;
+            dA += 0.04;
+            dB += 0.04;
+            memA = `Vraie conversation avec ${pb.firstName} ${where}`;
+            memB = `Vraie conversation avec ${pa.firstName} ${where}`;
+          }
         }
       }
     }
@@ -2056,6 +2093,7 @@ export class Engine {
     this.remember(b, ev, memB, importance, moodB, [a.id]);
     this.influence(a, ev, `Conversation avec ${pb.firstName}`);
     this.influence(b, ev, `Conversation avec ${pa.firstName}`);
+    if (type !== 'argument') this.shareSecrets(a, b, ev, type === 'conversation');
 
     // Returning a found wallet
     for (const [x, y] of [[a, b], [b, a]] as [AgentState, AgentState][]) {
@@ -2105,6 +2143,153 @@ export class Engine {
       }
     }
     return ev;
+  }
+
+  // ---------------------------------------------------------------------
+  // Dramaturgy
+  // ---------------------------------------------------------------------
+
+  /** Secrets travel through conversations: the owner confides, holders gossip. */
+  private shareSecrets(a: AgentState, b: AgentState, conv: SimEvent, deep: boolean) {
+    const t = this.state.t;
+    if (!this.state.arcs) return;
+    for (const [owner, listener] of [[a, b], [b, a]] as [AgentState, AgentState][]) {
+      const arc = arcOf(this.state, owner.id);
+      if (!arc) continue;
+      const seed = arcSeed(arc.seedId);
+      if (!seed.secret || arc.knownBy.includes(listener.id) || seed.secretAbout === listener.id) continue;
+      const po = this.profiles.get(owner.id)!;
+      const key = `reveal:${arc.id}:${listener.id}:${t}`;
+      const p = revealChance(owner, po, listener.id, deep);
+      if (p <= 0 || !this.rng.chance(key, p)) continue;
+      arc.knownBy.push(listener.id);
+      const ev = this.emit({
+        type: 'revelation',
+        actors: [owner.id, listener.id],
+        locationId: conv.locationId,
+        busId: conv.busId,
+        label: `${po.firstName} se confie à ${this.name(listener.id)} : ${seed.secret}`,
+        causes: [conv.id],
+        mechanism: `${deep ? 'Vraie conversation' : 'Discussion'} et confiance (affinité ${(owner.relationships[listener.id]?.affinity ?? 0).toFixed(2)})`,
+        randomDraws: [{ key, value: this.rng.next(key) }],
+        effects: [this.adjustRelationship(listener, owner.id, 0.08), this.adjustRelationship(owner, listener.id, 0.05), ...this.mood(owner, 0.05, -0.08)],
+        data: { arcId: arc.id, secretAbout: seed.secretAbout },
+        sig: `${arc.id}>${listener.id}`,
+      });
+      arc.beats.push(ev.id);
+      this.remember(listener, ev, `${po.firstName} m’a confié un secret : ${seed.secret}`, 0.8, 0.2, [owner.id]);
+      this.remember(owner, ev, `J’ai confié mon secret à ${this.name(listener.id)}`, 0.6, 0.1, [listener.id]);
+    }
+    // Gossip: a holder passes on a third party's secret.
+    for (const [holder, listener] of [[a, b], [b, a]] as [AgentState, AgentState][]) {
+      const ph = this.profiles.get(holder.id)!;
+      for (const arc of secretsToSpread(this.state, holder.id, listener.id)) {
+        const seed = arcSeed(arc.seedId);
+        const key = `gossip:${arc.id}:${holder.id}:${listener.id}:${t}`;
+        if (!this.rng.chance(key, gossipChance(ph, listener, holder.id))) continue;
+        arc.knownBy.push(listener.id);
+        const source = this.events.filter((e) => (e.type === 'revelation' || e.type === 'gossip') && e.actors[1] === holder.id && e.data?.arcId === arc.id).pop();
+        const owner = this.state.agents[arc.agentId];
+        const reachesTarget = seed.secretAbout === listener.id;
+        const ev = this.emit({
+          type: 'gossip',
+          actors: [holder.id, listener.id],
+          locationId: conv.locationId,
+          busId: conv.busId,
+          label: `${ph.firstName} rapporte à ${this.name(listener.id)} le secret de ${this.name(arc.agentId)} : ${seed.secret}`,
+          causes: [conv.id, source?.id],
+          mechanism: `Curiosité de ${ph.firstName} (${Math.round(ph.traits.curiosity * 100)} %) et discrétion limitée (${Math.round(ph.traits.honesty * 100)} %)`,
+          randomDraws: [{ key, value: this.rng.next(key) }],
+          data: { arcId: arc.id, about: arc.agentId, reachesTarget },
+          importance: reachesTarget ? 0.85 : 0.65,
+          sig: `${arc.id}:${holder.id}>${listener.id}`,
+        });
+        arc.beats.push(ev.id);
+        this.remember(listener, ev, `${ph.firstName} m’a raconté : ${seed.secret}`, reachesTarget ? 0.9 : 0.6, reachesTarget ? -0.5 : 0, [arc.agentId, holder.id]);
+        if (reachesTarget) {
+          // The secret reaches the very person it was kept from: a twist for the owner's arc.
+          const effects: StateChange[] = [this.adjustRelationship(listener, arc.agentId, -0.12), ...this.mood(listener, -0.15, 0.1)];
+          ev.effects.push(...effects);
+          this.influence(listener, ev, `A appris le secret de ${this.name(arc.agentId)}`);
+          if (arc.status === 'open' || arc.status === 'advancing') {
+            this.resolveArc(arc, 'twisted', `${this.name(listener.id)} apprend par ${ph.firstName} ce que ${this.name(arc.agentId)} lui cachait`, 'Le secret a atteint la personne concernée par la rumeur', [ev.id], conv.locationId);
+          } else {
+            // The arc is already closed: the leak is an aftershock, not a new resolution.
+            const after = this.emit({ type: 'arc_beat', actors: [arc.agentId, listener.id], locationId: conv.locationId, busId: conv.busId, label: `Contrecoup — ${seed.title} : ${this.name(listener.id)} apprend par ${ph.firstName} ce que ${this.name(arc.agentId)} lui cachait`, causes: [ev.id, arc.resolutionEventId], mechanism: 'Le secret a atteint la personne concernée après la fin de l’histoire', importance: 0.7, data: { arcId: arc.id, aftershock: true }, sig: `${arc.id}:aftershock` });
+            arc.beats.push(after.id);
+          }
+          if (owner) this.mood(owner, 0, 0.1);
+        }
+      }
+    }
+  }
+
+  /** Turn the minute's events into arc beats and resolve arcs whose deadline passed. */
+  private processDrama(fromIndex: number) {
+    if (!this.state.arcs) this.state.arcs = initialArcs();
+    const t = this.state.t;
+    const minuteEvents = this.events.slice(fromIndex);
+    for (const arc of Object.values(this.state.arcs)) {
+      if (arc.status !== 'open' && arc.status !== 'advancing') continue;
+      for (const ev of minuteEvents) {
+        const beat = evaluateBeat(arc, ev, this.state, this.profiles);
+        if (!beat) continue;
+        this.applyBeat(beat, ev);
+        if (arc.status !== 'open' && arc.status !== 'advancing') break;
+      }
+      if ((arc.status === 'open' || arc.status === 'advancing') && t >= arcDeadline(arc)) {
+        const out = deadlineOutcome(arc, this.state, this.profiles);
+        if (!out) continue;
+        const a = this.state.agents[arc.agentId];
+        const causes: EventId[] = [arc.beats.at(-1), a?.lastDecision?.eventId, a?.lastArrivalEventId].filter((x): x is EventId => !!x);
+        this.resolveArc(arc, out.outcome, out.text, out.mechanism, causes, a?.locationId ?? undefined);
+      }
+    }
+  }
+
+  private applyBeat(beat: Beat, ev: SimEvent) {
+    const arc = beat.arc;
+    const seed = arcSeed(arc.seedId);
+    if (seed.goal.type === 'conversations') arc.count += 1;
+    if (beat.outcome) {
+      arc.progress = beat.progress;
+      this.resolveArc(arc, beat.outcome, beat.text, beat.mechanism, [ev.id], ev.locationId);
+      return;
+    }
+    arc.progress = Math.max(arc.progress, beat.progress);
+    arc.status = 'advancing';
+    const b = this.emit({ type: 'arc_beat', actors: [arc.agentId], locationId: ev.locationId, busId: ev.busId, label: beat.text, causes: [ev.id], mechanism: beat.mechanism, importance: beat.importance, data: { arcId: arc.id, progress: Number(arc.progress.toFixed(2)) }, sig: `${arc.id}:${Math.round(arc.progress * 10)}` });
+    arc.beats.push(b.id);
+  }
+
+  private resolveArc(arc: ArcState, outcome: 'fulfilled' | 'failed' | 'twisted', text: string, mechanism: string, causes: EventId[], locationId?: LocationId) {
+    const seed = arcSeed(arc.seedId);
+    const a = this.state.agents[arc.agentId];
+    const stakes = effectiveStakes(arc);
+    arc.status = outcome;
+    arc.resolvedAt = this.state.t;
+    if (outcome === 'fulfilled') arc.progress = 1;
+    const effects: StateChange[] = a ? (outcome === 'fulfilled' ? this.mood(a, 0.25 * stakes + 0.1, -0.15 * stakes) : outcome === 'failed' ? this.mood(a, -(0.25 * stakes + 0.1), 0.2 * stakes) : this.mood(a, -0.1, 0.25 * stakes)) : [];
+    const word = outcome === 'fulfilled' ? 'Accompli' : outcome === 'failed' ? 'Échec' : 'Coup de théâtre';
+    const ev = this.emit({
+      type: 'arc_resolved',
+      actors: [arc.agentId],
+      locationId,
+      label: `${word} — ${seed.title} : ${text}`,
+      description: `${seed.desire} ${seed.tension}`,
+      causes,
+      mechanism,
+      effects,
+      importance: outcome === 'twisted' ? 0.95 : 0.8 + 0.15 * stakes,
+      data: { arcId: arc.id, outcome, stakes: Number(stakes.toFixed(2)), attempt: arc.attempt },
+      sig: `${arc.id}:${outcome}`,
+    });
+    arc.beats.push(ev.id);
+    arc.resolutionEventId = ev.id;
+    if (a) {
+      this.remember(a, ev, `${word} : ${seed.title.toLowerCase()} — ${text}`, 0.7 + 0.2 * stakes, outcome === 'fulfilled' ? 0.7 : -0.6, []);
+      this.influence(a, ev, `${word} : ${seed.title.toLowerCase()}`);
+    }
   }
 
   // ---------------------------------------------------------------------

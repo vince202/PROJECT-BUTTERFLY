@@ -48,9 +48,11 @@ export function buildJevRequest(r: AdviceRequest, model: string) {
       moment: { heure: r.time, lieu: r.location, prochain_engagement: r.nextCommitment ?? 'aucun' },
       etat: { besoins: r.needs, humeur: r.mood },
       souvenirs_recents: r.recentMemories,
+      souvenirs_pertinents: r.relevantMemories ?? [],
       vient_de_vivre: r.influences,
+      enjeu_du_jour: r.stakes ?? 'aucun',
       choix_utilitaire: r.baseline,
-      consigne: 'Choisir ce que cette personne ferait maintenant, en cohérence avec sa personnalité, ses besoins, ses objectifs, ses souvenirs et le moment de la journée. Les scores sont indicatifs.',
+      consigne: 'Choisir ce que cette personne ferait maintenant, en cohérence avec sa personnalité, ses besoins, ses objectifs, son enjeu du jour (désir, tension, échéance), ses souvenirs et le moment de la journée. Les scores sont indicatifs.',
     },
     questions: {
       decision: {

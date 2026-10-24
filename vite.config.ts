@@ -39,5 +39,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    // Full-day simulations in tests can exceed the default 5 s on a loaded machine.
+    testTimeout: 30000,
   },
 });

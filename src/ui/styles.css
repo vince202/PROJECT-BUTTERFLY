@@ -250,6 +250,7 @@ select.input { padding-right: 4px; }
 .fam-bus { --fam: var(--accent); }
 .fam-world { --fam: var(--ok); }
 .fam-decision { --fam: var(--fam-decision); }
+.fam-drama { --fam: var(--warn); }
 .fam-routine { --fam: var(--faint); }
 .fam-intervention { --fam: #ffffff; }
 .fam-dot[class*='fam-'] { background: var(--fam); }
@@ -589,6 +590,7 @@ select.input { padding-right: 4px; }
 .tl-marker.lane-2 { top: 18px; }
 .tl-marker.lane-3 { top: 25px; }
 .tl-marker.lane-4 { top: 32px; opacity: 0.55; }
+.tl-marker.lane-5 { top: 39px; opacity: 0.55; }
 .tl-marker.lane-all { top: 15px; width: 10px; height: 10px; margin-left: -5px; border-radius: 1px; transform: rotate(45deg); background: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, 0.6); z-index: 2; }
 .tl-marker.lane-all:hover { transform: rotate(45deg) scale(1.5); }
 .tl-cons {

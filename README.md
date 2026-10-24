@@ -41,7 +41,7 @@ cp .env.example .env        # puis renseignez ANTHROPIC_API_KEY
 npm run server              # port 8787, proxyfié par Vite sous /api
 ```
 
-Sans clé, le serveur (ou son absence) répond « narration IA désactivée » et l'application utilise ses replis déterministes. Avec une clé, le modèle (par défaut `claude-opus-5-5`, configurable via `ANTHROPIC_MODEL`) interprète vos demandes « Et si… » et peut réécrire les rapports en prose. Le repli serveur (`fallbacks: "default"`) est activé par défaut en cas de refus du modèle ; désactivez-le avec `ANTHROPIC_FALLBACKS=off`. Le LLM ne modifie jamais l'état simulé : il produit une intervention structurée validée, ou reformule des faits enregistrés.
+Sans clé, le serveur (ou son absence) répond « narration IA désactivée » et l'application utilise ses replis déterministes. Avec une clé, le modèle (par défaut `claude-haiku-5-5`, rapide et économique ; `ANTHROPIC_MODEL` permet de choisir Sonnet ou Opus) interprète vos demandes « Et si… » et peut réécrire les rapports en prose. Le repli serveur (`fallbacks: "default"`) est activé par défaut en cas de refus du modèle ; désactivez-le avec `ANTHROPIC_FALLBACKS=off`. Le LLM ne modifie jamais l'état simulé : il produit une intervention structurée validée, ou reformule des faits enregistrés.
 
 ### Autres commandes
 
@@ -95,28 +95,34 @@ Résultat obtenu avec la graine par défaut (reproductible avec `npm run cli -- 
 
 **Graine 51** — événement : « Le bus L1-1 arrive à Arrêt Place du Marché » (09:25, Arrêt Place du Marché), retard imposé : 3 minutes.
 
-- 2993 événements identiques, 5 décalés dans le temps, 4 présents seulement dans A, 9 seulement dans B.
-- 15 conséquences causalement vérifiées de l’intervention, touchant 5 habitants.
-- Première conséquence : 09:28 — Gérard monte dans le bus L1-1 à Arrêt Place du Marché.
-- Conséquences majeures : 15:39 Hugo trouve un portefeuille oublié à Supermarché Marché Plus ; 18:39 Hugo dépose le portefeuille de Gérard à son domicile (Gérard est absent) ; 18:53 Martin trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard ; 19:38 Martin rend son portefeuille à Gérard.
+- 3173 événements identiques, 4 décalés dans le temps, 5 présents seulement dans A, 12 seulement dans B.
+- 18 conséquences causalement vérifiées de l’intervention, touchant 4 habitants.
+- Première conséquence : 09:24 — Échec — Tenir l’horaire : Antoine ne tiendra pas l’horaire : le bus L1-1 a 3 min de retard.
+- Conséquences majeures : 09:24 Échec — Tenir l’horaire : Antoine ne tiendra pas l’horaire : le bus L1-1 a 3 min de retard ; 18:39 Paul trouve un portefeuille oublié à Supermarché Marché Plus : celui de Gérard ; 19:26 Paul dépose le portefeuille de Gérard à son domicile (Gérard est absent) ; 19:37 Noé trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard.
+- Destins modifiés : Antoine — « Tenir l’horaire » : accompli en A, échoué en B.
 
 Conséquences vérifiées :
 
+- 09:24 — Échec — Tenir l’horaire : Antoine ne tiendra pas l’horaire : le bus L1-1 a 3 min de retard *(seulement dans B)*
 - 09:28 — Gérard monte dans le bus L1-1 à Arrêt Place du Marché *(décalé de +3 min)*
 - 09:26 — Antoine et Gérard discutent dans le bus L1-1 *(n’a pas eu lieu dans B)*
 - 09:32 — Gérard descend du bus à Arrêt Supermarché *(décalé de +3 min)*
 - 09:52 — Gérard oublie son portefeuille à Supermarché Marché Plus *(seulement dans B)*
 - 12:15 — Gérard abandonne « Se reposer à la maison » pour « Se détendre au parc » *(n’a pas eu lieu dans B)*
 - 14:42 — Gérard attend Paul (Partie de pétanque) *(décalé de +13 min)*
-- 15:39 — Hugo trouve un portefeuille oublié à Supermarché Marché Plus *(seulement dans B)*
-- 15:39 — Hugo décide de rendre le portefeuille à Gérard *(seulement dans B)*
-- 18:39 — Hugo dépose le portefeuille de Gérard à son domicile (Gérard est absent) *(seulement dans B)*
-- 18:53 — Martin trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard *(seulement dans B)*
-- 18:53 — Martin décide de rendre le portefeuille à Gérard *(seulement dans B)*
-- 19:38 — Martin rend son portefeuille à Gérard *(seulement dans B)*
-- 20:35 — Gérard et Noé bavardent joyeusement à Immeuble Haussmann *(décalé de +56 min)*
+- 18:39 — Paul trouve un portefeuille oublié à Supermarché Marché Plus : celui de Gérard *(seulement dans B)*
+- 18:39 — Paul décide de rendre le portefeuille à Gérard *(seulement dans B)*
+- 19:24 — Paul abandonne « Se reposer à la maison » pour « Rendre le portefeuille à Gérard » *(seulement dans B)*
+- 19:26 — Paul dépose le portefeuille de Gérard à son domicile (Gérard est absent) *(seulement dans B)*
+- 19:37 — Noé trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard *(seulement dans B)*
+- 19:37 — Noé décide de rendre le portefeuille à Gérard *(seulement dans B)*
+- 20:24 — Noé rend son portefeuille à Gérard *(seulement dans B)*
+- 21:30 — Gérard et Paul bavardent joyeusement à Parc des Tilleuls *(n’a pas eu lieu dans B)*
+- 21:39 — Paul va dormir *(décalé de -6 min)*
+- 21:39 — Paul abandonne « Se reposer à la maison » pour « Dormir » *(seulement dans B)*
+- 21:42 — Paul abandonne « Se détendre au parc » pour « Dormir » *(n’a pas eu lieu dans B)*
 
-Dans la réalité A, Gérard bavarde avec Antoine (le chauffeur) dans le bus et fait ses courses sans incident. Dans la réalité B, il arrive au supermarché trois minutes plus tard, dans un autre moment de distraction : il oublie son portefeuille. Hugo le trouve l'après-midi, le dépose chez Gérard qui est absent, Martin le ramasse en rentrant et le rend à Gérard dans la soirée. Cinq habitants sont touchés ; les quinze autres vivent exactement la même journée.
+Dans la réalité A, Antoine tient l'horaire toute la journée et Gérard bavarde avec lui dans le bus avant de faire ses courses sans incident. Dans la réalité B, le retard est constaté dès 09:24 : l'histoire d'Antoine, « Tenir l'horaire », bascule en échec. Gérard monte trois minutes plus tard, arrive au supermarché dans un autre moment de distraction et oublie son portefeuille à 09:52. Paul le trouve après sa journée de travail, à 18:39, et décide de le rendre : il le dépose chez Gérard à 19:26, mais Gérard est au parc. C'est Noé, son petit-fils, qui le trouve à 19:37 et le lui rend à 20:24. Quatre habitants sont touchés ; les seize autres vivent exactement la même journée. Le panneau « Comparer » et le rapport listent le destin modifié d'Antoine (« Destins modifiés »).
 
 Chaque maillon est inspectable dans l'explorateur causal, et le tirage aléatoire responsable de l'oubli (`lose:gerard:…`) est affiché avec sa valeur : la différence vient bien d'un autre instant, pas d'une autre « chance ».
 
@@ -134,6 +140,30 @@ npm run cli:advised -- --seed 51 --advisor jev         # Jev, TypeSafe System On
 ```
 
 - **Jev comme conseiller rapide** : Jev (TypeSafe, modèle « System One » de décisions typées) répond à une question à choix fermé par une distribution de probabilités sur les options proposées, en quelques dizaines de millisecondes et avec facturation à l'entrée seulement (≈ 0,04 $ par million de jetons, sortie gratuite). Le serveur (`server/jev.ts`) lui envoie l'état de l'habitant, ses souvenirs récents et les options déjà validées par le moteur ; une réponse qui ne désigne pas une option, ou dont la confiance est trop faible, est ignorée et le choix utilitaire s'applique. Une journée complète coûte de l'ordre d'un à deux centimes. Variables : `TYPESAFE_API_KEY`, `TYPESAFE_MODEL` (`jev-latest` par défaut), `BUTTERFLY_ADVISOR=jev|anthropic|none` pour forcer le conseiller. Le choix du conseiller actif est affiché dans la barre du haut (« Conseiller Jev »).
+
+## Mémoire par similarité (rappel de souvenirs)
+
+Les souvenirs d'un habitant ne sont plus seulement « les quatre derniers » : quand le conseiller de décision est consulté, BUTTERFLY **rappelle les souvenirs pertinents pour la situation** (lieu, personnes présentes, prochain engagement, désir du jour) en combinant similarité sémantique, récence et importance (`src/sim/recall.ts`). La similarité vient d'un modèle d'embeddings **local et gratuit** via [Ollama](https://ollama.com) (par défaut `embeddinggemma`, variables `OLLAMA_URL`, `OLLAMA_EMBED_MODEL`) exposé par le serveur sur `POST /api/ai/embed` ; sans Ollama, un embedder lexical déterministe (sac de mots haché) prend le relais, hors ligne. Les vecteurs sont mis en cache par texte, et le rappel n'influence que ce que voient les conseillers et l'interface : le moteur déterministe n'en dépend pas, la comparaison A/B reste exacte.
+
+```bash
+ollama pull embeddinggemma                                   # une fois, sur votre machine
+npm run cli:advised -- --seed 51 --advisor mock --embed lexical   # rappel lexical (par défaut)
+npm run cli:advised -- --seed 51 --advisor jev --embed ollama     # rappel par embeddings locaux
+```
+
+## Narration : un modèle rapide, des gabarits contraints aux faits
+
+Le serveur propose plusieurs gabarits de narration (`POST /api/ai/narrate`, style `day`, `agent`, `causal`, `compare`, `morning`, `dialogue`, `counterfactual`) : récit de la journée, portrait d'un habitant centré sur son histoire du jour, chaîne causale commentée, comparaison des deux réalités, « Ce matin, dans la ville » (qui veut quoi, qui cache quoi, avant que la journée n'ait lieu), scène dialoguée (répliques imaginées mais limitées aux faits enregistrés, signalée comme telle) et « Ce qui aurait pu arriver ». Le modèle par défaut est `claude-haiku-5-5`, rapide et peu coûteux ; la consigne interdit d'inventer un événement, un lieu ou une motivation absents des faits.
+
+## Dramaturgie : désirs, secrets et points de bascule
+
+Chaque habitant vit chaque jour **une histoire** : un **désir** (ce qu'il veut aujourd'hui, par exemple « Oser parler à Hugo » pour Inès ou « Tenir l'horaire » pour Antoine), parfois un **secret** qu'il cache, une **tension** (ce qui risque d'empêcher le désir) et une **échéance** à partir de laquelle l'histoire se règle d'elle-même. À la fin de la journée, chaque histoire est **accomplie**, **échouée** ou **bouleversée** (coup de théâtre).
+
+- **Temps forts et points de bascule.** Les événements ordinaires deviennent des étapes de l'histoire : un croisement qui n'ose pas aller plus loin, un rendez-vous manqué, un bus qui prend du retard. Ils apparaissent sur la chronologie dans la famille **Drame** : *Temps fort* (l'histoire avance), *Point de bascule* (elle se termine : accomplie, échouée ou bouleversée), *Confidence*, *Rumeur* et *Dilemme*. Chacun cite l'événement qui l'a provoqué : on peut remonter la chaîne causale d'un échec comme celle de n'importe quel autre événement.
+- **Les secrets voyagent.** Un habitant peut confier son secret au cours d'une conversation, mais seulement à un proche (ami, famille, couple, béguin) avec lequel l'affinité est assez forte ; celui qui l'a reçu peut à son tour le répéter. Un secret qui atteint **la personne dont il était caché** provoque un coup de théâtre : l'histoire de son propriétaire est bouleversée.
+- **Le désir infléchit les décisions.** Il ajoute à certains choix un petit bonus ou malus, d'autant plus fort que l'enjeu est grand et que l'échéance approche. C'est visible dans l'inspecteur, sous « Pourquoi fait-il cela ? », comme composante **« Désir du jour : … »** à côté de la faim, du trajet ou de l'humeur. Quand l'envie et un engagement se disputent presque à égalité, un **Dilemme** est noté.
+- **Les histoires s'enchaînent d'un jour à l'autre.** Après « Jour suivant », un habitant dont l'histoire a été accomplie ou bouleversée passe à la suivante ; celui qui a échoué **retente** la même histoire avec des enjeux plus élevés (jusqu'à trois tentatives), et ce qui a été appris des secrets est conservé.
+- **Dans le rapport.** La section « Arcs du jour — ce que chacun voulait » résume les vingt histoires, « Confidences, rumeurs et dilemmes » liste les secrets qui ont circulé, et chaque fiche d'habitant raconte son histoire. L'assistant de questions répond à « Quelle était l'histoire de Noé ? ». Dans la comparaison A/B, la ligne **« Destins modifiés »** indique les histoires dont l'issue diffère entre les deux réalités (par exemple « Antoine — « Tenir l'horaire » : accompli en A, échoué en B »).
 
 ## Interventions comprises sans LLM
 
@@ -153,13 +183,13 @@ Un formulaire structuré permet de composer n'importe quelle intervention sans p
 
 Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). En résumé :
 
-- `src/sim/` — moteur de simulation pur TypeScript (ville, population, décision utilitaire, événements causaux, bus, réalités, instantanés, comparaison, interprète d'interventions, récit). Aucune dépendance au navigateur.
+- `src/sim/` — moteur de simulation pur TypeScript (ville, population, décision utilitaire, événements causaux, bus, réalités, instantanés, comparaison, interprète d'interventions, récit, dramaturgie). Aucune dépendance au navigateur.
 - `src/render/` — ville 3D en React Three Fiber : palette et matériaux (`shared.ts`, `materials.ts`), chargement des modèles glTF (`models.ts`), kit de maisons procédurales (`kit.ts`), composition de la ville (`layout.ts`, `town.ts`, `Town.tsx`), personnages animés (`Agents.tsx`, `characters.ts`, `social.ts`, `seats.ts`), bus, rues, éclairage, pluie, caméra (`CameraRig.tsx`, `focus.ts`).
 - `public/models/` — bibliothèque de modèles 3D libres (voir `docs/CREDITS.md`).
 - `src/ui/` — interface en français.
 - `src/store/` — état applicatif (Zustand).
 - `server/` — adaptateur LLM optionnel.
-- `tests/` — suite Vitest (reproductibilité, horloge, déplacements, exclusivité, chronologie causale, branchement, relecture, divergence, interprète, récit).
+- `tests/` — suite Vitest (reproductibilité, horloge, déplacements, exclusivité, chronologie causale, branchement, relecture, divergence, interprète, récit, dramaturgie).
 
 ## Limites connues
 

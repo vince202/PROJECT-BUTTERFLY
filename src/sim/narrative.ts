@@ -6,10 +6,11 @@
 
 import type { Comparison } from './compare';
 import { getCity } from './city';
+import { ARC_KIND_LABELS, ARC_STATUS_LABELS, arcDeadline, arcOf, arcSeed, effectiveStakes } from './drama';
 import { AGENTS, profileOf } from './population';
 import type { Reality } from './reality';
 import { fmtDuration, fmtTime, periodOfDay } from './time';
-import type { AgentId, EventId, SimEvent } from './types';
+import type { AgentId, ArcState, EventId, SimEvent } from './types';
 
 export interface ReportSection {
   title: string;
@@ -23,10 +24,31 @@ export interface DayReport {
   perAgent: AgentSummary[];
 }
 
+export interface ArcSummary {
+  arcId: string;
+  title: string;
+  kind: string;
+  desire: string;
+  tension: string;
+  secret?: string;
+  /** First names of those who learnt the secret today. */
+  secretKnownBy: string[];
+  deadline: number;
+  stakes: number;
+  status: ArcState['status'];
+  statusLabel: string;
+  progress: number;
+  attempt: number;
+  beats: { t: number; text: string; eventId: EventId; type: SimEvent['type'] }[];
+  /** One French paragraph telling the arc. */
+  story: string;
+}
+
 export interface AgentSummary {
   agentId: AgentId;
   name: string;
   headline: string;
+  arc?: ArcSummary;
   timeline: { t: number; text: string; eventId: EventId }[];
   encounters: string[];
   objectives: { label: string; status: string }[];
@@ -48,9 +70,45 @@ function moodWord(m: number): string {
   return 'abattu';
 }
 
+export function arcSummary(reality: Reality, agentId: AgentId): ArcSummary | undefined {
+  const arc = arcOf(reality.engine.state, agentId);
+  if (!arc) return undefined;
+  const seed = arcSeed(arc.seedId);
+  const p = profileOf(agentId);
+  const beats = arc.beats.map((id) => reality.eventById(id)).filter((e): e is SimEvent => !!e).map((e) => ({ t: e.t, text: e.label, eventId: e.id, type: e.type }));
+  const statusLabel = ARC_STATUS_LABELS[arc.status];
+  const resolution = arc.resolutionEventId ? reality.eventById(arc.resolutionEventId) : undefined;
+  const parts: string[] = [];
+  parts.push(`${p.firstName} voulait aujourd’hui : ${seed.desire.replace(/\.$/, '')} (${ARC_KIND_LABELS[seed.kind].toLowerCase()}${arc.attempt > 1 ? `, ${arc.attempt}e tentative` : ''}).`);
+  parts.push(seed.tension);
+  const middle = beats.filter((b) => b.type !== 'arc_resolved');
+  if (middle.length) parts.push(`En chemin : ${middle.slice(0, 4).map((b) => `${fmtTime(b.t)} ${b.text}`).join(' ; ')}.`);
+  if (resolution) parts.push(`${fmtTime(resolution.t)} — ${resolution.label}${resolution.mechanism ? ` (${resolution.mechanism.toLowerCase()})` : ''}.`);
+  else parts.push(`À ${fmtTime(reality.engine.state.t)}, l’histoire est encore ${statusLabel}${arc.progress > 0 ? ` (${Math.round(arc.progress * 100)} %)` : ''}.`);
+  if (seed.secret && arc.knownBy.length) parts.push(`Son secret (${seed.secret.replace(/\.$/, '').toLowerCase()}) est désormais connu de ${arc.knownBy.map(firstName).join(', ')}.`);
+  return {
+    arcId: arc.id,
+    title: seed.title,
+    kind: ARC_KIND_LABELS[seed.kind],
+    desire: seed.desire,
+    tension: seed.tension,
+    secret: seed.secret,
+    secretKnownBy: arc.knownBy.map(firstName),
+    deadline: arcDeadline(arc),
+    stakes: effectiveStakes(arc),
+    status: arc.status,
+    statusLabel,
+    progress: arc.progress,
+    attempt: arc.attempt,
+    beats,
+    story: parts.join(' '),
+  };
+}
+
 export function agentSummary(reality: Reality, agentId: AgentId): AgentSummary {
   const p = profileOf(agentId);
   const events = reality.eventsOf(agentId);
+  const arc = arcSummary(reality, agentId);
   const start = reality.snapshots.get(360)!.agents[agentId];
   const end = reality.engine.state.agents[agentId];
   const notable = events.filter((e) => e.importance >= 0.3 && !['decision', 'depart', 'arrive', 'activity_end', 'bus_depart', 'bus_arrive'].includes(e.type));
@@ -82,10 +140,13 @@ export function agentSummary(reality: Reality, agentId: AgentId): AgentSummary {
   const args = events.filter((e) => e.type === 'argument').length;
   const buses = events.filter((e) => e.type === 'board_bus').length;
   const late = events.filter((e) => e.type === 'late');
-  const headline = missed ? `${p.firstName} a manqué ${missed} rendez-vous` : args ? `${p.firstName} s’est disputé` : late.length ? `${p.firstName} est arrivé en retard` : chats >= 4 ? `Journée très sociale pour ${p.firstName}` : `Journée ordinaire pour ${p.firstName}`;
+  const arcHeadline = arc && arc.status !== 'open' && arc.status !== 'advancing' ? `${p.firstName} — ${arc.title} : ${arc.statusLabel}` : null;
+  const arcDrama = arc && (arc.status === 'failed' || arc.status === 'twisted') ? arcHeadline : null;
+  const headline = missed ? `${p.firstName} a manqué ${missed} rendez-vous` : arcDrama ?? (args ? `${p.firstName} s’est disputé` : late.length ? `${p.firstName} est arrivé en retard` : arcHeadline ?? (chats >= 4 ? `Journée très sociale pour ${p.firstName}` : `Journée ordinaire pour ${p.firstName}`));
 
   const parts: string[] = [];
   parts.push(`${p.name}, ${p.age} ans, ${p.occupation.toLowerCase()}, a commencé la journée ${moodWord(start.emotions.mood)} et l’a terminée ${moodWord(end.emotions.mood)}.`);
+  if (arc) parts.push(arc.story);
   if (done) parts.push(`${p.firstName} a accompli ${done} objectif${done > 1 ? 's' : ''} (${objectives.filter((o) => o.status === 'accompli').map((o) => o.label.toLowerCase()).join(', ')}).`);
   if (missed) parts.push(`${missed} engagement${missed > 1 ? 's ont' : ' a'} été manqué${missed > 1 ? 's' : ''} : ${objectives.filter((o) => o.status === 'manqué').map((o) => o.label.toLowerCase()).join(', ')}.`);
   if (meetings) parts.push(`${meetings} rendez-vous ${meetings > 1 ? 'ont' : 'a'} eu lieu.`);
@@ -97,7 +158,7 @@ export function agentSummary(reality: Reality, agentId: AgentId): AgentSummary {
   if (strongMemories.length) parts.push(`Souvenirs marquants : ${strongMemories.map((m) => `${fmtTime(m.t)} ${m.text}`).join(' ; ')}.`);
   if (unresolved.length) parts.push(`Non résolu : ${unresolved.join(' ; ')}.`);
 
-  return { agentId, name: p.name, headline, timeline, encounters, objectives, moodStart: start.emotions.mood, moodEnd: end.emotions.mood, relationshipChanges, unresolved, paragraph: parts.join(' ') };
+  return { agentId, name: p.name, headline, arc, timeline, encounters, objectives, moodStart: start.emotions.mood, moodEnd: end.emotions.mood, relationshipChanges, unresolved, paragraph: parts.join(' ') };
 }
 
 export function whoMetWhom(reality: Reality): { a: AgentId; b: AgentId; count: number; places: string[]; first: number }[] {
@@ -179,10 +240,23 @@ export function dayReport(reality: Reality, comparison?: Comparison | null): Day
     chains.items.push({ t: event.t, text: `${event.label} : ${descendants} événements en aval (impact ${impact.toFixed(1)})${tail}`, eventId: event.id, agents: event.actors });
   }
 
-  const sections = [overview, encounters, missed, unexpected, relations, decisions, unresolved, chains];
+  const arcs: ReportSection = { title: 'Arcs du jour — ce que chacun voulait', items: [] };
+  const arcStates = Object.values(endState.arcs ?? {});
+  const order: Record<string, number> = { twisted: 0, failed: 1, fulfilled: 2, advancing: 3, open: 4 };
+  for (const arc of [...arcStates].sort((x, y) => order[x.status] - order[y.status] || (x.resolvedAt ?? 9999) - (y.resolvedAt ?? 9999))) {
+    const seed = arcSeed(arc.seedId);
+    const res = arc.resolutionEventId ? reality.eventById(arc.resolutionEventId) : undefined;
+    const word = ARC_STATUS_LABELS[arc.status];
+    arcs.items.push({ t: res?.t, text: `${firstName(arc.agentId)} — « ${seed.title} » : ${word}${res ? ` — ${res.label.replace(/^[^—]+— [^:]+: /, '')}` : arc.progress > 0 ? ` (${Math.round(arc.progress * 100)} %)` : ''}`, eventId: res?.id, agents: [arc.agentId] });
+  }
+  const twists: ReportSection = { title: 'Confidences, rumeurs et dilemmes', items: [] };
+  for (const e of ev.filter((e) => ['revelation', 'gossip', 'dilemma'].includes(e.type))) twists.items.push({ t: e.t, text: e.label, eventId: e.id, agents: e.actors });
+
+  const sections = [arcs, overview, twists, encounters, missed, unexpected, relations, decisions, unresolved, chains];
   if (comparison) {
     const diff: ReportSection = { title: 'Ce qui a changé entre les deux réalités', items: [] };
     for (const s of comparison.summary) diff.items.push({ text: s });
+    for (const c of comparison.arcChanges) diff.items.push({ t: c.eventB?.t, text: `Destin modifié — ${c.text}`, eventId: c.eventB?.id, agents: [c.agentId] });
     for (const m of comparison.consequences.slice(0, 12)) if (m.b) diff.items.push({ t: m.b.t, text: `${m.status === 'shifted' ? `(décalé de ${m.dt! > 0 ? '+' : ''}${m.dt} min) ` : ''}${m.b.label}`, eventId: m.b.id, agents: m.b.actors });
     sections.push(diff);
   }
@@ -191,7 +265,10 @@ export function dayReport(reality: Reality, comparison?: Comparison | null): Day
   const meetings = ev.filter((e) => e.type === 'meeting_start').length;
   const missedN = ev.filter((e) => e.type === 'meeting_missed').length;
   const chats = ev.filter((e) => e.type === 'encounter' || e.type === 'conversation').length;
-  const intro = `Journée simulée avec la graine ${reality.seed}${reality.def.interventions.length ? ` et ${reality.def.interventions.length} intervention(s)` : ''} : ${n} événements enregistrés, ${meetings} rendez-vous tenus, ${missedN} manqué${missedN > 1 ? 's' : ''}, ${chats} conversations, ${ev.filter((e) => e.type === 'board_bus').length} montées dans le bus${endState.weatherSchedule.some((w) => w.condition === 'rain') ? ', une averse' : ', pas de pluie'}.`;
+  const fulfilled = arcStates.filter((a) => a.status === 'fulfilled').length;
+  const failed = arcStates.filter((a) => a.status === 'failed').length;
+  const twisted = arcStates.filter((a) => a.status === 'twisted').length;
+  const intro = `Journée simulée avec la graine ${reality.seed}${reality.def.interventions.length ? ` et ${reality.def.interventions.length} intervention(s)` : ''} : ${n} événements enregistrés, ${meetings} rendez-vous tenus, ${missedN} manqué${missedN > 1 ? 's' : ''}, ${chats} conversations, ${ev.filter((e) => e.type === 'board_bus').length} montées dans le bus${endState.weatherSchedule.some((w) => w.condition === 'rain') ? ', une averse' : ', pas de pluie'}. Sur ${arcStates.length} histoires du jour : ${fulfilled} accomplie${fulfilled > 1 ? 's' : ''}, ${failed} échouée${failed > 1 ? 's' : ''}, ${twisted} bouleversée${twisted > 1 ? 's' : ''}.`;
 
   const dayLabel = (reality.def.day ?? 1) > 1 ? `Jour ${reality.def.day} — ` : '';
   return { title: `Rapport de la journée — ${dayLabel}${reality.def.name}`, intro, sections, perAgent: AGENTS.map((a) => agentSummary(reality, a.id)) };
@@ -209,6 +286,12 @@ export function answerQuestion(question: string, reality: Reality, comparison?: 
   if (/plus d impact|plus grand impact|le plus de consequences|impact/.test(q)) {
     const top = reality.causal.mostImpactful(3, (e) => e.importance >= 0.3 && !['decision', 'activity_start', 'wake', 'depart'].includes(e.type));
     return top.map((x, i) => `${i + 1}. ${fmtTime(x.event.t)} ${x.event.label} — ${x.descendants} événements en aval, impact ${x.impact.toFixed(1)}`).join('\n');
+  }
+  if (/histoire|arc|voulait|destin|secret|objectif/.test(q)) {
+    const arcs = Object.values(reality.engine.state.arcs ?? {});
+    const pick = agent ? arcs.filter((a) => a.agentId === agent.id) : arcs;
+    if (!pick.length) return 'Aucune histoire du jour n’est enregistrée.';
+    return pick.map((a) => { const s = arcSummary(reality, a.agentId); return s ? `${firstName(a.agentId)} — « ${s.title} » (${s.statusLabel}) : ${s.story}` : ''; }).filter(Boolean).join('\n');
   }
   if (/change|differen|deux realites|realite b/.test(q)) {
     if (!comparison) return 'Aucune réalité alternative n’a encore été créée. Utilisez l’éditeur d’interventions.';

@@ -3,8 +3,10 @@
  *   npm run cli:advised -- --seed 51 --advisor mock        (deterministic mock, no key needed)
  *   npm run cli:advised -- --seed 51 --advisor anthropic   (needs ANTHROPIC_API_KEY in .env)
  *   npm run cli:advised -- --seed 51 --advisor jev         (needs TYPESAFE_API_KEY in .env)
+ *   --embed lexical|ollama|none   memory recall for the advisor (ollama needs a local Ollama server)
  */
 import { generateWithAdvisor, MockAdvisor, type DecisionAdvisor } from '../src/sim/advisor';
+import { LexicalEmbedder, type Embedder } from '../src/sim/recall';
 import { Reality } from '../src/sim/reality';
 import { fmtTime } from '../src/sim/time';
 
@@ -21,10 +23,16 @@ async function main() {
   } else if (which === 'anthropic') {
     if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) throw new Error('ANTHROPIC_API_KEY manquante (voir .env.example)');
     const { AnthropicAdvisor } = await import('../server/advisor');
-    advisor = new AnthropicAdvisor(process.env.ANTHROPIC_MODEL ?? 'claude-opus-5-5', process.env.ANTHROPIC_FALLBACKS !== 'off');
+    advisor = new AnthropicAdvisor(process.env.ANTHROPIC_MODEL ?? 'claude-haiku-5-5', process.env.ANTHROPIC_FALLBACKS !== 'off');
   } else advisor = new MockAdvisor();
+  const embedKind = opt('embed', 'lexical');
+  let embedder: Embedder | undefined;
+  if (embedKind === 'ollama') {
+    const { OllamaEmbedder } = await import('../server/embed');
+    embedder = new OllamaEmbedder({ model: process.env.OLLAMA_EMBED_MODEL, baseUrl: process.env.OLLAMA_URL });
+  } else if (embedKind === 'lexical') embedder = new LexicalEmbedder();
   const t0 = performance.now();
-  const res = await generateWithAdvisor({ id: 'A', name: 'A', seed, interventions: [] }, advisor, { maxPasses: Number(opt('passes', '4')), maxRequestsPerPass: Number(opt('batch', which === 'anthropic' ? '40' : '150')) });
+  const res = await generateWithAdvisor({ id: 'A', name: 'A', seed, interventions: [] }, advisor, { maxPasses: Number(opt('passes', '4')), maxRequestsPerPass: Number(opt('batch', which === 'anthropic' ? '40' : '150')), embedder });
   console.log(res.log.join('\n'));
   console.log(`\nConseiller ${advisor.name} — ${res.answered} réponses, ${res.applied} conseils appliqués, ${res.unresolved} choix restés utilitaires, ${Math.round(performance.now() - t0)} ms`);
   const base = new Reality({ id: 'A', name: 'A', seed, interventions: [] }).generate();

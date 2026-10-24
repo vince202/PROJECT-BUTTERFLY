@@ -14,8 +14,9 @@
  */
 
 import type { Reality } from './reality';
+import { ARC_STATUS_LABELS, arcSeed } from './drama';
 import { fmtTime } from './time';
-import type { AgentId, EventId, Minute, SimEvent } from './types';
+import type { AgentId, ArcStatus, EventId, Minute, SimEvent } from './types';
 
 export type MatchStatus = 'same' | 'shifted' | 'only_a' | 'only_b';
 
@@ -47,6 +48,21 @@ export interface AgentDiff {
   affectedEvents: number;
 }
 
+export interface ArcChange {
+  arcId: string;
+  agentId: AgentId;
+  title: string;
+  statusA: ArcStatus;
+  statusB: ArcStatus;
+  /** French sentence: « Noé : « Parler à Léa » échoué en A, accompli en B ». */
+  text: string;
+  /** Resolution events in each reality, when any. */
+  eventA?: SimEvent;
+  eventB?: SimEvent;
+  /** Is the B resolution causally linked to the intervention? */
+  verified: boolean;
+}
+
 export interface Comparison {
   interventionEvents: SimEvent[];
   firstDivergence: EventMatch | null;
@@ -67,6 +83,8 @@ export interface Comparison {
   statusB: Record<EventId, MatchStatus>;
   /** Match status of every A event. */
   statusA: Record<EventId, MatchStatus>;
+  /** Daily arcs whose outcome differs between the two realities (« destins modifiés »). */
+  arcChanges: ArcChange[];
 }
 
 const NOISE_TYPES = new Set(['decision', 'bus_depart', 'bus_arrive', 'activity_start', 'activity_end', 'depart', 'arrive', 'wake', 'day_start', 'day_end', 'purchase']);
@@ -206,7 +224,33 @@ export function compareRealities(A: Reality, B: Reality): Comparison {
     if (m.a) statusA[m.a.id] = m.status;
   }
   void graphA;
-  return { interventionEvents, firstDivergence, firstConsequence, matches, same, shifted, onlyA, onlyB, consequences, agentDiffs, affectedAgents, summary, statusB, statusA };
+
+  // Destinies: arcs whose outcome differs.
+  const arcChanges: ArcChange[] = [];
+  const arcsA = A.engine.state.arcs ?? {};
+  const arcsB = B.engine.state.arcs ?? {};
+  for (const arcA of Object.values(arcsA)) {
+    const arcB = arcsB[arcA.id];
+    if (!arcB || arcA.status === arcB.status) continue;
+    const seed = arcSeed(arcA.seedId);
+    const eventA = arcA.resolutionEventId ? A.eventById(arcA.resolutionEventId) : undefined;
+    const eventB = arcB.resolutionEventId ? B.eventById(arcB.resolutionEventId) : undefined;
+    const name = A.engine.profiles.get(arcA.agentId)?.firstName ?? arcA.agentId;
+    arcChanges.push({
+      arcId: arcA.id,
+      agentId: arcA.agentId,
+      title: seed.title,
+      statusA: arcA.status,
+      statusB: arcB.status,
+      text: `${name} — « ${seed.title} » : ${ARC_STATUS_LABELS[arcA.status]} en A, ${ARC_STATUS_LABELS[arcB.status]} en B`,
+      eventA,
+      eventB,
+      verified: !!eventB && affectedB.has(eventB.id),
+    });
+  }
+  if (arcChanges.length) summary.push(`Destins modifiés : ${arcChanges.map((c) => c.text).join(' ; ')}.`);
+
+  return { interventionEvents, firstDivergence, firstConsequence, matches, same, shifted, onlyA, onlyB, consequences, agentDiffs, affectedAgents, summary, statusB, statusA, arcChanges };
 }
 
 /** Where is each agent at minute t in both realities (for the side-by-side view). */

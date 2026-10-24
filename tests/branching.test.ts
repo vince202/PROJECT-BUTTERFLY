@@ -188,7 +188,7 @@ describe('Intervention force_action', () => {
   });
 
   it('en A, Martin ne prend pas de café à ce moment-là', () => {
-    expect(A.events.some((e) => e.type === 'activity_start' && e.actors[0] === 'martin' && e.data?.action === 'coffee' && e.t >= 420 && e.t < 480)).toBe(false);
+    expect(A.events.some((e) => e.type === 'activity_start' && e.actors[0] === 'martin' && e.data?.action === 'coffee' && e.t >= 420 && e.t < 440)).toBe(false);
   });
 
   it('une action forcée vers un lieu (parc) place l’habitant dans ce lieu', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Engine } from '../src/sim/engine';
 import { fmtTime, parseTime } from '../src/sim/time';
 import { DAY_END, DAY_LENGTH, DAY_START } from '../src/sim/types';
+import { DEFAULT_SPEED, SPEEDS, normalizeSpeed, simMinutes, stepSpeed } from '../src/store/speed';
 
 describe('Horloge du moteur', () => {
   it('les constantes de la journée sont 06:00 → 24:00', () => {
@@ -115,5 +116,38 @@ describe('fmtTime / parseTime', () => {
   it('fmtTime borne les valeurs hors journée', () => {
     expect(fmtTime(-10)).toBe('00:00');
     expect(fmtTime(5000)).toBe('24:00');
+  });
+});
+
+describe('Vitesse de lecture (horloge d’affichage)', () => {
+  it('propose ×1, ×5, ×20, ×60 avec ×20 par défaut', () => {
+    expect([...SPEEDS]).toEqual([1, 5, 20, 60]);
+    expect(DEFAULT_SPEED).toBe(20);
+  });
+
+  it('×1 est le temps réel : une minute simulée dure 60 secondes', () => {
+    expect(simMinutes(60, 1)).toBeCloseTo(1, 10);
+    expect(simMinutes(1, 1)).toBeCloseTo(1 / 60, 10);
+  });
+
+  it('×N avance N fois plus vite que le temps réel', () => {
+    expect(simMinutes(60, 5)).toBeCloseTo(5, 10);
+    expect(simMinutes(3, 20)).toBeCloseTo(1, 10);
+    expect(simMinutes(1, 60)).toBeCloseTo(1, 10);
+    // La journée (1080 minutes) dure 18 h à ×1 et 18 min à ×60.
+    expect(DAY_LENGTH / simMinutes(1, 1) / 3600).toBeCloseTo(18, 10);
+    expect(DAY_LENGTH / simMinutes(1, 60) / 60).toBeCloseTo(18, 10);
+  });
+
+  it('une vitesse enregistrée inconnue ou ancienne retombe sur ×20', () => {
+    for (const s of SPEEDS) expect(normalizeSpeed(s)).toBe(s);
+    for (const old of [2, 10, 0, -5, 1.5, '10', null, undefined, NaN]) expect(normalizeSpeed(old)).toBe(20);
+  });
+
+  it('les raccourcis passent au préréglage suivant / précédent sans déborder', () => {
+    expect(stepSpeed(20, 1)).toBe(60);
+    expect(stepSpeed(60, 1)).toBe(60);
+    expect(stepSpeed(20, -1)).toBe(5);
+    expect(stepSpeed(1, -1)).toBe(1);
   });
 });
