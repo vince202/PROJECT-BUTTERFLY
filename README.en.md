@@ -8,18 +8,9 @@ BUTTERFLY is a deterministic simulation of a small French town: twenty inhabitan
 
 The app can be switched between French and English (see [Languages](#languages)); the in-game quotes below are given in French, as in the default interface, with an English gloss.
 
-<table>
-  <tr>
-    <td width="33%"><img src="docs/screenshots/start.png" alt="The « Choisir qui suivre » (Choose whom to follow) screen: twenty quests ranked by difficulty"></td>
-    <td width="33%"><img src="docs/screenshots/bubbles.png" alt="The town at 09:46: alert bubbles, dramatic feed, Léa's objective card"></td>
-    <td width="33%"><img src="docs/screenshots/cafe.png" alt="The terrace of Café Le Papillon at 07:40"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Choose whom to follow: twenty quests, rated 1 to 5</sub></td>
-    <td align="center"><sub>A loop in progress: bubbles, dramatic feed, objective</sub></td>
-    <td align="center"><sub>The café in the morning (3D town, CC0 models)</sub></td>
-  </tr>
-</table>
+| ![The « Choisir qui suivre » (Choose whom to follow) screen: twenty quests ranked by difficulty](docs/screenshots/start.jpg) | ![The town at 09:46: alert bubbles, dramatic feed, Léa's objective card](docs/screenshots/bubbles.jpg) | ![The terrace of Café Le Papillon at 07:40](docs/screenshots/cafe.jpg) |
+|---|---|---|
+| Choose whom to follow: twenty quests, rated 1 to 5 | A loop in progress: bubbles, dramatic feed, objective | The café in the morning (3D town, CC0 models) |
 
 ---
 
@@ -62,7 +53,7 @@ The whole day is computed in a few hundred milliseconds when the app opens; play
 
 | Inspector | Comparing the realities | Causal explorer |
 |---|---|---|
-| ![Inspector](docs/screenshots/inspecteur.png) | ![Comparison](docs/screenshots/comparaison.png) | ![Causality](docs/screenshots/causalite.png) |
+| ![Inspector](docs/screenshots/inspecteur.jpg) | ![Comparison](docs/screenshots/comparaison.jpg) | ![Causality](docs/screenshots/causalite.jpg) |
 
 ---
 

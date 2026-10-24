@@ -6,18 +6,9 @@
 
 BUTTERFLY est une simulation déterministe d'une petite ville française : vingt habitants, de 06:00 à minuit, minute par minute, où chaque événement a des causes enregistrées. On peut créer une seconde réalité, la réalité B, en y modifiant un détail (« Et si le bus avait trois minutes de retard ? ») et voir précisément ce qui change. Ce moteur est devenu un **jeu de boucle temporelle** : la journée se répète, personne n'atteint son but par la faute de coups du sort, et vous avez quelques gestes pour y remédier. Prototype expérimental.
 
-<table>
-  <tr>
-    <td width="33%"><img src="docs/screenshots/start.png" alt="Écran « Choisir qui suivre » : vingt quêtes classées par difficulté"></td>
-    <td width="33%"><img src="docs/screenshots/bubbles.png" alt="La ville à 09:46 : bulles d'alerte, fil dramatique, objectif de Léa"></td>
-    <td width="33%"><img src="docs/screenshots/cafe.png" alt="La terrasse du Café Le Papillon à 07:40"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Choisir qui suivre : vingt quêtes, de 1 à 5</sub></td>
-    <td align="center"><sub>La boucle en cours : bulles, fil dramatique, objectif</sub></td>
-    <td align="center"><sub>Le café le matin (ville 3D, modèles CC0)</sub></td>
-  </tr>
-</table>
+| ![Écran « Choisir qui suivre » : vingt quêtes classées par difficulté](docs/screenshots/start.jpg) | ![La ville à 09:46 : bulles d'alerte, fil dramatique, objectif de Léa](docs/screenshots/bubbles.jpg) | ![La terrasse du Café Le Papillon à 07:40](docs/screenshots/cafe.jpg) |
+|---|---|---|
+| Choisir qui suivre : vingt quêtes, de 1 à 5 | La boucle en cours : bulles, fil dramatique, objectif | Le café le matin (ville 3D, modèles CC0) |
 
 ---
 
@@ -60,7 +51,7 @@ La journée entière est calculée en quelques centaines de millisecondes à l'o
 
 | Inspecteur | Comparaison des réalités | Explorateur causal |
 |---|---|---|
-| ![Inspecteur](docs/screenshots/inspecteur.png) | ![Comparaison](docs/screenshots/comparaison.png) | ![Causalité](docs/screenshots/causalite.png) |
+| ![Inspecteur](docs/screenshots/inspecteur.jpg) | ![Comparaison](docs/screenshots/comparaison.jpg) | ![Causalité](docs/screenshots/causalite.jpg) |
 
 ---
 
