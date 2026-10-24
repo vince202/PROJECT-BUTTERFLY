@@ -114,8 +114,8 @@ function ObjectiveCard({ game }: { game: GameState }) {
           {Array.from({ length: game.budget }, (_, i) => (
             <span key={i} className={`gesture-pip ${i < remaining ? 'on' : ''}`} aria-hidden />
           ))}
-          <span className="gesture-budget-text">
-            {remaining} / {game.budget} geste{game.budget > 1 ? 's' : ''}
+          <span className="gesture-budget-text mono">
+            {remaining}/{game.budget}
           </span>
         </span>
         {playing ? (

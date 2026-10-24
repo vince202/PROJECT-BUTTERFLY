@@ -90,6 +90,7 @@ const ACTION_WORDS: [RegExp, ActionType, LocationId | undefined][] = [
   [/courses|supermarche/, 'shop_groceries', 'supermarket'],
   [/sport|gymnase|salle/, 'workout', 'gym'],
   [/rentrer|maison|chez (elle|lui)|se reposer|dormir/, 'rest_home', undefined],
+  [/lycee|en cours|a l ecole|ecole/, 'school', 'school'],
   [/travailler|au travail|au bureau/, 'work', undefined],
 ];
 

@@ -10,7 +10,7 @@
  */
 
 import { arcOf, arcSeed, effectiveStakes } from './drama';
-import { profileOf } from './population';
+import { agree, profileOf } from './population';
 import type { Reality } from './reality';
 import { fmtTime } from './time';
 import type { AgentId, ArcSeed, ArcStatus, Intervention, Minute } from './types';
@@ -217,7 +217,7 @@ export function loopSummary(game: GameState, played: Reality): { title: string; 
     else lines.push(`À minuit, l’histoire restait en suspens (${Math.round(arc.progress * 100)} %).`);
   }
   lines.push(`Gestes utilisés : ${played.def.interventions.length} / ${game.budget}.`);
-  const title = outcome === 'fulfilled' ? `${p.firstName} y est arrivé·e — boucle ${game.loop}` : outcome === 'twisted' ? `Coup de théâtre pour ${p.firstName} — boucle ${game.loop}` : `${p.firstName} n’y est pas arrivé·e — boucle ${game.loop}`;
+  const title = outcome === 'fulfilled' ? `${p.firstName} y est ${agree(p.id, 'arrivé')} — boucle ${game.loop}` : outcome === 'twisted' ? `Coup de théâtre pour ${p.firstName} — boucle ${game.loop}` : `${p.firstName} n’y est pas ${agree(p.id, 'arrivé')} — boucle ${game.loop}`;
   return { title, lines };
 }
 

@@ -22,7 +22,7 @@ const stop = (code) => { try { process.kill(-vite.pid, 'SIGTERM'); } catch { /* 
 if (!ready) { console.error('vite did not start'); stop(1); }
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium', args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
-const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
+const page = await browser.newPage({ viewport: { width: 1600, height: 950 }, locale: 'fr-FR' });
 const errors = [];
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('/api/ai')) errors.push(`console: ${m.text()}`); });
@@ -162,9 +162,15 @@ async function gameShots() {
   await page.waitForTimeout(1500);
   console.log('after gesture', await state());
   await gshot('05-gesture-applied', 400);
-  // The same sentence again: refused inline (already in place in this loop).
+  // A gesture in the past is refused inline: « Retenir chez soi » set to 07:00 while it is 08:40.
   await openComposer();
-  await typeSentence('Et si le bus avait trois minutes de retard ?');
+  await clickButton('Retenir chez soi', '.composer-kind');
+  await page.waitForTimeout(600);
+  await page.evaluate(() => {
+    const el = document.querySelector('.composer-form input[type=time]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '07:00');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   await gshot('05b-refusal', 700);
   await page.keyboard.press('Escape');
 

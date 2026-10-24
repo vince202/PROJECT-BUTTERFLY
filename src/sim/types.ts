@@ -210,6 +210,8 @@ export interface AgentProfile {
   id: AgentId;
   name: string;
   firstName: string;
+  /** Grammatical gender for French agreement in labels. */
+  gender: 'f' | 'm';
   age: number;
   occupation: string;
   homeId: LocationId;

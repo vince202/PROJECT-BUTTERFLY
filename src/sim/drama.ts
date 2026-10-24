@@ -26,6 +26,7 @@ import type {
   WorldState,
 } from './types';
 import { DAY_END } from './types';
+import { agree } from './population';
 
 const h = (hh: number, mm = 0): Minute => hh * 60 + mm;
 
@@ -251,7 +252,7 @@ export function evaluateBeat(arc: ArcState, ev: SimEvent, world: WorldState, pro
       if (ev.data?.commitmentId !== g.commitmentId) return null;
       if (ev.type === 'meeting_start' && involved) return { arc, progress: 0.7, text: `${name} est au rendez-vous`, mechanism: 'Le rendez-vous commence', importance: 0.5 };
       if (ev.type === 'meeting_end' && involved) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} a tenu parole`, mechanism: 'L’engagement a été honoré jusqu’au bout', importance: 0.8 };
-      if (ev.type === 'meeting_missed') return { arc, progress: arc.progress, outcome: 'failed', text: `${name} n’y est pas arrivé`, mechanism: ev.mechanism ?? 'Rendez-vous manqué', importance: 0.85 };
+      if (ev.type === 'meeting_missed') return { arc, progress: arc.progress, outcome: 'failed', text: `${name} n’y est pas ${agree(me, 'arrivé')}`, mechanism: ev.mechanism ?? 'Rendez-vous manqué', importance: 0.85 };
       if (ev.type === 'commitment_cancelled' && involved) return { arc, progress: arc.progress, outcome: 'failed', text: `${name} a renoncé`, mechanism: 'Engagement annulé', importance: 0.8 };
       return null;
     }
@@ -260,7 +261,7 @@ export function evaluateBeat(arc: ArcState, ev: SimEvent, world: WorldState, pro
       if (ev.type === 'late') return { arc, progress: 0, outcome: 'failed', text: `${name} est encore en retard (${ev.data?.lateBy} min)`, mechanism: ev.mechanism ?? 'Arrivée après l’heure', importance: 0.8 };
       if (ev.type === 'work_start' && !ev.data?.resuming) {
         const lateBy = Number(ev.data?.lateBy ?? 0);
-        if (lateBy <= 5) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} est arrivé à l’heure${lateBy < 0 ? `, ${-lateBy} min en avance` : ''}`, mechanism: 'Arrivée avant l’heure de début', importance: 0.8 };
+        if (lateBy <= 5) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} est ${agree(me, 'arrivé')} à l’heure${lateBy < 0 ? `, ${-lateBy} min en avance` : ''}`, mechanism: 'Arrivée avant l’heure de début', importance: 0.8 };
       }
       return null;
     }

@@ -34,6 +34,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'alice',
     name: 'Alice Moreau',
     firstName: 'Alice',
+    gender: 'f',
     age: 29,
     occupation: 'Graphiste à l’Agence Horizon',
     homeId: 'res_lilas',
@@ -51,6 +52,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'martin',
     name: 'Martin Lefèvre',
     firstName: 'Martin',
+    gender: 'm',
     age: 34,
     occupation: 'Comptable à l’Agence Horizon',
     homeId: 'imm_haussmann',
@@ -68,6 +70,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'sophie',
     name: 'Sophie Bernard',
     firstName: 'Sophie',
+    gender: 'f',
     age: 31,
     occupation: 'Bibliothécaire',
     homeId: 'maison_canal',
@@ -85,6 +88,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'julien',
     name: 'Julien Roux',
     firstName: 'Julien',
+    gender: 'm',
     age: 33,
     occupation: 'Journaliste indépendant',
     homeId: 'loft_gare',
@@ -101,6 +105,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'camille',
     name: 'Camille Dubois',
     firstName: 'Camille',
+    gender: 'f',
     age: 42,
     occupation: 'Boulangère',
     homeId: 'imm_voltaire',
@@ -119,6 +124,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'hugo',
     name: 'Hugo Petit',
     firstName: 'Hugo',
+    gender: 'm',
     age: 26,
     occupation: 'Barista au Café Le Papillon',
     homeId: 'res_parc',
@@ -136,6 +142,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'lea',
     name: 'Léa Fontaine',
     firstName: 'Léa',
+    gender: 'f',
     age: 17,
     occupation: 'Lycéenne',
     homeId: 'maison_bleue',
@@ -153,6 +160,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'nadia',
     name: 'Nadia Fontaine',
     firstName: 'Nadia',
+    gender: 'f',
     age: 45,
     occupation: 'Médecin généraliste',
     homeId: 'maison_bleue',
@@ -170,6 +178,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'noe',
     name: 'Noé Garnier',
     firstName: 'Noé',
+    gender: 'm',
     age: 17,
     occupation: 'Lycéen',
     homeId: 'imm_haussmann',
@@ -187,6 +196,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'gerard',
     name: 'Gérard Garnier',
     firstName: 'Gérard',
+    gender: 'm',
     age: 72,
     occupation: 'Retraité (ancien cheminot)',
     homeId: 'imm_haussmann',
@@ -203,6 +213,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'yasmine',
     name: 'Yasmine Khelifi',
     firstName: 'Yasmine',
+    gender: 'f',
     age: 38,
     occupation: 'Institutrice à l’école Jules Ferry',
     homeId: 'villa_rosa',
@@ -220,6 +231,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'thomas',
     name: 'Thomas Marchand',
     firstName: 'Thomas',
+    gender: 'm',
     age: 51,
     occupation: 'Directeur de l’Agence Horizon',
     homeId: 'loft_gare',
@@ -237,6 +249,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'ines',
     name: 'Inès Carvalho',
     firstName: 'Inès',
+    gender: 'f',
     age: 24,
     occupation: 'Étudiante en histoire',
     homeId: 'res_parc',
@@ -253,6 +266,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'paul',
     name: 'Paul Dupré',
     firstName: 'Paul',
+    gender: 'm',
     age: 58,
     occupation: 'Menuisier',
     homeId: 'maison_canal',
@@ -270,6 +284,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'chloe',
     name: 'Chloé Martin',
     firstName: 'Chloé',
+    gender: 'f',
     age: 36,
     occupation: 'Fleuriste',
     homeId: 'villa_rosa',
@@ -287,6 +302,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'antoine',
     name: 'Antoine Rey',
     firstName: 'Antoine',
+    gender: 'm',
     age: 39,
     occupation: 'Chauffeur de bus (Ligne 1)',
     homeId: 'villa_rosa',
@@ -305,6 +321,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'mireille',
     name: 'Mireille Lambert',
     firstName: 'Mireille',
+    gender: 'f',
     age: 68,
     occupation: 'Retraitée (mémoire vivante du quartier)',
     homeId: 'res_lilas',
@@ -321,6 +338,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'karim',
     name: 'Karim Benali',
     firstName: 'Karim',
+    gender: 'm',
     age: 30,
     occupation: 'Coach sportif au Gymnase Central',
     homeId: 'res_parc',
@@ -338,6 +356,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'elodie',
     name: 'Élodie Vasseur',
     firstName: 'Élodie',
+    gender: 'f',
     age: 27,
     occupation: 'Caissière au Marché Plus',
     homeId: 'res_lilas',
@@ -355,6 +374,7 @@ export const AGENTS: AgentProfile[] = [
     id: 'lucie',
     name: 'Lucie Perrin',
     firstName: 'Lucie',
+    gender: 'f',
     age: 47,
     occupation: 'Restauratrice (Chez Lucie)',
     homeId: 'loft_gare',
@@ -371,6 +391,14 @@ export const AGENTS: AgentProfile[] = [
 ];
 
 export const AGENT_IDS: AgentId[] = AGENTS.map((a) => a.id);
+
+/** French past-participle / adjective agreement: agree('lea', 'arrivé') → 'arrivée', agree('paul', 'promu') → 'promu'. */
+export function agree(id: AgentId, word: string): string {
+  const p = AGENTS.find((a) => a.id === id);
+  if (!p || p.gender !== 'f') return word;
+  if (word.endsWith('e')) return word;
+  return `${word}e`;
+}
 
 export function profileOf(id: AgentId): AgentProfile {
   const p = AGENTS.find((a) => a.id === id);

@@ -12,7 +12,7 @@
 import { ACTION_LABELS, UtilityPolicy, agentNode, defaultDuration, defaultLocationFor, isInterruptible, isLocationOpen, walkSpeed, type DecisionContext, type DecisionPolicy } from './decision';
 import { Timetable, TERMINAL_LAYOVER, stopPath } from './bus';
 import { getCity, polylineLength, pointAlong, type City } from './city';
-import { AGENTS, BUS_DRIVERS, COMMITMENT_SEEDS, type CommitmentSeed } from './population';
+import { AGENTS, BUS_DRIVERS, COMMITMENT_SEEDS, agree, type CommitmentSeed } from './population';
 import { Rng, daySeed } from './rng';
 import { ARC_STATUS_LABELS, fateOf, arcDeadline, arcOf, arcSeed, deadlineOutcome, detectDilemma, effectiveStakes, evaluateBeat, gossipChance, initialArcs, nextDayArcs, revealChance, secretsToSpread, type Beat } from './drama';
 import { fmtTime } from './time';
@@ -587,7 +587,7 @@ export class Engine {
             a.travel.pausedUntil = Math.max(a.travel.pausedUntil ?? 0, t + iv.minutes);
             a.travel.expectedArrival += iv.minutes;
             a.travel.delayEventIds.push(root.id);
-            this.emit({ type: 'plan_change', actors: [a.id], label: `${p.firstName} est retardé de ${iv.minutes} min en chemin`, causes: [root.id], interventionId: tag });
+            this.emit({ type: 'plan_change', actors: [a.id], label: `${p.firstName} est ${agree(a.id, 'retardé')} de ${iv.minutes} min en chemin`, causes: [root.id], interventionId: tag });
           } else if (a.activity) {
             // The agent is held where they are: no leaving, no plan change until the delay has passed.
             a.heldUntil = Math.max(a.heldUntil ?? 0, t + iv.minutes);
@@ -670,11 +670,11 @@ export class Engine {
           const where = a.locationId ? this.locName(a.locationId) : 'dans la rue';
           if (a.travel && a.travel.stage !== 'riding') this.cancelTravel(a);
           if (a.activity) this.endActivity(a, root.id, 'accident');
-          const ev = this.emit({ type: 'accident', actors: [a.id], locationId: 'clinic', label: `${this.name(a.id)} a un accident ${a.locationId ? `à ${where}` : where} et est conduit à la clinique`, causes: [root.id], mechanism: tag ? 'Accident imposé par l’intervention' : 'Accident', interventionId: tag, effects: this.mood(a, -0.4, 0.4), sig: a.id });
+          const ev = this.emit({ type: 'accident', actors: [a.id], locationId: 'clinic', label: `${this.name(a.id)} a un accident ${a.locationId ? `à ${where}` : where} et est ${agree(a.id, 'conduit')} à la clinique`, causes: [root.id], mechanism: tag ? 'Accident imposé par l’intervention' : 'Accident', interventionId: tag, effects: this.mood(a, -0.4, 0.4), sig: a.id });
           this.moveTo(a, 'clinic');
           a.heldUntil = t + iv.minutes;
           a.needs.fatigue = Math.min(100, a.needs.fatigue + 25);
-          a.activity = { action: 'wait', label: 'Soigné à la clinique', locationId: 'clinic', since: t, until: t + iv.minutes, startEventId: ev.id, interruptible: false };
+          a.activity = { action: 'wait', label: `${agree(a.id, 'Soigné')} à la clinique`, locationId: 'clinic', since: t, until: t + iv.minutes, startEventId: ev.id, interruptible: false };
           a.plan = null;
           this.remember(a, ev, `Accident : ${iv.minutes} min à la clinique`, 0.9, -0.8);
           this.notifyClose(a.id, ev, `${this.name(a.id)} a eu un accident`, -0.25, 0.25);
@@ -744,13 +744,13 @@ export class Engine {
           if (!a) break;
           const p = this.profiles.get(a.id)!;
           const work = a.commitments.find((c) => (c.kind === 'work' || c.kind === 'shift') && c.status !== 'done' && c.status !== 'missed');
-          const ev = this.emit({ type: 'dismissal', actors: [a.id], locationId: p.workplaceId, label: `${p.firstName} est renvoyé${p.workplaceId ? ` de ${this.locName(p.workplaceId)}` : ''}`, causes: [root.id], mechanism: tag ? 'Renvoi imposé par l’intervention' : 'Renvoi', interventionId: tag, effects: this.mood(a, -0.5, 0.45), sig: a.id });
+          const ev = this.emit({ type: 'dismissal', actors: [a.id], locationId: p.workplaceId, label: `${p.firstName} est ${agree(a.id, 'renvoyé')}${p.workplaceId ? ` de ${this.locName(p.workplaceId)}` : ''}`, causes: [root.id], mechanism: tag ? 'Renvoi imposé par l’intervention' : 'Renvoi', interventionId: tag, effects: this.mood(a, -0.5, 0.45), sig: a.id });
           if (work) work.status = 'cancelled';
           for (const [other, r] of Object.entries(a.relationships)) if (r.kind === 'boss') ev.effects.push(this.adjustRelationship(a, other, -0.35));
           this.remember(a, ev, 'Renvoyé. Que faire maintenant ?', 0.95, -0.9);
           this.influence(a, ev, 'Renvoyé');
           if (a.activity && (a.activity.action === 'work' || a.activity.action === 'school')) this.endActivity(a, ev.id, 'renvoyé');
-          this.notifyClose(a.id, ev, `${p.firstName} a été renvoyé`, -0.1, 0.1);
+          this.notifyClose(a.id, ev, `${p.firstName} a été ${agree(a.id, 'renvoyé')}`, -0.1, 0.1);
           break;
         }
         case 'promotion': {
@@ -762,7 +762,7 @@ export class Engine {
           for (const [other, r] of Object.entries(a.relationships)) if (r.kind === 'boss') ev.effects.push(this.adjustRelationship(a, other, 0.2));
           this.remember(a, ev, 'Promu ! Une grande nouvelle', 0.9, 0.9);
           this.influence(a, ev, 'Promotion');
-          this.notifyClose(a.id, ev, `${p.firstName} a été promu`, 0.1, -0.05);
+          this.notifyClose(a.id, ev, `${p.firstName} a été ${agree(a.id, 'promu')}`, 0.1, -0.05);
           break;
         }
         case 'illness': {
@@ -1748,7 +1748,7 @@ export class Engine {
             effects: [this.adjustRelationship(o, a.id, -0.06 - (1 - op.traits.patience) * 0.08), ...this.mood(o, -0.05, 0.05)],
             sig: `${o.id}:${c.id}`,
           });
-          this.remember(o, notice, `${p.firstName} est arrivé en retard (${lateBy} min)`, 0.5, -0.3, [a.id]);
+          this.remember(o, notice, `${p.firstName} est ${agree(a.id, 'arrivé')} en retard (${lateBy} min)`, 0.5, -0.3, [a.id]);
           this.remember(a, notice, `${op.firstName} a remarqué mon retard`, 0.5, -0.4, [o.id]);
         }
       }
@@ -2559,7 +2559,7 @@ export class Engine {
       mechanism,
       effects,
       importance: outcome === 'twisted' ? 0.95 : 0.8 + 0.15 * stakes,
-      gravity: outcome === 'twisted' || stakes >= 0.7 ? 3 : 2,
+      gravity: outcome === 'twisted' ? 3 : outcome === 'fulfilled' ? 2 : stakes >= 0.7 ? 2 : 1,
       data: { arcId: arc.id, outcome, stakes: Number(stakes.toFixed(2)), attempt: arc.attempt },
       sig: `${arc.id}:${outcome}`,
     });

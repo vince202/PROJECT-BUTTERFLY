@@ -17,7 +17,8 @@ describe('Gravité des événements', () => {
   it('les routines sont des anecdotes, les disputes et rendez-vous manqués sont graves, les coups de théâtre vitaux', () => {
     for (const e of A.events.filter((x) => ['decision', 'depart', 'arrive', 'wake', 'bus_arrive', 'purchase'].includes(x.type))) expect(e.gravity).toBe(0);
     for (const e of A.events.filter((x) => x.type === 'argument' || x.type === 'meeting_missed')) expect(e.gravity).toBeGreaterThanOrEqual(2);
-    for (const e of A.events.filter((x) => x.type === 'arc_resolved')) expect(e.gravity).toBeGreaterThanOrEqual(2);
+    for (const e of A.events.filter((x) => x.type === 'arc_resolved')) expect(e.gravity).toBeGreaterThanOrEqual(1);
+    for (const e of A.events.filter((x) => x.type === 'arc_resolved' && x.data?.outcome === 'fulfilled')) expect(e.gravity).toBeGreaterThanOrEqual(2);
     for (const e of A.events.filter((x) => x.type === 'arc_resolved' && x.data?.outcome === 'twisted')) expect(e.gravity).toBe(3);
   });
 });

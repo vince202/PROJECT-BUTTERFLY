@@ -131,7 +131,9 @@ BUTTERFLY se joue comme un film de boucle temporelle. **La réalité A est la jo
 
 **La partie** : on choisit un habitant (Léa, « À l'heure au lycée », sert d'entraînement ; les quêtes sont classées de 1 à 5), puis on regarde la journée se dérouler **vers l'avant seulement** dans une réalité B. On dispose d'un petit budget de **gestes** par boucle (deux à quatre interventions) ; on ne peut pas revenir en arrière dans la boucle, mais la frise de la réalité A reste consultable pour planifier. À minuit, la boucle se ferme : issue de l'objectif, destins modifiés chez les autres, gestes utilisés. Le **carnet** garde tous les gestes déjà essayés avec ce personnage, réutilisables en un clic dans la boucle suivante. Les alertes du mode spectacle ne montrent que ce qui compte : événements notables ou graves, marqués « lié à votre quête » quand ils touchent votre personnage, la personne visée, le lieu de l'objectif ou votre histoire (`src/sim/quest.ts`). Le laboratoire (Tab) garde la vue complète.
 
-Modèle de jeu dans `src/sim/game.ts` (cartes de quête, budget, règles des gestes, boucles, carnet), état persistant dans le navigateur, règle du moteur : `tests/drama.test.ts` vérifie qu'aucun arc n'est accompli en A et que le geste du tutoriel fait réussir Léa.
+**Jouer** : lancez l'application, le mode spectacle s'ouvre sur « Choisir qui suivre ». Pendant la journée : `Espace` lecture/pause, `G` faire un geste (texte libre en français ou gestes rapides, toujours dans le futur), `N` carnet, `Échap` fermer, `Tab` laboratoire. Les bulles au-dessus des personnages signalent ce qui compte ; « Voir la journée telle qu'elle se répète » bascule sur la réalité A pour planifier. À minuit, le bilan propose de rejouer ou de changer de personnage. Pour Léa, un geste suffit : « Et si Léa partait au lycée à 7 h 30 ? ».
+
+Modèle de jeu dans `src/sim/game.ts` (cartes de quête, budget, règles des gestes, boucles, carnet), interface dans `src/ui/game/`, état persistant dans le navigateur ; `tests/drama.test.ts` vérifie qu'aucun arc n'est accompli en A et que le geste du tutoriel fait réussir Léa.
 
 ## Journées enchaînées, conseiller de décision, rencontres de rue
 
