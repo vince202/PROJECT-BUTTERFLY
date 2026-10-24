@@ -7,18 +7,23 @@
  */
 
 import { arcOf, arcSeed } from './drama';
+import { labelTable } from './population';
 import type { Reality } from './reality';
 import type { AgentId, ArcSeed, Gravity, LocationId, SimEvent, WorldState } from './types';
 
 export type QuestLink = 'self' | 'target' | 'place' | 'arc' | 'none';
 
-export const QUEST_LINK_LABELS: Record<QuestLink, string> = {
+/** French source of the quest link labels (the catalogue's data part is generated from it). */
+export const QUEST_LINK_LABELS_FR: Record<QuestLink, string> = {
   self: 'votre personnage',
   target: 'la personne visée',
   place: 'le lieu de votre objectif',
   arc: 'votre histoire',
   none: '',
 };
+
+/** Read through `story.quest_link.<link>` at access time. */
+export const QUEST_LINK_LABELS: Record<QuestLink, string> = labelTable('quest_link', QUEST_LINK_LABELS_FR);
 
 export interface QuestAlert {
   event: SimEvent;

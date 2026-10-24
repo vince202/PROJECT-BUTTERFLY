@@ -21,6 +21,7 @@ import { Timeline } from './ui/Timeline';
 import { PanelHost } from './ui/PanelHost';
 import { SpectatorOverlay } from './ui/Spectator';
 import { useGlobalShortcuts, useModeTransition } from './ui/mode';
+import { useLocale } from './ui/hooks';
 import { checkAiStatus } from './ai/client';
 
 /** Drives the display clock from real time (×1 = real time: one simulated minute per 60 s, see store/speed.ts). */
@@ -45,9 +46,11 @@ export function App() {
   useGlobalShortcuts();
   const { mode, leaving } = useModeTransition();
   const setAi = useSimStore((s) => s.setAi);
+  // The status messages are produced in the active language: check again when it changes.
+  const locale = useLocale();
   useEffect(() => {
     checkAiStatus().then(setAi);
-  }, [setAi]);
+  }, [setAi, locale]);
   const lab = mode === 'lab';
   return (
     <div className={`app ${mode}${leaving ? ' leaving' : ''}`}>

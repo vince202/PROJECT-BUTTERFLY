@@ -6,6 +6,7 @@
  * sit on real street nodes. Pathfinding is a plain Dijkstra over this graph.
  */
 
+import { has, t } from '../i18n';
 import type { BusLineDef, CityEdge, CityNode, LocationDef, LocationId, NodeId, Vec2 } from './types';
 
 export const CITY_WIDTH = 720;
@@ -122,6 +123,14 @@ export const BUS_LINES: BusLineDef[] = [
     capacity: 20,
   },
 ];
+
+// Display names are read through the catalogue (`city.<id>`) at access time; the French literal above is the fallback.
+function localizeName(def: { name: string }, key: string): void {
+  const literal = def.name;
+  Object.defineProperty(def, 'name', { enumerable: true, configurable: true, get: () => (has(key) ? t(key) : literal) });
+}
+for (const l of LOCATIONS) localizeName(l, `city.${l.id}`);
+for (const l of BUS_LINES) localizeName(l, `city.line_${l.id}`);
 
 /** Number of buses running on each line (one departing from each terminal). */
 export const BUSES_PER_LINE = 2;

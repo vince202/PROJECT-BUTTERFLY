@@ -15,6 +15,7 @@
 
 import type { Reality } from './reality';
 import { ARC_STATUS_LABELS, arcSeed } from './drama';
+import { t } from '../i18n';
 import { fmtTime } from './time';
 import type { AgentId, ArcStatus, EventId, Minute, SimEvent } from './types';
 
@@ -201,8 +202,8 @@ export function compareRealities(A: Reality, B: Reality): Comparison {
       agentId: id,
       locationA: a.locationId,
       locationB: b.locationId,
-      activityA: a.activity?.label ?? (a.asleep ? 'Dort' : a.travel ? 'En chemin' : '—'),
-      activityB: b.activity?.label ?? (b.asleep ? 'Dort' : b.travel ? 'En chemin' : '—'),
+      activityA: a.activity?.label ?? (a.asleep ? t('engine.activity_sleeping') : a.travel ? t('engine.activity_on_the_way') : '—'),
+      activityB: b.activity?.label ?? (b.asleep ? t('engine.activity_sleeping') : b.travel ? t('engine.activity_on_the_way') : '—'),
       moodA: a.emotions.mood,
       moodB: b.emotions.mood,
       objectivesA: a.objectivesDone,
@@ -217,12 +218,12 @@ export function compareRealities(A: Reality, B: Reality): Comparison {
 
   const same = matches.filter((m) => m.status === 'same').length;
   const summary: string[] = [];
-  summary.push(`${same} événements identiques, ${shifted.length} décalés dans le temps, ${onlyA.length} présents seulement dans A, ${onlyB.length} seulement dans B.`);
-  summary.push(`${consequences.length} conséquences causalement vérifiées de l’intervention, touchant ${affectedAgents.length} habitant${affectedAgents.length > 1 ? 's' : ''}.`);
-  if (firstConsequence?.b) summary.push(`Première conséquence : ${fmtTime(firstConsequence.b.t)} — ${firstConsequence.b.label}.`);
+  summary.push(t('engine.cmp_counts', { same, shifted: shifted.length, onlyA: onlyA.length, onlyB: onlyB.length }));
+  summary.push(t('engine.cmp_consequences', { n: consequences.length, agents: affectedAgents.length }));
+  if (firstConsequence?.b) summary.push(t('engine.cmp_first_consequence', { time: fmtTime(firstConsequence.b.t), label: firstConsequence.b.label }));
   const majors = consequences.filter((m) => ((m.b ?? m.a)!.importance) >= 0.6);
-  if (majors.length) summary.push(`Conséquences majeures : ${majors.slice(0, 4).map((m) => (m.b ? `${fmtTime(m.b.t)} ${m.b.label}` : `${fmtTime(m.a!.t)} « ${m.a!.label} » n’a pas eu lieu`)).join(' ; ')}.`);
-  else if (consequences.length === 0) summary.push('L’intervention n’a produit aucune conséquence notable : la journée s’est déroulée presque à l’identique.');
+  if (majors.length) summary.push(t('engine.cmp_major_consequences', { list: majors.slice(0, 4).map((m) => (m.b ? t('engine.cmp_item_happened', { time: fmtTime(m.b.t), label: m.b.label }) : t('engine.cmp_item_did_not_happen', { time: fmtTime(m.a!.t), label: m.a!.label }))).join(t('engine.sep_semicolon')) }));
+  else if (consequences.length === 0) summary.push(t('engine.cmp_no_consequence'));
 
   const statusB: Record<EventId, MatchStatus> = {};
   const statusA: Record<EventId, MatchStatus> = {};
@@ -249,13 +250,13 @@ export function compareRealities(A: Reality, B: Reality): Comparison {
       title: seed.title,
       statusA: arcA.status,
       statusB: arcB.status,
-      text: `${name} — « ${seed.title} » : ${ARC_STATUS_LABELS[arcA.status]} en A, ${ARC_STATUS_LABELS[arcB.status]} en B`,
+      text: t('engine.cmp_arc_change', { name, title: seed.title, statusA: ARC_STATUS_LABELS[arcA.status], statusB: ARC_STATUS_LABELS[arcB.status] }),
       eventA,
       eventB,
       verified: !!eventB && affectedB.has(eventB.id),
     });
   }
-  if (arcChanges.length) summary.push(`Destins modifiés : ${arcChanges.map((c) => c.text).join(' ; ')}.`);
+  if (arcChanges.length) summary.push(t('engine.cmp_destinies', { list: arcChanges.map((c) => c.text).join(t('engine.sep_semicolon')) }));
 
   return { interventionEvents, firstDivergence, firstConsequence, matches, same, shifted, onlyA, onlyB, consequences, agentDiffs, affectedAgents, summary, statusB, statusA, arcChanges };
 }

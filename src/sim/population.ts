@@ -6,7 +6,29 @@
  * lives in the world state and evolves through events.
  */
 
+import { getLocale, t, type Locale } from '../i18n';
 import type { AgentId, AgentProfile, Commitment, Minute, Relationship, Traits } from './types';
+
+/**
+ * Translate `key` with a fallback on the French literal kept in the data files.
+ * (`t` renders a missing key as the key itself, which is how we detect it.)
+ */
+export function tOr(key: string, literal: string, params?: Record<string, string | number | boolean | undefined>): string {
+  const v = t(key, params);
+  return v === key ? literal : v;
+}
+
+/**
+ * A label table whose values are read through `t('story.<prefix>.<id>')` at access time,
+ * with the French literals as fallback. Behaves like a plain `Record` (indexing, `Object.keys`, spread).
+ */
+export function labelTable<K extends string | number>(prefix: string, literals: Record<K, string>): Record<K, string> {
+  const out = {} as Record<K, string>;
+  for (const k of Object.keys(literals) as unknown as K[]) {
+    Object.defineProperty(out, k, { enumerable: true, get: () => tOr(`story.${prefix}.${k}`, literals[k]) });
+  }
+  return out;
+}
 
 const h = (hh: number, mm = 0): Minute => hh * 60 + mm;
 
@@ -400,8 +422,32 @@ export function agree(id: AgentId, word: string): string {
   return `${word}e`;
 }
 
+const localizedProfiles = new Map<Locale, Map<AgentId, AgentProfile>>();
+
+/** Profile with its texts read through `story.agent.<id>.occupation|bio|goal.<i>` (French literals as fallback). */
+function localizeProfile(p: AgentProfile): AgentProfile {
+  const k = `story.agent.${p.id}`;
+  return { ...p, occupation: tOr(`${k}.occupation`, p.occupation), bio: tOr(`${k}.bio`, p.bio), goals: p.goals.map((g, i) => tOr(`${k}.goal.${i}`, g)) };
+}
+
+function profilesFor(locale: Locale): Map<AgentId, AgentProfile> {
+  let m = localizedProfiles.get(locale);
+  if (!m) {
+    m = new Map(AGENTS.map((a) => [a.id, localizeProfile(a)]));
+    localizedProfiles.set(locale, m);
+  }
+  return m;
+}
+
+/** The twenty profiles with texts in the active language (cached per language; `AGENTS` stays the French source). */
+export function localizedAgents(): AgentProfile[] {
+  const m = profilesFor(getLocale());
+  return AGENTS.map((a) => m.get(a.id)!);
+}
+
+/** Profile of an inhabitant with texts in the active language. */
 export function profileOf(id: AgentId): AgentProfile {
-  const p = AGENTS.find((a) => a.id === id);
+  const p = profilesFor(getLocale()).get(id);
   if (!p) throw new Error(`Unknown agent ${id}`);
   return p;
 }
@@ -426,6 +472,7 @@ export interface CommitmentSeed {
   tolerance: Minute;
 }
 
+/** French source of the commitments; read them through `commitmentSeeds()` to get the active language. */
 export const COMMITMENT_SEEDS: CommitmentSeed[] = [
   { id: 'c_martin_thomas', kind: 'meeting', label: 'Réunion bilan avec Thomas', locationId: 'office', start: h(9), end: h(9, 30), participants: ['martin', 'thomas'], tolerance: 10 },
   { id: 'c_gerard_doc', kind: 'appointment', label: 'Rendez-vous médical', locationId: 'clinic', start: h(9), end: h(9, 20), participants: ['gerard', 'nadia'], tolerance: 15 },
@@ -447,3 +494,16 @@ export const COMMITMENT_SEEDS: CommitmentSeed[] = [
   { id: 'c_mireille_elodie_cafe', kind: 'meeting', label: 'Thé avec Élodie', locationId: 'cafe', start: h(16, 45), end: h(17, 15), participants: ['mireille', 'elodie'], tolerance: 8 },
   { id: 'c_noe_book', kind: 'errand', label: 'Emprunter le livre d’astronomie', locationId: 'library', start: h(17, 40), end: h(17, 55), participants: ['noe'], tolerance: 10 },
 ];
+
+const localizedCommitments = new Map<Locale, CommitmentSeed[]>();
+
+/** Commitment seeds with `label` read through `story.commitment.<id>` (French literal as fallback). */
+export function commitmentSeeds(): CommitmentSeed[] {
+  const locale = getLocale();
+  let list = localizedCommitments.get(locale);
+  if (!list) {
+    list = COMMITMENT_SEEDS.map((c) => ({ ...c, label: tOr(`story.commitment.${c.id}`, c.label) }));
+    localizedCommitments.set(locale, list);
+  }
+  return list;
+}

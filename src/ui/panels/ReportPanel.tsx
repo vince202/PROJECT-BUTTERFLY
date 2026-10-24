@@ -8,20 +8,30 @@ import { useSimStore } from '../../store/useSimStore';
 import { aiNarrate, type NarrationStyle } from '../../ai/client';
 import { answerQuestion, dayReport, reportToText } from '../../sim/narrative';
 import { fmtTime } from '../../sim/time';
-import { AgentDot, AiButton, Empty, NarrationBox, Section } from '../common';
+import { t } from '../../i18n';
+import { AgentDot, AiButton, Empty, NarrationBox, Section, aiUnavailableTitle } from '../common';
 import { counterfactualFacts, morningFacts } from '../drama';
 import { moodColor } from '../format';
-import { useActiveReality } from '../hooks';
+import { useActiveReality, useLocale } from '../hooks';
 
-const QUESTIONS = ['Qu’est-il arrivé à Alice ?', 'Qui a rencontré qui ?', 'Quel événement a eu le plus d’impact ?', 'Qu’est-ce qui a changé entre les deux réalités ?', 'Quelle était l’histoire de Noé ?'];
+const QUESTION_KEYS = ['ui.report_q_alice', 'ui.report_q_who_met', 'ui.report_q_impact', 'ui.report_q_changed', 'ui.report_q_noe'];
 
-const NARRATION_LABELS: Partial<Record<NarrationStyle, string>> = {
-  day: 'Récit du jour',
-  morning: 'Ce matin, dans la ville',
-  counterfactual: 'Ce qui aurait pu arriver',
+const NARRATION_LABEL_KEYS: Partial<Record<NarrationStyle, string>> = {
+  day: 'ui.report_narr_day',
+  morning: 'ui.report_narr_morning',
+  counterfactual: 'ui.report_narr_counterfactual',
 };
 
+/**
+ * Sections open by default, by position in `dayReport(...).sections` (titles are
+ * translated by the engine, so they cannot be matched by text): the arcs of the
+ * day (0), the chronological overview (1) and, last, « what changed between the
+ * two realities » (10, only when a reality B exists).
+ */
+const OPEN_SECTIONS = new Set([0, 1, 10]);
+
 export function ReportPanel() {
+  useLocale();
   const reality = useActiveReality();
   const comparison = useSimStore((s) => s.comparison);
   const realityB = useSimStore((s) => s.realityB);
@@ -30,14 +40,14 @@ export function ReportPanel() {
   const lab = useSimStore((s) => s.uiMode === 'lab');
   const { selectEvent, seek, selectAgent, switchReality } = useSimStore.getState();
   /** Report items may cite events of the other reality (comparison section): switch to it first. */
-  const openItem = (id: string, t?: number) => {
+  const openItem = (id: string, at?: number) => {
     if (!reality.eventById(id)) {
       const s = useSimStore.getState();
       if (s.realityB?.eventById(id) && s.activeRealityId !== 'B') switchReality('B');
       else if (s.realityA.eventById(id) && s.activeRealityId !== 'A') switchReality('A');
     }
     selectEvent(id);
-    if (t !== undefined) seek(t);
+    if (at !== undefined) seek(at);
   };
   const cmp = realityB ? comparison : null;
   const report = useMemo(() => dayReport(reality, cmp), [reality, cmp, generation]);
@@ -56,7 +66,7 @@ export function ReportPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `butterfly-rapport-graine-${reality.seed}-${reality.def.id}.txt`;
+    a.download = t('ui.report_filename', { seed: reality.seed, id: reality.def.id });
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -68,46 +78,46 @@ export function ReportPanel() {
     setNarr({ style, busy: true });
     try {
       const res = await aiNarrate(facts, style);
-      setNarr(res.ok && res.text ? { style, busy: false, text: res.text } : { style, busy: false, error: 'L’IA n’a pas pu produire de récit.' });
+      setNarr(res.ok && res.text ? { style, busy: false, text: res.text } : { style, busy: false, error: t('ui.report_narr_failed') });
     } catch {
-      setNarr({ style, busy: false, error: 'Service IA injoignable.' });
+      setNarr({ style, busy: false, error: t('ui.ai_unreachable') });
     }
   };
-  const off = `Narration IA indisponible${ai.message ? ` — ${ai.message}` : ''}`;
+  const off = aiUnavailableTitle(ai.message);
 
   return (
     <div className="report">
       <h3 className="report-title">{report.title}</h3>
       <p className="lead">{report.intro}</p>
       <div className="row gap wrap">
-        <button className="btn sm" onClick={exportTxt} title="Télécharger le rapport au format texte">
-          ⬇ Exporter (.txt)
+        <button className="btn sm" onClick={exportTxt} title={t('ui.report_export_title')}>
+          {t('ui.report_export')}
         </button>
       </div>
-      <div className="narr-group" role="group" aria-label="Narration par le modèle">
-        <span className="narr-group-k">✒ Narration</span>
-        <AiButton enabled={ai.enabled} busy={narr.busy} onClick={() => narrate('day')} tone={narr.style === 'day' ? 'on' : ''} title="Récit de la journée en prose, à partir du rapport factuel" disabledTitle={off}>
-          {narr.busy && narr.style === 'day' ? 'Écriture…' : 'Récit du jour'}
+      <div className="narr-group" role="group" aria-label={t('ui.report_narr_group')}>
+        <span className="narr-group-k">{t('ui.report_narration')}</span>
+        <AiButton enabled={ai.enabled} busy={narr.busy} onClick={() => narrate('day')} tone={narr.style === 'day' ? 'on' : ''} title={t('ui.report_day_title')} disabledTitle={off}>
+          {narr.busy && narr.style === 'day' ? t('ui.report_writing') : t('ui.report_narr_day')}
         </AiButton>
-        <AiButton enabled={ai.enabled} busy={narr.busy} onClick={() => narrate('morning')} tone={narr.style === 'morning' ? 'on' : ''} title="Qui veut quoi, qui cache quoi, avant que la journée n’ait lieu (aucune issue n’est transmise)" disabledTitle={off}>
-          {narr.busy && narr.style === 'morning' ? 'Écriture…' : 'Ce matin, dans la ville'}
+        <AiButton enabled={ai.enabled} busy={narr.busy} onClick={() => narrate('morning')} tone={narr.style === 'morning' ? 'on' : ''} title={t('ui.report_morning_title')} disabledTitle={off}>
+          {narr.busy && narr.style === 'morning' ? t('ui.report_writing') : t('ui.report_narr_morning')}
         </AiButton>
         <AiButton
           enabled={ai.enabled && !!cmp}
           busy={narr.busy}
           onClick={() => narrate('counterfactual')}
           tone={narr.style === 'counterfactual' ? 'on' : ''}
-          title="Raconter la réalité A puis la réalité B, et ce qui a basculé"
-          disabledTitle={!ai.enabled ? off : 'Créez d’abord une réalité B (🦋 Et si…) pour comparer'}
+          title={t('ui.report_counterfactual_title')}
+          disabledTitle={!ai.enabled ? off : t('ui.report_counterfactual_disabled')}
         >
-          {narr.busy && narr.style === 'counterfactual' ? 'Écriture…' : 'Ce qui aurait pu arriver'}
+          {narr.busy && narr.style === 'counterfactual' ? t('ui.report_writing') : t('ui.report_narr_counterfactual')}
         </AiButton>
       </div>
-      {!ai.enabled && <p className="muted small">Narration IA désactivée — le rapport ci-dessous reste entièrement factuel.</p>}
-      <p className="muted small">Le rapport couvre la journée entière (06:00 – 24:00), indépendamment de l’heure affichée.</p>
-      <NarrationBox label={NARRATION_LABELS[narr.style ?? 'day'] ?? 'Narration'} busy={narr.busy} text={narr.text} error={narr.error} />
+      {!ai.enabled && <p className="muted small">{t('ui.report_ai_off')}</p>}
+      <p className="muted small">{t('ui.report_scope')}</p>
+      <NarrationBox label={NARRATION_LABEL_KEYS[narr.style ?? 'day'] ? t(NARRATION_LABEL_KEYS[narr.style ?? 'day']!) : t('ui.report_narr_default')} busy={narr.busy} text={narr.text} error={narr.error} />
 
-      <Section title="Posez une question">
+      <Section title={t('ui.report_ask')}>
         <form
           className="row gap"
           onSubmit={(e) => {
@@ -115,24 +125,24 @@ export function ReportPanel() {
             ask(question);
           }}
         >
-          <input className="input grow" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ex. Qu’est-il arrivé à Alice ? Qui a rencontré qui ?" aria-label="Question sur la journée" />
+          <input className="input grow" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t('ui.report_ask_placeholder')} aria-label={t('ui.report_ask_aria')} />
           <button className="btn primary sm" type="submit" disabled={!question.trim()}>
-            Demander
+            {t('ui.report_ask_button')}
           </button>
         </form>
         <div className="chips examples">
-          {QUESTIONS.map((q) => (
-            <button key={q} className="chip" onClick={() => ask(q)}>
-              {q}
+          {QUESTION_KEYS.map((k) => (
+            <button key={k} className="chip" onClick={() => ask(t(k))}>
+              {t(k)}
             </button>
           ))}
         </div>
         {answer && <div className="answer prose">{answer}</div>}
       </Section>
 
-      {report.sections.map((s) =>
+      {report.sections.map((s, si) =>
         s.items.length ? (
-          <Section key={s.title} title={s.title} count={s.items.filter((i) => i.t !== undefined || !i.text.startsWith('—')).length} defaultOpen={s.title === 'Vue chronologique' || s.title.startsWith('Arcs du jour') || s.title.startsWith('Ce qui a changé')}>
+          <Section key={s.title} title={s.title} count={s.items.filter((i) => i.t !== undefined || !i.text.startsWith('—')).length} defaultOpen={OPEN_SECTIONS.has(si)}>
             <ul className="report-items">
               {s.items.map((it, i) => {
                 const heading = it.t === undefined && it.text.startsWith('—');
@@ -146,7 +156,7 @@ export function ReportPanel() {
                       onClick={() => {
                         if (it.eventId) openItem(it.eventId, it.t);
                       }}
-                      title={clickable ? 'Voir cet événement' : undefined}
+                      title={clickable ? t('ui.report_item_title') : undefined}
                     >
                       <span className="mono t">{it.t !== undefined ? fmtTime(it.t) : ''}</span>
                       <span>{it.text}</span>
@@ -159,7 +169,7 @@ export function ReportPanel() {
         ) : null,
       )}
 
-      <Section title="Habitants" count={report.perAgent.length} defaultOpen={false}>
+      <Section title={t('ui.report_agents')} count={report.perAgent.length} defaultOpen={false}>
         {report.perAgent.length ? (
           <div className="accordion">
             {report.perAgent.map((a) => (
@@ -168,7 +178,7 @@ export function ReportPanel() {
                   <AgentDot id={a.agentId} />
                   <span className="strong">{a.name}</span>
                   <span className="muted small grow">{a.headline}</span>
-                  <span className="mono small" title="Humeur début → fin">
+                  <span className="mono small" title={t('ui.report_mood_title')}>
                     <span style={{ color: moodColor(a.moodStart) }}>{a.moodStart.toFixed(2)}</span> → <span style={{ color: moodColor(a.moodEnd) }}>{a.moodEnd.toFixed(2)}</span>
                   </span>
                 </summary>
@@ -176,11 +186,11 @@ export function ReportPanel() {
                   <p>{a.paragraph}</p>
                   {a.objectives.length > 0 && (
                     <>
-                      <div className="sub-title">Objectifs</div>
+                      <div className="sub-title">{t('ui.report_objectives')}</div>
                       <ul className="plain small">
                         {a.objectives.map((o, i) => (
                           <li key={i}>
-                            {o.label} — <span className={o.status === 'accompli' ? 'pos' : o.status === 'manqué' ? 'neg' : 'muted'}>{o.status}</span>
+                            {o.label} — <span className={o.state === 'done' ? 'pos' : o.state === 'missed' ? 'neg' : 'muted'}>{o.status}</span>
                           </li>
                         ))}
                       </ul>
@@ -188,7 +198,7 @@ export function ReportPanel() {
                   )}
                   {a.unresolved.length > 0 && (
                     <>
-                      <div className="sub-title">Non résolu</div>
+                      <div className="sub-title">{t('ui.report_unresolved')}</div>
                       <ul className="plain small">
                         {a.unresolved.map((u, i) => (
                           <li key={i}>{u}</li>
@@ -197,14 +207,14 @@ export function ReportPanel() {
                     </>
                   )}
                   <button className="link small" onClick={() => selectAgent(a.agentId)}>
-                    Ouvrir la fiche
+                    {t('ui.report_open_sheet')}
                   </button>
                 </div>
               </details>
             ))}
           </div>
         ) : (
-          <Empty>Aucun habitant.</Empty>
+          <Empty>{t('ui.report_no_agents')}</Empty>
         )}
       </Section>
     </div>

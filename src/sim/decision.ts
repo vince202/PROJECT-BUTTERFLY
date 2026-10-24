@@ -28,6 +28,7 @@ import type {
 } from './types';
 import { Rng } from './rng';
 import { applyDesire } from './drama';
+import { t as tl } from '../i18n';
 
 export interface TravelEstimate {
   mode: TravelMode;
@@ -58,27 +59,68 @@ export interface DecisionPolicy {
   decide(agent: AgentState, profile: AgentProfile, ctx: DecisionContext): DecisionOutcome;
 }
 
+/** Display name of each action, read through the catalogue at access time (so it follows the active language). */
 export const ACTION_LABELS: Record<ActionType, string> = {
-  sleep: 'Dormir',
-  morning_routine: 'Routine du matin',
-  work: 'Travailler',
-  school: 'Suivre les cours',
-  commitment: 'Honorer un engagement',
-  eat_home: 'Manger à la maison',
-  eat_bakery: 'Grignoter à la boulangerie',
-  eat_cafe: 'Manger au café',
-  eat_restaurant: 'Manger au restaurant',
-  coffee: 'Prendre un café',
-  shop_groceries: 'Faire les courses',
-  relax_park: 'Se détendre au parc',
-  read_library: 'Lire à la bibliothèque',
-  workout: 'Faire du sport',
-  rest_home: 'Se reposer à la maison',
-  visit: 'Rejoindre quelqu’un',
-  stroll: 'Se promener',
-  drive_bus: 'Conduire le bus',
-  stay_home: 'Rester à la maison',
-  wait: 'Attendre',
+  get sleep() {
+    return tl('engine.action_sleep');
+  },
+  get morning_routine() {
+    return tl('engine.action_morning_routine');
+  },
+  get work() {
+    return tl('engine.action_work');
+  },
+  get school() {
+    return tl('engine.action_school');
+  },
+  get commitment() {
+    return tl('engine.action_commitment');
+  },
+  get eat_home() {
+    return tl('engine.action_eat_home');
+  },
+  get eat_bakery() {
+    return tl('engine.action_eat_bakery');
+  },
+  get eat_cafe() {
+    return tl('engine.action_eat_cafe');
+  },
+  get eat_restaurant() {
+    return tl('engine.action_eat_restaurant');
+  },
+  get coffee() {
+    return tl('engine.action_coffee');
+  },
+  get shop_groceries() {
+    return tl('engine.action_shop_groceries');
+  },
+  get relax_park() {
+    return tl('engine.action_relax_park');
+  },
+  get read_library() {
+    return tl('engine.action_read_library');
+  },
+  get workout() {
+    return tl('engine.action_workout');
+  },
+  get rest_home() {
+    return tl('engine.action_rest_home');
+  },
+  get visit() {
+    return tl('engine.action_visit');
+  },
+  get stroll() {
+    return tl('engine.action_stroll');
+  },
+  get drive_bus() {
+    return tl('engine.action_drive_bus');
+  },
+  get stay_home() {
+    return tl('engine.action_stay_home');
+  },
+  get wait() {
+    return tl('engine.action_wait');
+  },
 };
 
 export const ACTION_COSTS: Partial<Record<ActionType, number>> = {
@@ -165,16 +207,20 @@ interface Builder {
   out: Candidate[];
 }
 
+/** Candidates rejected for lack of time before the next commitment / because the place is closed (tracked as objects, not by matching the translated text). */
+const rejectedNoTime = new WeakSet<Candidate>();
+const rejectedClosed = new WeakSet<Candidate>();
+
 function make(b: Builder, action: ActionType, locationId: LocationId, duration: Minute, components: ScoreComponent[], extra: Partial<Candidate> = {}): Candidate {
   const travel = estimateTravel(b.agent, b.profile, locationId, b.ctx);
   const comps = [...components];
   if (travel.minutes > 1 && b.agent.locationId !== locationId) {
-    comps.push({ label: `Trajet (${travel.minutes} min${travel.mode === 'bus' ? ', bus' : ''})`, value: -Math.min(0.45, travel.minutes * 0.018) });
+    comps.push({ label: tl(travel.mode === 'bus' ? 'engine.comp_travel_bus' : 'engine.comp_travel', { minutes: travel.minutes }), value: -Math.min(0.45, travel.minutes * 0.018) });
   }
   const recent = b.agent.recent[action];
   if (recent !== undefined && b.ctx.t - recent < 45 && !extra.commitmentId) {
     const strong = ['coffee', 'eat_home', 'eat_bakery', 'eat_cafe', 'eat_restaurant', 'workout', 'shop_groceries', 'visit'].includes(action);
-    comps.push({ label: 'Vient de le faire', value: strong ? -0.45 : -0.15 });
+    comps.push({ label: tl('engine.comp_just_did'), value: strong ? -0.45 : -0.15 });
   }
   const cand: Candidate = {
     action,
@@ -191,20 +237,21 @@ function make(b: Builder, action: ActionType, locationId: LocationId, duration: 
   const { city, world, t } = b.ctx;
   const def = city.location(locationId);
   const cost = ACTION_COSTS[action] ?? 0;
-  if (!cand.rejected && cost > 0 && b.agent.money < cost) cand.rejected = `Pas assez d’argent (${cost} €)`;
-  if (!cand.rejected && cost > 0 && !b.agent.inventory.includes('wallet')) cand.rejected = 'Portefeuille introuvable';
+  if (!cand.rejected && cost > 0 && b.agent.money < cost) cand.rejected = tl('engine.rej_not_enough_money', { cost });
+  if (!cand.rejected && cost > 0 && !b.agent.inventory.includes('wallet')) cand.rejected = tl('engine.rej_wallet_missing');
   const atLocation = b.agent.locationId === locationId;
   if (!cand.rejected && def.kind !== 'home' && def.kind !== 'bus_stop' && !isLocationOpen(city, world, locationId, t + Math.max(0, travel.minutes - 2), !atLocation)) {
-    cand.rejected = `${def.name} est fermé`;
+    cand.rejected = tl('engine.rej_closed', { place: def.name });
+    rejectedClosed.add(cand);
   }
   if (!cand.rejected && def.kind !== 'home' && (b.agent.knownClosed ?? []).includes(locationId)) {
-    cand.rejected = `${def.name} est fermé (constaté)`;
+    cand.rejected = tl('engine.rej_closed_known', { place: def.name });
   }
   if (!cand.rejected && def.capacity !== undefined && b.agent.locationId !== locationId && occupancy(world, locationId) >= def.capacity) {
-    cand.rejected = `${def.name} est complet`;
+    cand.rejected = tl('engine.rej_full', { place: def.name });
   }
   if (!cand.rejected && b.agent.confinedUntil !== undefined && t < b.agent.confinedUntil && locationId !== b.profile.homeId) {
-    cand.rejected = 'Doit rester à la maison (intervention)';
+    cand.rejected = tl('engine.rej_must_stay_home');
   }
   // Time budget before the next commitment
   const confinedHome = b.agent.confinedUntil !== undefined && t < b.agent.confinedUntil && locationId === b.profile.homeId;
@@ -215,7 +262,10 @@ function make(b: Builder, action: ActionType, locationId: LocationId, duration: 
       const finish = t + travel.minutes + duration + back;
       if (finish > next.start + next.tolerance * 0.5 && next.start - t < travel.minutes + duration + back) {
         // Allow when the activity is clearly short enough; otherwise reject.
-        if (finish > next.start + 10) cand.rejected = `Pas le temps avant « ${next.label} » (${fmt(next.start)})`;
+        if (finish > next.start + 10) {
+          cand.rejected = tl('engine.rej_no_time', { label: next.label, time: fmt(next.start) });
+          rejectedNoTime.add(cand);
+        }
       }
     }
   }
@@ -250,8 +300,8 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
     const loc = f.locationId ?? defaultLocationFor(f.action, profile, city);
     // Forcing « work » or « school » means going to one's shift: bind the matching commitment so that arrival counts.
     const shift = f.action === 'work' || f.action === 'school' ? agent.commitments.find((c) => (c.status === 'pending' || c.status === 'ongoing') && c.locationId === loc && (f.action === 'school' ? c.kind === 'school' : c.kind === 'work' || c.kind === 'shift')) : undefined;
-    const forcedCand = make(b, f.action, loc, shift ? Math.max(10, shift.end - t) : defaultDuration(f.action), [{ label: 'Intervention de l’observateur', value: 10 }], { label: f.label, withAgent: f.withAgent, commitmentId: shift?.id });
-    if (forcedCand.rejected && forcedCand.rejected.startsWith('Pas le temps')) {
+    const forcedCand = make(b, f.action, loc, shift ? Math.max(10, shift.end - t) : defaultDuration(f.action), [{ label: tl('engine.comp_intervention'), value: 10, tag: 'forced' }], { label: f.label, withAgent: f.withAgent, commitmentId: shift?.id });
+    if (forcedCand.rejected && rejectedNoTime.has(forcedCand)) {
       forcedCand.rejected = undefined;
       forcedCand.score = forcedCand.components.reduce((x, y) => x + y.value, 0);
     }
@@ -266,33 +316,33 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
     const action: ActionType = c.kind === 'work' || c.kind === 'shift' ? 'work' : c.kind === 'school' ? 'school' : 'commitment';
     let label = c.label;
     if (c.status === 'ongoing') {
-      comps.push({ label: 'Engagement en cours', value: 0.55 + 0.15 * tr.punctuality });
-      label = c.kind === 'work' || c.kind === 'shift' ? 'Retourner au travail' : c.kind === 'school' ? 'Retourner en cours' : `Reprendre : ${c.label}`;
+      comps.push({ label: tl('engine.comp_commitment_ongoing'), value: 0.55 + 0.15 * tr.punctuality });
+      label = c.kind === 'work' || c.kind === 'shift' ? tl('engine.action_resume_work') : c.kind === 'school' ? tl('engine.action_resume_class') : tl('engine.action_resume_commitment', { label: c.label });
     } else {
       const slack = c.start - t - travel.minutes;
       const margin = 2 + 9 * tr.punctuality;
       if (slack > margin + 30) continue; // far too early to leave: not an option yet
       if (slack > margin + 25) {
-        comps.push({ label: 'Un peu tôt pour partir', value: 0.1 });
+        comps.push({ label: tl('engine.comp_a_bit_early'), value: 0.1 });
       } else if (slack > margin) {
         const ramp = 1 - (slack - margin) / 25;
-        comps.push({ label: `Départ bientôt (marge ${Math.round(slack)} min)`, value: 0.15 + 0.6 * ramp });
+        comps.push({ label: tl('engine.comp_leaving_soon', { minutes: Math.round(slack) }), value: 0.15 + 0.6 * ramp });
       } else if (slack >= 0) {
-        comps.push({ label: 'C’est l’heure de partir', value: 0.78 + 0.25 * tr.punctuality });
+        comps.push({ label: tl('engine.comp_time_to_leave'), value: 0.78 + 0.25 * tr.punctuality });
       } else {
-        comps.push({ label: `Déjà en retard (${Math.round(-slack)} min)`, value: 0.7 + 0.35 * tr.punctuality });
+        comps.push({ label: tl('engine.comp_already_late', { minutes: Math.round(-slack) }), value: 0.7 + 0.35 * tr.punctuality });
       }
       if (c.kind === 'meeting' || c.kind === 'appointment') {
         const aff = c.with.filter((w) => w !== agent.id).map((w) => agent.relationships[w]?.affinity ?? 0);
         const avg = aff.length ? aff.reduce((x, y) => x + y, 0) / aff.length : 0;
-        comps.push({ label: 'Envie de voir la personne', value: 0.2 * avg });
+        comps.push({ label: tl('engine.comp_wants_to_see'), value: 0.2 * avg });
       }
-      if ((c.kind === 'work' || c.kind === 'shift') && tr.ambition > 0.6) comps.push({ label: 'Ambition professionnelle', value: 0.08 });
+      if ((c.kind === 'work' || c.kind === 'shift') && tr.ambition > 0.6) comps.push({ label: tl('engine.comp_ambition'), value: 0.08 });
     }
     const duration = Math.max(10, c.end - Math.max(c.start, t + travel.minutes));
     const cand = make(b, action, c.locationId, duration, comps, { commitmentId: c.id, label, withAgent: c.with.find((w) => w !== agent.id) });
-    if (cand.rejected && cand.rejected.startsWith('Pas le temps')) cand.rejected = undefined;
-    if (cand.rejected && cand.rejected.endsWith('est fermé') && (c.kind === 'work' || c.kind === 'shift')) cand.rejected = undefined;
+    if (cand.rejected && rejectedNoTime.has(cand)) cand.rejected = undefined;
+    if (cand.rejected && rejectedClosed.has(cand) && (c.kind === 'work' || c.kind === 'shift')) cand.rejected = undefined;
     if (!cand.rejected) cand.score = sum(cand.components);
   }
 
@@ -301,8 +351,8 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   const bedtime = profile.routine.bedtime;
   if (t >= bedtime - 30 || (needs.fatigue >= 85 && t >= bedtime - 120)) {
     const comps: ScoreComponent[] = [
-      { label: 'Heure du coucher', value: t >= bedtime ? 0.9 : 0.45 },
-      { label: 'Fatigue', value: (needs.fatigue / 100) * 0.4 },
+      { label: tl('engine.comp_bedtime'), value: t >= bedtime ? 0.9 : 0.45 },
+      { label: tl('engine.comp_fatigue'), value: (needs.fatigue / 100) * 0.4 },
     ];
     make(b, 'sleep', home, 24 * 60 - t, comps);
   }
@@ -312,85 +362,85 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
     const mealTime = profile.routine.lunch !== undefined && Math.abs(t - profile.routine.lunch) <= 30 ? 0.15 : t >= 19 * 60 && t <= 21 * 60 ? 0.12 : 0;
     const fav = profile.preferences.favoriteFood;
     make(b, 'eat_home', home, 30, [
-      { label: 'Faim', value: hungerFactor * (fav === 'home' ? 0.9 : 0.6) },
-      { label: 'Repas économique', value: tr.frugality * 0.2 },
-      { label: 'Heure du repas', value: mealTime },
+      { label: tl('engine.comp_hunger'), value: hungerFactor * (fav === 'home' ? 0.9 : 0.6) },
+      { label: tl('engine.comp_cheap_meal'), value: tr.frugality * 0.2 },
+      { label: tl('engine.comp_mealtime'), value: mealTime },
     ]);
     const bakeryState = world.locations['bakery'];
     if (bakeryState && bakeryState.stock > 0) {
       make(b, 'eat_bakery', 'bakery', 15, [
-        { label: 'Faim', value: hungerFactor * (fav === 'bakery' ? 1.0 : 0.7) },
-        { label: 'Coût (4 €)', value: -tr.frugality * 0.1 },
-        { label: 'Heure du repas', value: mealTime },
+        { label: tl('engine.comp_hunger'), value: hungerFactor * (fav === 'bakery' ? 1.0 : 0.7) },
+        { label: tl('engine.comp_cost', { price: 4 }), value: -tr.frugality * 0.1, tag: 'cost' },
+        { label: tl('engine.comp_mealtime'), value: mealTime },
       ]);
     }
     make(b, 'eat_cafe', 'cafe', 35, [
-      { label: 'Faim', value: hungerFactor * (fav === 'cafe' ? 1.0 : 0.65) },
-      { label: 'Ambiance sociale', value: tr.sociability * 0.15 },
-      { label: 'Coût (9 €)', value: -tr.frugality * 0.22 },
-      { label: 'Heure du repas', value: mealTime },
+      { label: tl('engine.comp_hunger'), value: hungerFactor * (fav === 'cafe' ? 1.0 : 0.65) },
+      { label: tl('engine.comp_social_ambiance'), value: tr.sociability * 0.15 },
+      { label: tl('engine.comp_cost', { price: 9 }), value: -tr.frugality * 0.22, tag: 'cost' },
+      { label: tl('engine.comp_mealtime'), value: mealTime },
     ]);
     make(b, 'eat_restaurant', 'restaurant', 50, [
-      { label: 'Faim', value: hungerFactor * (fav === 'restaurant' ? 1.05 : 0.6) },
-      { label: 'Plaisir de la table', value: tr.sociability * 0.1 + (agent.emotions.mood > 0.3 ? 0.05 : 0) },
-      { label: 'Coût (20 €)', value: -tr.frugality * 0.5 },
-      { label: 'Heure du repas', value: mealTime },
+      { label: tl('engine.comp_hunger'), value: hungerFactor * (fav === 'restaurant' ? 1.05 : 0.6) },
+      { label: tl('engine.comp_table_pleasure'), value: tr.sociability * 0.1 + (agent.emotions.mood > 0.3 ? 0.05 : 0) },
+      { label: tl('engine.comp_cost', { price: 20 }), value: -tr.frugality * 0.5, tag: 'cost' },
+      { label: tl('engine.comp_mealtime'), value: mealTime },
     ]);
   }
 
   // Coffee / café
   if (needs.hunger < 70) {
     make(b, 'coffee', 'cafe', 25, [
-      { label: 'Envie de compagnie', value: (needs.social / 100) * 0.35 * (0.4 + tr.sociability) },
-      { label: 'Ennui', value: (needs.boredom / 100) * 0.25 },
-      { label: 'Lieu favori', value: profile.preferences.favoritePlace === 'cafe' ? 0.15 : 0 },
-      { label: 'Travail nomade', value: isFreelanceHours(profile, t) ? tr.ambition * 0.3 : 0 },
-      { label: 'Il pleut, un abri', value: rain ? 0.1 : 0 },
-      { label: 'Moral bas', value: agent.emotions.mood < -0.2 ? 0.1 : 0 },
-      { label: 'Coût (3 €)', value: -tr.frugality * 0.08 },
-      { label: 'Base', value: 0.08 },
+      { label: tl('engine.comp_company_wish'), value: (needs.social / 100) * 0.35 * (0.4 + tr.sociability) },
+      { label: tl('engine.comp_boredom'), value: (needs.boredom / 100) * 0.25 },
+      { label: tl('engine.comp_favorite_place'), value: profile.preferences.favoritePlace === 'cafe' ? 0.15 : 0 },
+      { label: tl('engine.comp_nomad_work'), value: isFreelanceHours(profile, t) ? tr.ambition * 0.3 : 0 },
+      { label: tl('engine.comp_rain_shelter'), value: rain ? 0.1 : 0 },
+      { label: tl('engine.comp_low_mood'), value: agent.emotions.mood < -0.2 ? 0.1 : 0 },
+      { label: tl('engine.comp_cost', { price: 3 }), value: -tr.frugality * 0.08, tag: 'cost' },
+      { label: tl('engine.comp_base'), value: 0.08 },
     ]);
   }
 
   // Groceries
   if (agent.groceries < 2 && profile.workplaceId !== 'supermarket') {
     make(b, 'shop_groceries', 'supermarket', 20, [
-      { label: 'Frigo vide', value: ((2 - agent.groceries) / 2) * 0.5 },
-      { label: 'Fin de journée', value: t >= 16 * 60 ? 0.15 : 0 },
-      { label: 'Coût (15 €)', value: -tr.frugality * 0.05 },
+      { label: tl('engine.comp_empty_fridge'), value: ((2 - agent.groceries) / 2) * 0.5 },
+      { label: tl('engine.comp_end_of_day'), value: t >= 16 * 60 ? 0.15 : 0 },
+      { label: tl('engine.comp_cost', { price: 15 }), value: -tr.frugality * 0.05, tag: 'cost' },
     ]);
   }
 
   // Park
   make(b, 'relax_park', 'park', 40, [
-    { label: 'Ennui', value: (needs.boredom / 100) * 0.4 },
-    { label: 'Curiosité', value: tr.curiosity * 0.1 },
-    { label: 'Lieu favori', value: profile.preferences.favoritePlace === 'park' ? 0.2 : 0 },
-    { label: 'Météo', value: rain ? -0.5 : 0.05 },
-    { label: 'Belle lumière', value: t >= 14 * 60 && t < 20 * 60 ? 0.1 : night ? -0.3 : 0 },
-    { label: 'Trop tôt le matin', value: t < 9 * 60 && tr.vitality <= 0.8 ? -0.25 : 0 },
-    { label: 'Moral bas', value: agent.emotions.mood < -0.2 ? 0.1 : 0 },
-    { label: 'Jogging matinal', value: tr.vitality > 0.8 && t < 9 * 60 ? 0.3 : 0 },
-    { label: 'Base', value: 0.05 },
+    { label: tl('engine.comp_boredom'), value: (needs.boredom / 100) * 0.4 },
+    { label: tl('engine.comp_curiosity'), value: tr.curiosity * 0.1 },
+    { label: tl('engine.comp_favorite_place'), value: profile.preferences.favoritePlace === 'park' ? 0.2 : 0 },
+    { label: tl('engine.comp_weather'), value: rain ? -0.5 : 0.05 },
+    { label: tl('engine.comp_nice_light'), value: t >= 14 * 60 && t < 20 * 60 ? 0.1 : night ? -0.3 : 0 },
+    { label: tl('engine.comp_too_early'), value: t < 9 * 60 && tr.vitality <= 0.8 ? -0.25 : 0 },
+    { label: tl('engine.comp_low_mood'), value: agent.emotions.mood < -0.2 ? 0.1 : 0 },
+    { label: tl('engine.comp_morning_jog'), value: tr.vitality > 0.8 && t < 9 * 60 ? 0.3 : 0 },
+    { label: tl('engine.comp_base'), value: 0.05 },
   ]);
 
   // Library
   make(b, 'read_library', 'library', 60, [
-    { label: 'Ennui', value: (needs.boredom / 100) * 0.3 },
-    { label: 'Curiosité', value: tr.curiosity * 0.3 },
-    { label: 'Lieu favori', value: profile.preferences.favoritePlace === 'library' ? 0.2 : 0 },
-    { label: 'Travail / études', value: isFreelanceHours(profile, t) ? tr.ambition * 0.45 : 0 },
-    { label: 'Fatigue', value: -(needs.fatigue / 100) * 0.15 },
+    { label: tl('engine.comp_boredom'), value: (needs.boredom / 100) * 0.3 },
+    { label: tl('engine.comp_curiosity'), value: tr.curiosity * 0.3 },
+    { label: tl('engine.comp_favorite_place'), value: profile.preferences.favoritePlace === 'library' ? 0.2 : 0 },
+    { label: tl('engine.comp_work_study'), value: isFreelanceHours(profile, t) ? tr.ambition * 0.45 : 0 },
+    { label: tl('engine.comp_fatigue'), value: -(needs.fatigue / 100) * 0.15 },
   ]);
 
   // Gym
   if (needs.fatigue < 75 && profile.workplaceId !== 'gym') {
     make(b, 'workout', 'gym', 50, [
-      { label: 'Vitalité', value: tr.vitality * 0.3 },
-      { label: 'Ennui', value: (needs.boredom / 100) * 0.2 },
-      { label: 'Lieu favori', value: profile.preferences.favoritePlace === 'gym' ? 0.25 : 0 },
-      { label: 'Fatigue', value: -(needs.fatigue / 100) * 0.4 },
-      { label: 'Coût (5 €)', value: -tr.frugality * 0.1 },
+      { label: tl('engine.comp_vitality'), value: tr.vitality * 0.3 },
+      { label: tl('engine.comp_boredom'), value: (needs.boredom / 100) * 0.2 },
+      { label: tl('engine.comp_favorite_place'), value: profile.preferences.favoritePlace === 'gym' ? 0.25 : 0 },
+      { label: tl('engine.comp_fatigue'), value: -(needs.fatigue / 100) * 0.4 },
+      { label: tl('engine.comp_cost', { price: 5 }), value: -tr.frugality * 0.1, tag: 'cost' },
     ]);
   }
 
@@ -398,14 +448,14 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   const upcoming = nextCommitmentAfter(agent, t);
   const waitingForCommitment = upcoming && upcoming.start - t <= 110 && upcoming.start - t > 0;
   make(b, 'rest_home', home, 45, [
-    { label: 'Fatigue', value: (needs.fatigue / 100) * 0.5 },
-    { label: 'Épuisement : une sieste s’impose', value: needs.fatigue >= 80 && t < bedtime - 120 ? 0.35 : 0 },
-    { label: 'En attendant le prochain engagement', value: waitingForCommitment ? 0.22 : 0 },
-    { label: 'Stress', value: agent.emotions.stress > 0.5 ? 0.15 : 0 },
-    { label: 'Soirée', value: evening ? 0.2 : 0 },
-    { label: 'Il pleut', value: rain ? 0.1 : 0 },
-    { label: 'Base', value: 0.1 },
-    { label: 'Ennui', value: -(needs.boredom / 100) * 0.25 },
+    { label: tl('engine.comp_fatigue'), value: (needs.fatigue / 100) * 0.5 },
+    { label: tl('engine.comp_nap_needed'), value: needs.fatigue >= 80 && t < bedtime - 120 ? 0.35 : 0 },
+    { label: tl('engine.comp_waiting_commitment'), value: waitingForCommitment ? 0.22 : 0 },
+    { label: tl('engine.comp_stress'), value: agent.emotions.stress > 0.5 ? 0.15 : 0 },
+    { label: tl('engine.comp_evening'), value: evening ? 0.2 : 0 },
+    { label: tl('engine.comp_raining'), value: rain ? 0.1 : 0 },
+    { label: tl('engine.comp_base'), value: 0.1 },
+    { label: tl('engine.comp_boredom'), value: -(needs.boredom / 100) * 0.25 },
   ]);
 
   // Visit friends currently somewhere reachable
@@ -427,16 +477,16 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
     if (needs.social < 35) continue;
     const otherProfile = ctx.profiles.get(r.to)!;
     make(b, 'visit', other.locationId, 30, [
-      { label: 'Besoin de compagnie', value: (needs.social / 100) * 0.3 * (0.5 + tr.sociability) },
-      { label: `Affinité avec ${otherProfile.firstName}`, value: r.affinity * 0.2 },
-      { label: 'Sentiments', value: r.kind === 'crush' || r.kind === 'partner' ? 0.12 : 0 },
-      { label: 'Impulsivité', value: tr.impulsivity * 0.05 },
-    ], { label: `Rejoindre ${otherProfile.firstName} (${def.name})`, withAgent: r.to });
+      { label: tl('engine.comp_need_company'), value: (needs.social / 100) * 0.3 * (0.5 + tr.sociability) },
+      { label: tl('engine.comp_affinity_with', { name: otherProfile.firstName }), value: r.affinity * 0.2 },
+      { label: tl('engine.comp_feelings'), value: r.kind === 'crush' || r.kind === 'partner' ? 0.12 : 0 },
+      { label: tl('engine.comp_impulsivity'), value: tr.impulsivity * 0.05 },
+    ], { label: tl('engine.visit_label', { name: otherProfile.firstName, place: def.name }), withAgent: r.to });
   }
 
   // Fallback: wait where you are (10 minutes)
   if (agent.locationId) {
-    make(b, 'wait', agent.locationId, 10, [{ label: 'Rien de mieux à faire', value: 0.04 }], { label: 'Rester sur place' });
+    make(b, 'wait', agent.locationId, 10, [{ label: tl('engine.comp_nothing_better'), value: 0.04 }], { label: tl('engine.action_stay_put') });
   }
 
   // The desire of the day bends the scores a little (dramaturgy layer).
@@ -524,14 +574,14 @@ export class UtilityPolicy implements DecisionPolicy {
     for (const c of candidates) {
       if (c.rejected) continue;
       const noise = (ctx.rng.next(`decision:${agent.id}:${ctx.t}:${c.action}:${c.locationId}`) - 0.5) * 0.08 * (0.5 + profile.traits.impulsivity);
-      c.components.push({ label: 'Humeur du moment', value: Number(noise.toFixed(3)) });
+      c.components.push({ label: tl('engine.comp_mood_of_moment'), value: Number(noise.toFixed(3)) });
       c.score = sum(c.components);
     }
     if (ctx.current) {
       const cur = candidates.find((c) => !c.rejected && c.action === ctx.current!.action && c.locationId === ctx.current!.locationId);
       if (cur) {
         const inertia = 0.25 * (1 - profile.traits.impulsivity);
-        cur.components.push({ label: 'Continuer ce qui est commencé', value: inertia });
+        cur.components.push({ label: tl('engine.comp_keep_going'), value: inertia });
         cur.score = sum(cur.components);
       }
     }
@@ -541,7 +591,7 @@ export class UtilityPolicy implements DecisionPolicy {
     if (!chosen) {
       // Every option is impossible: stay where you are (or at home when confined) for ten minutes.
       const here = agent.locationId ?? profile.homeId;
-      chosen = { action: here === profile.homeId ? 'rest_home' : 'wait', label: 'Attend, aucune option possible', locationId: here, duration: 10, score: 0, components: [{ label: 'Aucune option valide', value: 0 }], travelMinutes: 0, mode: 'walk' };
+      chosen = { action: here === profile.homeId ? 'rest_home' : 'wait', label: tl('engine.action_waits_no_option'), locationId: here, duration: 10, score: 0, components: [{ label: tl('engine.comp_no_valid_option'), value: 0 }], travelMinutes: 0, mode: 'walk' };
       candidates.push(chosen);
     }
     const top = [...chosen.components].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 3);

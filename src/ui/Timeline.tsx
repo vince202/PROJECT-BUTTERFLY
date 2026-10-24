@@ -10,7 +10,8 @@ import type { Reality } from '../sim/reality';
 import { fmtTime } from '../sim/time';
 import { DAY_END, DAY_LENGTH, DAY_START, type SimEvent } from '../sim/types';
 import { eventFamily, eventTypeLabel, type EventFamily } from './format';
-import { useActiveReality } from './hooks';
+import { useActiveReality, useLocale } from './hooks';
+import { t } from '../i18n';
 
 const pos = (t: number) => ((Math.max(DAY_START, Math.min(DAY_END, t)) - DAY_START) / DAY_LENGTH) * 100;
 
@@ -28,6 +29,7 @@ interface Tip {
 }
 
 export function Timeline() {
+  useLocale();
   const reality = useActiveReality();
   const comparison = useSimStore((s) => s.comparison);
   const activeId = useSimStore((s) => s.activeRealityId);
@@ -83,10 +85,10 @@ export function Timeline() {
         onKeyDown={onKeyDown}
         tabIndex={0}
         role="slider"
-        aria-label="Chronologie de la journée"
+        aria-label={t('ui.timeline_aria')}
         aria-valuemin={DAY_START}
         aria-valuemax={DAY_END}
-        title="Cliquez ou glissez pour vous déplacer dans la journée (← → au clavier)"
+        title={t('ui.timeline_hint')}
       >
         <div className="tl-band" aria-hidden>
           <div className="tl-day" style={{ left: 0, width: `${pos(20 * 60)}%` }} />
@@ -120,36 +122,37 @@ function TimeLabel({ name, isB }: { name: string; isB: boolean }) {
 }
 
 function Legend({ hasComparison }: { hasComparison: boolean }) {
+  useLocale();
   return (
-    <div className="tl-legend" aria-label="Légende">
-      <span title="Temps forts, points de bascule, confidences, rumeurs et dilemmes">
-        <i className="fam-dot fam-drama" /> Drame
+    <div className="tl-legend" aria-label={t('ui.timeline_legend_aria')}>
+      <span title={t('ui.timeline_legend_drama_title')}>
+        <i className="fam-dot fam-drama" /> {t('ui.format_family_drama')}
       </span>
       <span>
-        <i className="fam-dot fam-social" /> Rencontres
+        <i className="fam-dot fam-social" /> {t('ui.format_family_social')}
       </span>
       <span>
-        <i className="fam-dot fam-trouble" /> Contretemps
+        <i className="fam-dot fam-trouble" /> {t('ui.format_family_trouble')}
       </span>
       <span>
-        <i className="fam-dot fam-bus" /> Bus
+        <i className="fam-dot fam-bus" /> {t('ui.format_family_bus')}
       </span>
       <span>
-        <i className="fam-dot fam-world" /> Objets · météo · commerces
+        <i className="fam-dot fam-world" /> {t('ui.timeline_legend_world')}
       </span>
       <span>
-        <i className="fam-dot fam-decision" /> Décisions
+        <i className="fam-dot fam-decision" /> {t('ui.format_family_decision')}
       </span>
       <span>
-        <i className="diamond" /> Intervention
+        <i className="diamond" /> {t('ui.format_family_intervention')}
       </span>
       {hasComparison && (
         <>
           <span>
-            <i className="div-mark" /> 1re divergence
+            <i className="div-mark" /> {t('ui.timeline_legend_divergence')}
           </span>
           <span>
-            <i className="cons-mark" /> Conséquence vérifiée
+            <i className="cons-mark" /> {t('ui.timeline_legend_consequence')}
           </span>
         </>
       )}
@@ -164,11 +167,12 @@ const Ticks = memo(function Ticks() {
 });
 
 const HourLabels = memo(function HourLabels() {
+  useLocale();
   const labels = [];
   for (let h = 6; h <= 24; h += 2)
     labels.push(
       <span key={h} className="tl-hour" style={{ left: `${pos(h * 60)}%` }}>
-        {String(h).padStart(2, '0')}h
+        {t('ui.timeline_hour', { h: String(h).padStart(2, '0') })}
       </span>,
     );
   return <div className="tl-hours">{labels}</div>;
@@ -206,11 +210,11 @@ const Markers = memo(function Markers({ reality, generation, selectedEventId, on
               ev.stopPropagation();
               selectMarker(e);
             }}
-            onMouseEnter={() => onTip({ x, title: `${fmtTime(e.t)} · ${eventTypeLabel(e.type)}`, text: e.label })}
+            onMouseEnter={() => onTip({ x, title: t('ui.timeline_tip_title', { time: fmtTime(e.t), label: eventTypeLabel(e.type) }), text: e.label })}
             onMouseLeave={() => onTip(null)}
-            onFocus={() => onTip({ x, title: `${fmtTime(e.t)} · ${eventTypeLabel(e.type)}`, text: e.label })}
+            onFocus={() => onTip({ x, title: t('ui.timeline_tip_title', { time: fmtTime(e.t), label: eventTypeLabel(e.type) }), text: e.label })}
             onBlur={() => onTip(null)}
-            aria-label={`${fmtTime(e.t)} ${e.label}`}
+            aria-label={t('ui.timeline_marker_aria', { time: fmtTime(e.t), label: e.label })}
           />
         );
       })}
@@ -218,7 +222,8 @@ const Markers = memo(function Markers({ reality, generation, selectedEventId, on
   );
 });
 
-const ComparisonMarkers = memo(function ComparisonMarkers({ comparison, onTip }: { comparison: Comparison; onTip: (t: Tip | null) => void }) {
+const ComparisonMarkers = memo(function ComparisonMarkers({ comparison, onTip }: { comparison: Comparison; onTip: (tip: Tip | null) => void }) {
+  useLocale();
   const go = (e: SimEvent, reality: 'A' | 'B') => {
     const s = useSimStore.getState();
     if (s.activeRealityId !== reality) s.switchReality(reality);
@@ -233,7 +238,7 @@ const ComparisonMarkers = memo(function ComparisonMarkers({ comparison, onTip }:
       {comparison.consequences.slice(0, 200).map((m, i) => {
         const e = (m.b ?? m.a)!;
         const x = pos(e.t);
-        const text = m.status === 'only_a' ? `N’a pas eu lieu dans B : ${e.label}` : m.status === 'shifted' ? `Décalé de ${m.dt! > 0 ? '+' : ''}${m.dt} min : ${e.label}` : `Seulement dans B : ${e.label}`;
+        const text = m.status === 'only_a' ? t('ui.timeline_cons_only_a', { label: e.label }) : m.status === 'shifted' ? t('ui.timeline_cons_shifted', { dt: `${m.dt! > 0 ? '+' : ''}${m.dt}`, label: e.label }) : t('ui.timeline_cons_only_b', { label: e.label });
         return (
           <button
             key={`${e.id}-${i}`}
@@ -241,9 +246,9 @@ const ComparisonMarkers = memo(function ComparisonMarkers({ comparison, onTip }:
             style={{ left: `${x}%` }}
             onPointerDown={(ev) => ev.stopPropagation()}
             onClick={(ev) => (ev.stopPropagation(), go(e, m.b ? 'B' : 'A'))}
-            onMouseEnter={() => onTip({ x, title: `${fmtTime(e.t)} · Conséquence vérifiée`, text, tone: 'cons' })}
+            onMouseEnter={() => onTip({ x, title: t('ui.timeline_cons_title', { time: fmtTime(e.t) }), text, tone: 'cons' })}
             onMouseLeave={() => onTip(null)}
-            aria-label={`${fmtTime(e.t)} conséquence : ${text}`}
+            aria-label={t('ui.timeline_cons_aria', { time: fmtTime(e.t), text })}
           />
         );
       })}
@@ -253,9 +258,9 @@ const ComparisonMarkers = memo(function ComparisonMarkers({ comparison, onTip }:
           style={{ left: `${pos(firstEv.t)}%` }}
           onPointerDown={(ev) => ev.stopPropagation()}
           onClick={(ev) => (ev.stopPropagation(), go(firstEv, firstReality))}
-          onMouseEnter={() => onTip({ x: pos(firstEv.t), title: `${fmtTime(firstEv.t)} · Première divergence`, text: firstEv.label, tone: 'div' })}
+          onMouseEnter={() => onTip({ x: pos(firstEv.t), title: t('ui.timeline_div_title', { time: fmtTime(firstEv.t) }), text: firstEv.label, tone: 'div' })}
           onMouseLeave={() => onTip(null)}
-          aria-label={`Première divergence à ${fmtTime(firstEv.t)}`}
+          aria-label={t('ui.timeline_div_aria', { time: fmtTime(firstEv.t) })}
         />
       )}
     </div>

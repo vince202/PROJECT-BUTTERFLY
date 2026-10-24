@@ -8,6 +8,7 @@
 import { Engine } from './engine';
 import type { DecisionPolicy } from './decision';
 import { CausalGraph } from './causal';
+import { t } from '../i18n';
 import { DAY_END, DAY_START, type AgentId, type EventId, type Intervention, type Minute, type SimEvent, type TraceFrame, type WorldState } from './types';
 
 export interface RealityDef {
@@ -26,18 +27,18 @@ export interface RealityDef {
 export const SNAPSHOT_INTERVAL = 15;
 
 function activityLabel(a: WorldState['agents'][string]): string {
-  if (a.asleep) return 'Dort';
+  if (a.asleep) return t('engine.activity_sleeping');
   if (a.travel) {
     switch (a.travel.stage) {
       case 'waiting':
-        return 'Attend le bus';
+        return t('engine.activity_waiting_bus');
       case 'riding':
-        return a.activity?.action === 'drive_bus' ? 'Conduit le bus' : 'Dans le bus';
+        return a.activity?.action === 'drive_bus' ? t('engine.activity_driving_bus') : t('engine.activity_in_bus');
       default:
-        return 'En chemin';
+        return t('engine.activity_on_the_way');
     }
   }
-  return a.activity?.label ?? 'Réfléchit';
+  return a.activity?.label ?? t('engine.activity_thinking');
 }
 
 export function frameOf(state: WorldState): TraceFrame {

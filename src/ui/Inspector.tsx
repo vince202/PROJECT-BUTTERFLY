@@ -14,8 +14,9 @@ import { busDelayFor, validateIntervention } from '../sim/interventions';
 import { fmtTime } from '../sim/time';
 import type { AgentId, AgentState, Candidate, SimEvent, TraitName, WorldState } from '../sim/types';
 import type { Reality } from '../sim/reality';
-import { AgentChip, AiButton, Badge, Bar, Empty, EventRow, KV, NarrationBox, Section, SignedBar } from './common';
-import { ARC_STATUS_TONE, DIALOGUE_TYPES, PROFILES, STAKES_WORDS, attemptLabel, dialogueFacts, stakesLevel } from './drama';
+import { t } from '../i18n';
+import { AgentChip, AiButton, Badge, Bar, Empty, EventRow, KV, NarrationBox, Section, SignedBar, aiUnavailableTitle, rich } from './common';
+import { ARC_STATUS_TONE, DIALOGUE_TYPES, PROFILES, attemptLabel, dialogueFacts, stakesLevel, stakesWord } from './drama';
 import {
   COMMITMENT_STATUS,
   NEED_LABELS,
@@ -31,12 +32,13 @@ import {
   signed,
   stressWord,
 } from './format';
-import { cachedStateAt, useActiveReality, useGoToEvent, useMinute, useWorldState } from './hooks';
+import { cachedStateAt, useActiveReality, useGoToEvent, useLocale, useMinute, useWorldState } from './hooks';
 
 /** Offline embedder for the « Souvenirs liés à la situation » preview (vectors cached by text). */
 const LEXICAL = new LexicalEmbedder();
 
 export function Inspector() {
+  useLocale();
   const selectedEventId = useSimStore((s) => s.selectedEventId);
   const selectedAgentId = useSimStore((s) => s.selectedAgentId);
   return (
@@ -51,6 +53,7 @@ export function Inspector() {
 // ---------------------------------------------------------------------------
 
 function EventCard({ id }: { id: string }) {
+  useLocale();
   const reality = useActiveReality();
   const generation = useSimStore((s) => s.generation);
   const selectedAgentId = useSimStore((s) => s.selectedAgentId);
@@ -67,9 +70,9 @@ function EventCard({ id }: { id: string }) {
   if (!e) {
     return (
       <div className="card">
-        <Empty>Cet événement n’existe pas dans {reality.def.name}.</Empty>
+        <Empty>{t('ui.inspector_event_missing', { name: reality.def.name })}</Empty>
         <button className="btn sm" onClick={() => selectEvent(null)}>
-          Fermer
+          {t('ui.inspector_close')}
         </button>
       </div>
     );
@@ -79,9 +82,9 @@ function EventCard({ id }: { id: string }) {
     setScene({ busy: true });
     try {
       const res = await aiNarrate(dialogueFacts(e, cachedStateAt(reality, e.t)), 'dialogue');
-      setScene(res.ok && res.text ? { busy: false, text: res.text } : { busy: false, error: 'Le modèle n’a pas pu écrire la scène.' });
+      setScene(res.ok && res.text ? { busy: false, text: res.text } : { busy: false, error: t('ui.inspector_scene_failed') });
     } catch {
-      setScene({ busy: false, error: 'Service IA injoignable.' });
+      setScene({ busy: false, error: t('ui.ai_unreachable') });
     }
   };
   const canStage = DIALOGUE_TYPES.has(e.type) && e.actors.length >= 2;
@@ -98,27 +101,27 @@ function EventCard({ id }: { id: string }) {
     <div className="card event-card">
       <div className="card-nav">
         {selectedAgentId ? (
-          <button className="link" onClick={() => selectEvent(null)} title="Revenir à la fiche de l’habitant">
-            ← {firstName(selectedAgentId)}
+          <button className="link" onClick={() => selectEvent(null)} title={t('ui.inspector_back_to_agent_title')}>
+            {t('ui.inspector_back_to_agent', { name: firstName(selectedAgentId) })}
           </button>
         ) : (
-          <span className="muted small">Événement</span>
+          <span className="muted small">{t('ui.inspector_event_kind')}</span>
         )}
-        <button className="icon-btn sm" onClick={() => selectEvent(null)} title="Fermer l’événement">
+        <button className="icon-btn sm" onClick={() => selectEvent(null)} title={t('ui.inspector_event_close')}>
           ✕
         </button>
       </div>
       <div className="event-head">
         <span className={`fam-pill fam-${eventFamily(e.type)}`}>{eventTypeLabel(e.type)}</span>
         <span className="event-time mono">{fmtTime(e.t)}</span>
-        {e.interventionId && <Badge tone="white">intervention</Badge>}
+        {e.interventionId && <Badge tone="white">{t('ui.inspector_badge_intervention')}</Badge>}
       </div>
       <h2 className="event-title">{e.label}</h2>
       {e.description && <p className="event-desc">{e.description}</p>}
 
       <div className="kv-grid">
         {e.actors.length > 0 && (
-          <KV k="Acteurs">
+          <KV k={t('ui.inspector_kv_actors')}>
             <span className="chips">
               {e.actors.map((a) => (
                 <AgentChip key={a} id={a} />
@@ -126,10 +129,10 @@ function EventCard({ id }: { id: string }) {
             </span>
           </KV>
         )}
-        {e.locationId && <KV k="Lieu">{locName(e.locationId)}</KV>}
-        {e.busId && <KV k="Bus">{e.busId}</KV>}
-        {e.mechanism && <KV k="Mécanisme">{e.mechanism}</KV>}
-        <KV k="Importance">
+        {e.locationId && <KV k={t('ui.inspector_kv_place')}>{locName(e.locationId)}</KV>}
+        {e.busId && <KV k={t('ui.inspector_kv_bus')}>{e.busId}</KV>}
+        {e.mechanism && <KV k={t('ui.inspector_kv_mechanism')}>{e.mechanism}</KV>}
+        <KV k={t('ui.inspector_kv_importance')}>
           <Bar value={e.importance} tone="accent" right={e.importance.toFixed(2)} />
         </KV>
       </div>
@@ -140,17 +143,17 @@ function EventCard({ id }: { id: string }) {
           onClick={() => {
             if (panel !== 'causal') setPanel('causal');
           }}
-          title="Ouvrir l’explorateur causal sur cet événement"
+          title={t('ui.inspector_why_event_title')}
         >
-          ⛓ Pourquoi cet événement s’est-il produit ?
+          {t('ui.inspector_why_event')}
         </button>
         <div className="row gap">
-          <button className="btn sm" onClick={() => seek(e.t)} title="Placer l’horloge à l’heure de l’événement">
-            ⏱ Aller à cet instant
+          <button className="btn sm" onClick={() => seek(e.t)} title={t('ui.inspector_goto_time_title')}>
+            {t('ui.inspector_goto_time')}
           </button>
           {e.type === 'bus_arrive' && e.busId && (
-            <button className="btn sm accent" onClick={delayBus} title="Créer une réalité B où ce bus arrive avec 3 minutes de retard">
-              🦋 Retarder ce bus de 3 min
+            <button className="btn sm accent" onClick={delayBus} title={t('ui.inspector_delay_bus_title')}>
+              {t('ui.inspector_delay_bus')}
             </button>
           )}
         </div>
@@ -160,26 +163,26 @@ function EventCard({ id }: { id: string }) {
               enabled={ai.enabled}
               busy={scene.busy}
               onClick={stageDialogue}
-              title="Scène dialoguée imaginée par le modèle, limitée aux faits enregistrés (événement, relation, désirs du jour, souvenirs de chacun)"
-              disabledTitle={`Narration IA indisponible${ai.message ? ` — ${ai.message}` : ''}`}
+              title={t('ui.inspector_stage_title')}
+              disabledTitle={aiUnavailableTitle(ai.message)}
             >
-              🎭 {scene.busy ? 'Mise en scène…' : 'Mettre en scène (dialogue)'}
+              {scene.busy ? t('ui.inspector_stage_busy') : t('ui.inspector_stage')}
             </AiButton>
           </div>
         )}
         {error && <div className="error">{error}</div>}
       </div>
-      <NarrationBox label="Scène dialoguée" {...scene} />
+      <NarrationBox label={t('ui.inspector_scene_label')} {...scene} />
 
-      <Section title="Causes directes" count={causes.length}>
-        {causes.length ? causes.map((c) => <EventRow key={c.id} e={c} onClick={() => selectEvent(c.id)} sub={c.mechanism} />) : <Empty>Aucune cause enregistrée : événement racine (routine, horaire ou hasard).</Empty>}
+      <Section title={t('ui.inspector_causes')} count={causes.length}>
+        {causes.length ? causes.map((c) => <EventRow key={c.id} e={c} onClick={() => selectEvent(c.id)} sub={c.mechanism} />) : <Empty>{t('ui.inspector_causes_none')}</Empty>}
       </Section>
-      <Section title="Effets directs" count={effects.length}>
-        {effects.length ? effects.slice(0, 30).map((c) => <EventRow key={c.id} e={c} onClick={() => selectEvent(c.id)} sub={c.mechanism} />) : <Empty>Aucun effet direct enregistré.</Empty>}
-        {effects.length > 30 && <div className="muted small">… et {effects.length - 30} autres</div>}
+      <Section title={t('ui.inspector_effects')} count={effects.length}>
+        {effects.length ? effects.slice(0, 30).map((c) => <EventRow key={c.id} e={c} onClick={() => selectEvent(c.id)} sub={c.mechanism} />) : <Empty>{t('ui.inspector_effects_none')}</Empty>}
+        {effects.length > 30 && <div className="muted small">{t('ui.inspector_effects_more', { n: effects.length - 30 })}</div>}
       </Section>
       {e.randomDraws && e.randomDraws.length > 0 && (
-        <Section title="Tirages aléatoires (graine)" count={e.randomDraws.length} defaultOpen={false}>
+        <Section title={t('ui.inspector_draws')} count={e.randomDraws.length} defaultOpen={false}>
           {e.randomDraws.map((d) => (
             <KV key={d.key} k={<span className="mono small">{d.key}</span>}>
               <span className="mono">{d.value.toFixed(3)}</span>
@@ -188,7 +191,7 @@ function EventCard({ id }: { id: string }) {
         </Section>
       )}
       {e.effects.length > 0 && (
-        <Section title="Changements d’état" count={e.effects.length} defaultOpen={false}>
+        <Section title={t('ui.inspector_state_changes')} count={e.effects.length} defaultOpen={false}>
           <ul className="plain small">
             {e.effects.map((f, i) => (
               <li key={i}>
@@ -209,6 +212,7 @@ function EventCard({ id }: { id: string }) {
 // ---------------------------------------------------------------------------
 
 function CharacterPanel({ id }: { id: string }) {
+  useLocale();
   const reality = useActiveReality();
   const liveMinute = useMinute();
   const minute = useDeferredValue(liveMinute);
@@ -226,7 +230,7 @@ function CharacterPanel({ id }: { id: string }) {
   const decisions = useMemo(() => agentEvents.filter((e) => (e.type === 'decision' || e.type === 'plan_change') && e.t <= minute).slice(-6).reverse(), [agentEvents, minute]);
   const summary = useMemo(() => (showSummary ? agentSummary(reality, id) : null), [showSummary, reality, id, generation]);
 
-  if (!a) return <Empty>Habitant introuvable.</Empty>;
+  if (!a) return <Empty>{t('ui.inspector_agent_missing')}</Empty>;
 
   const topTraits = (Object.entries(p.traits) as [TraitName, number][]).sort((x, y) => y[1] - x[1]).slice(0, 4);
   const rels = Object.values(a.relationships).sort((x, y) => Math.abs(y.affinity) - Math.abs(x.affinity));
@@ -242,14 +246,14 @@ function CharacterPanel({ id }: { id: string }) {
         <div className="char-id">
           <h2>{p.name}</h2>
           <div className="muted">
-            {p.age} ans · {p.occupation}
+            {t('ui.inspector_age_occupation', { age: p.age, occupation: p.occupation })}
           </div>
         </div>
         <div className="char-actions">
-          <button className={`icon-btn sm ${followed ? 'on' : ''}`} onClick={() => followAgent(followed ? null : id)} title={followed ? 'Ne plus suivre' : 'Suivre avec la caméra'} aria-pressed={followed}>
+          <button className={`icon-btn sm ${followed ? 'on' : ''}`} onClick={() => followAgent(followed ? null : id)} title={followed ? t('ui.inspector_follow_stop') : t('ui.inspector_follow')} aria-pressed={followed}>
             👁
           </button>
-          <button className="icon-btn sm" onClick={() => selectAgent(null)} title="Fermer la fiche">
+          <button className="icon-btn sm" onClick={() => selectAgent(null)} title={t('ui.inspector_card_close')}>
             ✕
           </button>
         </div>
@@ -263,8 +267,8 @@ function CharacterPanel({ id }: { id: string }) {
       <WhyBlock a={a} reality={reality} />
 
       <div className="row gap wrap">
-        <button className="btn sm" onClick={() => setShowSummary(!showSummary)} title="Résumé factuel de toute la journée de cet habitant">
-          📜 {showSummary ? 'Masquer le résumé' : 'Résumé de la journée'}
+        <button className="btn sm" onClick={() => setShowSummary(!showSummary)} title={t('ui.inspector_summary_title')}>
+          📜 {showSummary ? t('ui.inspector_summary_hide') : t('ui.inspector_summary_show')}
         </button>
       </div>
       {summary && (
@@ -274,24 +278,24 @@ function CharacterPanel({ id }: { id: string }) {
         </div>
       )}
 
-      <Section title="Besoins">
+      <Section title={t('ui.inspector_needs')}>
         {(Object.keys(NEED_LABELS) as (keyof typeof NEED_LABELS)[]).map((k) => {
           const v = a.needs[k] / 100;
           return <Bar key={k} label={NEED_LABELS[k]} value={v} tone={v > 0.7 ? 'danger' : v > 0.45 ? 'warn' : 'ok'} right={Math.round(a.needs[k])} />;
         })}
       </Section>
 
-      <Section title="Traits dominants">
+      <Section title={t('ui.inspector_traits')}>
         <div className="chips">
           {topTraits.map(([k, v]) => (
-            <span key={k} className="pill" title={`${TRAIT_LABELS[k]} : ${Math.round(v * 100)} / 100`}>
+            <span key={k} className="pill" title={t('ui.inspector_trait_title', { trait: TRAIT_LABELS[k], value: Math.round(v * 100) })}>
               {TRAIT_LABELS[k]} <span className="mono muted">{Math.round(v * 100)}</span>
             </span>
           ))}
         </div>
       </Section>
 
-      <Section title="Programme du jour" count={a.commitments.length}>
+      <Section title={t('ui.inspector_schedule')} count={a.commitments.length}>
         {a.commitments.length ? (
           <ul className="schedule">
             {[...a.commitments]
@@ -308,8 +312,8 @@ function CharacterPanel({ id }: { id: string }) {
                       <span className="muted small">
                         {' '}
                         · {locName(c.locationId)}
-                        {c.with.length ? ` · avec ${c.with.map(firstName).join(', ')}` : ''}
-                        {c.lateBy ? ` · ${c.lateBy} min de retard` : ''}
+                        {c.with.length ? t('ui.inspector_sched_with', { names: c.with.map(firstName).join(', ') }) : ''}
+                        {c.lateBy ? t('ui.inspector_sched_late', { n: c.lateBy }) : ''}
                       </span>
                     </span>
                     <Badge tone={st.tone}>{st.label}</Badge>
@@ -318,11 +322,11 @@ function CharacterPanel({ id }: { id: string }) {
               })}
           </ul>
         ) : (
-          <Empty>Aucun engagement aujourd’hui.</Empty>
+          <Empty>{t('ui.inspector_schedule_none')}</Empty>
         )}
       </Section>
 
-      <Section title="Relations" count={rels.length}>
+      <Section title={t('ui.inspector_relations')} count={rels.length}>
         {rels.slice(0, allRels ? rels.length : 8).map((r) => (
           <div key={r.to} className="rel-row">
             <AgentChip id={r.to} />
@@ -332,17 +336,17 @@ function CharacterPanel({ id }: { id: string }) {
         ))}
         {rels.length > 8 && (
           <button className="link small" onClick={() => setAllRels(!allRels)}>
-            {allRels ? 'Réduire' : `Voir les ${rels.length} relations`}
+            {allRels ? t('ui.inspector_rels_less') : t('ui.inspector_rels_all', { n: rels.length })}
           </button>
         )}
       </Section>
 
-      <Section title="Souvenirs récents" count={memories.length}>
+      <Section title={t('ui.inspector_memories')} count={memories.length}>
         {memories.length ? (
           <ul className="memories">
             {memories.map((m, i) => (
               <li key={`${m.eventId}-${i}`}>
-                <button className="memory" onClick={() => selectEvent(m.eventId)} title="Voir l’événement à l’origine de ce souvenir">
+                <button className="memory" onClick={() => selectEvent(m.eventId)} title={t('ui.inspector_memory_title')}>
                   <span className="mono t">{fmtTime(m.t)}</span>
                   <span className="valence" style={{ background: m.valence > 0.1 ? 'var(--ok)' : m.valence < -0.1 ? 'var(--danger)' : 'var(--muted)', opacity: 0.4 + m.importance * 0.6 }} />
                   <span>{m.text}</span>
@@ -351,27 +355,27 @@ function CharacterPanel({ id }: { id: string }) {
             ))}
           </ul>
         ) : (
-          <Empty>Pas encore de souvenir marquant.</Empty>
+          <Empty>{t('ui.inspector_memories_none')}</Empty>
         )}
       </Section>
 
       {lab && (
-        <Section title="Souvenirs liés à la situation" className="recall">
+        <Section title={t('ui.inspector_recall')} className="recall">
           <SituationRecall a={a} state={state} minute={minute} />
         </Section>
       )}
 
-      <Section title="Décisions récentes" count={decisions.length}>
-        {decisions.length ? decisions.map((e) => <EventRow key={e.id} e={e} onClick={() => selectEvent(e.id)} sub={e.type === 'plan_change' ? e.mechanism : undefined} />) : <Empty>Aucune décision encore.</Empty>}
+      <Section title={t('ui.inspector_decisions')} count={decisions.length}>
+        {decisions.length ? decisions.map((e) => <EventRow key={e.id} e={e} onClick={() => selectEvent(e.id)} sub={e.type === 'plan_change' ? e.mechanism : undefined} />) : <Empty>{t('ui.inspector_decisions_none')}</Empty>}
       </Section>
 
-      <Section title="Objectifs de vie" count={p.goals.length} defaultOpen={false}>
+      <Section title={t('ui.inspector_goals')} count={p.goals.length} defaultOpen={false}>
         <ul className="plain">
           {p.goals.map((g) => (
             <li key={g}>◇ {g}</li>
           ))}
         </ul>
-        <div className="muted small">Objectifs accomplis aujourd’hui : {a.objectivesDone}</div>
+        <div className="muted small">{t('ui.inspector_goals_done', { n: a.objectivesDone })}</div>
       </Section>
     </div>
   );
@@ -384,6 +388,7 @@ function CharacterPanel({ id }: { id: string }) {
 const BAR_TONE: Record<string, string> = { muted: 'accent', accent: 'accent', ok: 'ok', danger: 'danger', warn: 'warn' };
 
 function ArcSection({ reality, state, id, minute, lab }: { reality: Reality; state: WorldState; id: AgentId; minute: number; lab: boolean }) {
+  useLocale();
   const generation = useSimStore((s) => s.generation);
   const go = useGoToEvent();
   // Static facts (title, desire, tension, secret…) come from the day's summary;
@@ -397,13 +402,14 @@ function ArcSection({ reality, state, id, minute, lab }: { reality: Reality; sta
   const attempt = attemptLabel(arc.attempt);
   const late = minute >= summary.deadline && (arc.status === 'open' || arc.status === 'advancing');
   const secretAbout = summary.secret ? arcSeed(arc.seedId).secretAbout : undefined;
+  const known = arc.knownBy.length ? arc.knownBy.map(firstName).join(', ') : t('ui.inspector_secret_nobody');
   return (
-    <Section title="Son histoire aujourd’hui" className="arc-section" right={<Badge tone={tone}>{ARC_STATUS_LABELS[arc.status]}</Badge>}>
+    <Section title={t('ui.inspector_arc')} className="arc-section" right={<Badge tone={tone}>{ARC_STATUS_LABELS[arc.status]}</Badge>}>
       <div className={`arc-card st-${arc.status}`}>
         <div className="arc-head">
           <span className="fam-pill fam-drama">{summary.kind}</span>
-          {attempt && <Badge tone="warn" title="L’histoire a échoué la veille : elle est retentée, avec des enjeux plus élevés">{attempt}</Badge>}
-          <span className="arc-stakes" title={`Enjeu ${STAKES_WORDS[flames]} (${Math.round(summary.stakes * 100)} / 100)`} aria-label={`Enjeu ${STAKES_WORDS[flames]}`}>
+          {attempt && <Badge tone="warn" title={t('ui.inspector_arc_retry_title')}>{attempt}</Badge>}
+          <span className="arc-stakes" title={t('ui.inspector_stakes_title', { word: stakesWord(flames), n: Math.round(summary.stakes * 100) })} aria-label={t('ui.inspector_stakes_aria', { word: stakesWord(flames) })}>
             {[1, 2, 3].map((i) => (
               <span key={i} className={`flame ${i <= flames ? 'on' : ''}`} aria-hidden>
                 🔥
@@ -414,33 +420,33 @@ function ArcSection({ reality, state, id, minute, lab }: { reality: Reality; sta
         <div className="arc-title">{summary.title}</div>
         <p className="arc-desire">{summary.desire}</p>
         <p className="arc-tension">
-          <span className="arc-k">Tension</span> {summary.tension}
+          <span className="arc-k">{t('ui.inspector_arc_tension')}</span> {summary.tension}
         </p>
         <div className="arc-meta">
-          <span className={late ? 'neg' : ''} title="Heure à laquelle l’histoire se règle d’elle-même">
-            Échéance <span className="mono">{fmtTime(summary.deadline)}</span>
+          <span className={late ? 'neg' : ''} title={t('ui.inspector_arc_deadline_title')}>
+            {t('ui.inspector_arc_deadline')} <span className="mono">{fmtTime(summary.deadline)}</span>
           </span>
           <Bar value={arc.progress} tone={BAR_TONE[tone]} right={`${Math.round(arc.progress * 100)} %`} />
         </div>
         {lab && summary.secret && (
           <div className="arc-secret">
-            <div className="arc-k">Secret (laboratoire)</div>
+            <div className="arc-k">{t('ui.inspector_arc_secret')}</div>
             <div>{summary.secret}</div>
             <div className="muted small">
-              {secretAbout ? `caché à ${firstName(secretAbout)} · ` : ''}connu de : {arc.knownBy.length ? arc.knownBy.map(firstName).join(', ') : 'personne pour l’instant'}
+              {secretAbout ? t('ui.inspector_secret_hidden_known', { name: firstName(secretAbout), known }) : t('ui.inspector_secret_known', { known })}
             </div>
           </div>
         )}
       </div>
       {beats.length > 0 ? (
         <div className="arc-beats">
-          <div className="sub-title">Temps forts jusqu’à {fmtTime(minute)}</div>
+          <div className="sub-title">{t('ui.inspector_beats_until', { time: fmtTime(minute) })}</div>
           {beats.map((e) => (
             <EventRow key={e.id} e={e} onClick={() => go(e, { seek: true })} active={e.id === arc.resolutionEventId} />
           ))}
         </div>
       ) : (
-        <div className="muted small">Aucun temps fort pour l’instant.</div>
+        <div className="muted small">{t('ui.inspector_beats_none')}</div>
       )}
     </Section>
   );
@@ -451,6 +457,8 @@ function ArcSection({ reality, state, id, minute, lab }: { reality: Reality; sta
 // ---------------------------------------------------------------------------
 
 function SituationRecall({ a, state, minute }: { a: AgentState; state: WorldState; minute: number }) {
+  useLocale();
+  const locale = useSimStore((s) => s.locale);
   const embedModel = useSimStore((s) => s.ai.embedModel);
   const { selectEvent } = useSimStore.getState();
   const { query, items } = useMemo(() => {
@@ -459,17 +467,17 @@ function SituationRecall({ a, state, minute }: { a: AgentState; state: WorldStat
     const arc = arcOf(state, a.id);
     const q = situationQuery(a, p, {
       t: minute,
-      locationName: a.locationId ? locName(a.locationId) : a.travel?.stage === 'riding' ? 'dans le bus' : 'en chemin',
+      locationName: a.locationId ? locName(a.locationId) : a.travel?.stage === 'riding' ? t('ui.inspector_situation_in_bus') : t('ui.inspector_situation_en_route'),
       present: presentNames(a, state.agents, PROFILES),
       nextCommitment: next?.label,
       desire: arc ? arcSeed(arc.seedId).desire : undefined,
     });
     return { query: q, items: recallMemoriesSync(a.memories.filter((m) => m.t <= minute), q, LEXICAL, minute, 5) };
-  }, [a, state, minute]);
+  }, [a, state, minute, locale]);
   return (
     <>
-      <div className="recall-query muted small" title="Requête de rappel construite à partir de la situation">
-        Situation : {query}
+      <div className="recall-query muted small" title={t('ui.inspector_recall_query_title')}>
+        {t('ui.inspector_recall_query', { query })}
       </div>
       {items.length ? (
         <ul className="memories">
@@ -478,10 +486,10 @@ function SituationRecall({ a, state, minute }: { a: AgentState; state: WorldStat
               <button
                 className="memory recall-item"
                 onClick={() => selectEvent(r.memory.eventId)}
-                title={`Score ${r.score.toFixed(2)} = similarité ${r.similarity.toFixed(2)} · récence ${r.recency.toFixed(2)} · importance ${r.memory.importance.toFixed(2)} — voir l’événement d’origine`}
+                title={t('ui.inspector_recall_item_title', { score: r.score.toFixed(2), sim: r.similarity.toFixed(2), rec: r.recency.toFixed(2), imp: r.memory.importance.toFixed(2) })}
               >
                 <span className="mono t">{fmtTime(r.memory.t)}</span>
-                <span className="recall-rel" aria-label={`Similarité ${Math.round(r.similarity * 100)} %`}>
+                <span className="recall-rel" aria-label={t('ui.inspector_recall_sim_aria', { n: Math.round(r.similarity * 100) })}>
                   <span style={{ width: `${Math.max(4, Math.min(100, r.similarity * 100))}%` }} />
                 </span>
                 <span>{r.memory.text}</span>
@@ -490,43 +498,44 @@ function SituationRecall({ a, state, minute }: { a: AgentState; state: WorldStat
           ))}
         </ul>
       ) : (
-        <Empty>Aucun souvenir à rappeler pour l’instant.</Empty>
+        <Empty>{t('ui.inspector_recall_none')}</Empty>
       )}
-      <div className="muted small recall-caption" title={embedModel ? `Dans l’interface, la similarité est calculée hors ligne (lexique) ; les conseillers utilisent ${embedModel}.` : 'Similarité lexicale déterministe, calculée hors ligne.'}>
-        Rappel par similarité + récence + importance (embeddings locaux : {embedModel ?? 'lexique hors ligne'})
+      <div className="muted small recall-caption" title={embedModel ? t('ui.inspector_recall_caption_model_title', { model: embedModel }) : t('ui.inspector_recall_caption_offline_title')}>
+        {t('ui.inspector_recall_caption', { model: embedModel ?? t('ui.inspector_recall_offline') })}
       </div>
     </>
   );
 }
 
 function currentActivity(a: AgentState): string {
-  if (a.asleep) return 'Dort';
+  if (a.asleep) return t('ui.inspector_act_sleeping');
   if (a.travel) {
     const stage = TRAVEL_STAGE_LABELS[a.travel.stage];
-    if (a.activity?.action === 'drive_bus') return 'Conduit le bus';
-    return `${stage} → ${locName(a.travel.destinationId)}`;
+    if (a.activity?.action === 'drive_bus') return t('ui.inspector_act_driving');
+    return t('ui.inspector_act_travel', { stage, place: locName(a.travel.destinationId) });
   }
-  return a.activity?.label ?? 'Réfléchit à la suite';
+  return a.activity?.label ?? t('ui.inspector_act_thinking');
 }
 
 function NowBlock({ a, minute }: { a: AgentState; minute: number }) {
+  useLocale();
   const next = [...a.commitments].filter((c) => c.status === 'ongoing' || (c.status === 'pending' && c.end >= minute)).sort((x, y) => x.start - y.start)[0];
-  const objective = a.plan?.label ?? (next ? `${next.label} (${fmtTime(next.start)})` : '—');
+  const objective = a.plan?.label ?? (next ? t('ui.inspector_objective_next', { label: next.label, time: fmtTime(next.start) }) : '—');
   return (
     <div className="now">
       <div className="now-title">
-        Maintenant <span className="mono muted">{fmtTime(minute)}</span>
+        {t('ui.inspector_now')} <span className="mono muted">{fmtTime(minute)}</span>
       </div>
       <div className="now-grid">
-        <KV k="Lieu">{a.locationId ? locName(a.locationId) : a.travel?.stage === 'riding' ? `Dans le bus ${a.travel.busId ?? ''}` : 'En chemin'}</KV>
-        <KV k="Activité">{currentActivity(a)}</KV>
-        <KV k="Objectif">{objective}</KV>
-        {next && a.plan && <KV k="Prochain engagement">{`${next.label} · ${fmtTime(next.start)}`}</KV>}
+        <KV k={t('ui.inspector_kv_place')}>{a.locationId ? locName(a.locationId) : a.travel?.stage === 'riding' ? t('ui.inspector_in_bus_n', { bus: a.travel.busId ?? '' }) : t('ui.format_en_route')}</KV>
+        <KV k={t('ui.inspector_kv_activity')}>{currentActivity(a)}</KV>
+        <KV k={t('ui.inspector_kv_objective')}>{objective}</KV>
+        {next && a.plan && <KV k={t('ui.inspector_kv_next')}>{t('ui.inspector_next_commitment', { label: next.label, time: fmtTime(next.start) })}</KV>}
       </div>
       <div className="emo">
         <div className="emo-row">
-          <span className="emo-label">Humeur</span>
-          <span className="mood-gauge" title={`${a.emotions.mood.toFixed(2)} sur une échelle de −1 à +1`}>
+          <span className="emo-label">{t('ui.inspector_mood')}</span>
+          <span className="mood-gauge" title={t('ui.inspector_mood_gauge_title', { value: a.emotions.mood.toFixed(2) })}>
             <span className="mood-track" />
             <span className="mood-knob" style={{ left: `${((a.emotions.mood + 1) / 2) * 100}%`, background: moodColor(a.emotions.mood) }} />
           </span>
@@ -535,7 +544,7 @@ function NowBlock({ a, minute }: { a: AgentState; minute: number }) {
           </span>
         </div>
         <div className="emo-row">
-          <span className="emo-label">Stress</span>
+          <span className="emo-label">{t('ui.inspector_stress')}</span>
           <span className="bar">
             <span className={`bar-fill ${a.emotions.stress > 0.6 ? 'tone-danger' : a.emotions.stress > 0.3 ? 'tone-warn' : 'tone-ok'}`} style={{ width: `${a.emotions.stress * 100}%` }} />
           </span>
@@ -547,6 +556,7 @@ function NowBlock({ a, minute }: { a: AgentState; minute: number }) {
 }
 
 function WhyBlock({ a, reality }: { a: AgentState; reality: Reality }) {
+  useLocale();
   const { selectEvent } = useSimStore.getState();
   const d = a.lastDecision;
   const driving = a.activity?.action === 'drive_bus';
@@ -556,18 +566,18 @@ function WhyBlock({ a, reality }: { a: AgentState; reality: Reality }) {
   const influences = useMemo(() => (d ? d.influences.map((id) => reality.eventById(id)).filter((x): x is SimEvent => !!x) : []), [d, reality]);
 
   return (
-    <Section title={<>Pourquoi fait-il cela&nbsp;?</>} className="why">
-      {a.asleep && <div className="note">💤 {firstName(a.id)} dort : aucune décision n’est prise pendant le sommeil. Ci-dessous, la dernière décision avant de s’endormir.</div>}
-      {driving && <div className="note">🚌 {firstName(a.id)} conduit le bus : le service impose l’itinéraire et les horaires.</div>}
+    <Section title={t('ui.inspector_why')} className="why">
+      {a.asleep && <div className="note">💤 {t('ui.inspector_why_asleep', { name: firstName(a.id) })}</div>}
+      {driving && <div className="note">🚌 {t('ui.inspector_why_driving', { name: firstName(a.id) })}</div>}
       {!d ? (
-        <Empty>Aucune décision enregistrée pour l’instant.</Empty>
+        <Empty>{t('ui.inspector_why_none')}</Empty>
       ) : (
         <>
           <div className="why-chosen">
             <div className="why-chosen-head">
-              <span className="muted small">Choix retenu à {fmtTime(d.t)}</span>
-              <button className="link small" onClick={() => selectEvent(d.eventId)} title="Voir l’événement de décision">
-                détails
+              <span className="muted small">{t('ui.inspector_why_chosen_at', { time: fmtTime(d.t) })}</span>
+              <button className="link small" onClick={() => selectEvent(d.eventId)} title={t('ui.inspector_why_details_title')}>
+                {t('ui.inspector_why_details')}
               </button>
             </div>
             <div className="why-chosen-label">
@@ -585,7 +595,7 @@ function WhyBlock({ a, reality }: { a: AgentState; reality: Reality }) {
           )}
           {others.length > 0 && (
             <div className="candidates">
-              <div className="sub-title">Autres options envisagées</div>
+              <div className="sub-title">{t('ui.inspector_why_others')}</div>
               {others.map((c, i) => (
                 <div key={i} className={`cand ${c.rejected ? 'rejected' : ''}`} title={c.components.map((x) => `${x.label} ${signed(x.value)}`).join('\n')}>
                   <span className="cand-rank mono">{i + 2}</span>
@@ -601,7 +611,7 @@ function WhyBlock({ a, reality }: { a: AgentState; reality: Reality }) {
           )}
           {influences.length > 0 && (
             <div className="influences">
-              <div className="sub-title">Événements qui ont pesé sur la décision</div>
+              <div className="sub-title">{t('ui.inspector_why_influences')}</div>
               {influences.map((e) => (
                 <EventRow key={e.id} e={e} onClick={() => selectEvent(e.id)} />
               ))}
@@ -631,6 +641,7 @@ function ComponentChart({ c }: { c: Candidate }) {
 // ---------------------------------------------------------------------------
 
 function Welcome() {
+  useLocale();
   const { setPanel, togglePlay, selectAgent } = useSimStore.getState();
   const hasB = useSimStore((s) => !!s.realityB);
   return (
@@ -638,40 +649,28 @@ function Welcome() {
       <div className="welcome-mark" aria-hidden>
         🦋
       </div>
-      <h2>Bienvenue au laboratoire</h2>
-      <p>
-        Vingt habitants vivent une journée entière, de 06:00 à minuit. Chaque geste, chaque rencontre, chaque retard est enregistré avec ses <strong>causes</strong>. Changez un détail, et observez l’effet papillon.
-      </p>
+      <h2>{t('ui.inspector_welcome_title')}</h2>
+      <p>{rich(t('ui.inspector_welcome_intro'))}</p>
       <ol className="steps">
-        <li>
-          <strong>Observez.</strong> Lancez la lecture <kbd>Espace</kbd> et choisissez une vitesse (×1 = temps réel, ×60 = une minute simulée par seconde).
-        </li>
-        <li>
-          <strong>Choisissez un habitant</strong> dans la liste ou dans la ville pour comprendre ce qu’il fait, et surtout <em>pourquoi</em>.
-        </li>
-        <li>
-          <strong>Cliquez un repère</strong> de la chronologie pour inspecter un événement et remonter ses causes.
-        </li>
-        <li>
-          <strong>Et si… ?</strong> Créez une réalité B en modifiant un détail : un bus en retard, une boulangerie qui ferme, une rencontre imprévue.
-        </li>
-        <li>
-          <strong>Comparez</strong> les deux journées : seules les différences reliées causalement à votre intervention sont déclarées « vérifiées ».
-        </li>
+        <li>{rich(t('ui.inspector_welcome_step1'))}</li>
+        <li>{rich(t('ui.inspector_welcome_step2'))}</li>
+        <li>{rich(t('ui.inspector_welcome_step3'))}</li>
+        <li>{rich(t('ui.inspector_welcome_step4'))}</li>
+        <li>{rich(t('ui.inspector_welcome_step5'))}</li>
       </ol>
       <div className="row gap wrap">
-        <button className="btn primary" onClick={togglePlay} title="Lancer / mettre en pause la simulation">
-          ▶ Lancer la journée
+        <button className="btn primary" onClick={togglePlay} title={t('ui.inspector_welcome_play_title')}>
+          {t('ui.inspector_welcome_play')}
         </button>
-        <button className="btn accent" onClick={() => setPanel('butterfly')} title="Ouvrir l’éditeur d’interventions">
-          🦋 Et si…
+        <button className="btn accent" onClick={() => setPanel('butterfly')} title={t('ui.inspector_welcome_whatif_title')}>
+          {t('ui.inspector_welcome_whatif')}
         </button>
-        <button className="btn ghost" onClick={() => selectAgent('alice')} title="Ouvrir la fiche d’Alice">
-          Découvrir Alice
+        <button className="btn ghost" onClick={() => selectAgent('alice')} title={t('ui.inspector_welcome_alice_title')}>
+          {t('ui.inspector_welcome_alice')}
         </button>
         {hasB && (
           <button className="btn ghost" onClick={() => setPanel('compare')}>
-            ⇄ Comparer A et B
+            {t('ui.inspector_welcome_compare')}
           </button>
         )}
       </div>

@@ -20,7 +20,8 @@ import { fmtTime } from '../../sim/time';
 import { GRAVITY_LABELS, type AgentId } from '../../sim/types';
 import { truncate } from '../drama';
 import { eventTypeLabel, firstName } from '../format';
-import { useActiveReality } from '../hooks';
+import { t } from '../../i18n';
+import { useActiveReality, useLocale } from '../hooks';
 import { advanceAlerts, alertAnchors, alertIndexAt } from './gestures';
 
 /** How long an alert stays (real time, ms). */
@@ -78,10 +79,10 @@ export function AlertDriver({ agentId }: { agentId: AgentId }) {
   return null;
 }
 
-/** French tooltip of an alert: kind, gravity and link to the quest. */
+/** Tooltip of an alert: kind, gravity and link to the quest. */
 function alertTitle(a: QuestAlert): string {
-  const link = a.link !== 'none' ? ` · lié à votre quête : ${QUEST_LINK_LABELS[a.link]}` : '';
-  return `${fmtTime(a.event.t)} — ${eventTypeLabel(a.event.type)} (${GRAVITY_LABELS[a.gravity]})${link}\n${a.event.label}`;
+  const p = { time: fmtTime(a.event.t), type: eventTypeLabel(a.event.type), gravity: GRAVITY_LABELS[a.gravity], label: a.event.label };
+  return a.link !== 'none' ? t('ui.alert_title_linked', { ...p, link: QUEST_LINK_LABELS[a.link] }) : t('ui.alert_title', p);
 }
 
 export function AlertBubbles() {
@@ -96,6 +97,7 @@ export function AlertBubbles() {
 }
 
 function Bubble({ live }: { live: LiveAlert }) {
+  useLocale();
   const ref = useRef<HTMLDivElement>(null);
   const { alert } = live;
   const e = alert.event;
@@ -120,7 +122,7 @@ function Bubble({ live }: { live: LiveAlert }) {
           <span className="quest-bubble-who">{anchors.map(firstName).join(' & ')}</span>
         </span>
         <span className="quest-bubble-text">{truncate(e.label, 84)}</span>
-        {alert.link !== 'none' && <span className="quest-bubble-link">lié à votre quête · {QUEST_LINK_LABELS[alert.link]}</span>}
+        {alert.link !== 'none' && <span className="quest-bubble-link">{t('ui.alert_bubble_link', { link: QUEST_LINK_LABELS[alert.link] })}</span>}
       </button>
     </div>
   );
@@ -128,6 +130,7 @@ function Bubble({ live }: { live: LiveAlert }) {
 
 /** Bottom-left feed in player mode: the same live alerts as the bubbles. */
 export function GameAlertFeed() {
+  useLocale();
   const alerts = useGameUi((s) => s.alerts);
   if (!alerts.length) return null;
   const { setHeld, setAlerts } = useGameUi.getState();
@@ -136,7 +139,7 @@ export function GameAlertFeed() {
     <div
       className="drama-feed"
       role="log"
-      aria-label="Alertes de votre quête"
+      aria-label={t('ui.alert_feed_aria')}
       aria-live="polite"
       onMouseEnter={() => {
         setHeld(true);

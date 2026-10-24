@@ -26,7 +26,9 @@ import type {
   WorldState,
 } from './types';
 import { DAY_END } from './types';
-import { agree } from './population';
+import { getLocale, t as tr, type Locale } from '../i18n';
+import { agree, labelTable, tOr } from './population';
+import { getCity } from './city';
 
 const h = (hh: number, mm = 0): Minute => hh * 60 + mm;
 
@@ -34,6 +36,7 @@ const h = (hh: number, mm = 0): Minute => hh * 60 + mm;
 // Arc seeds: ordered per inhabitant (day 1 first, then the following days)
 // ---------------------------------------------------------------------------
 
+/** French source of the arcs (the catalogue's data part is generated from it); read seeds through `arcSeed()` / `arcSeedsOf()` to get the active language. */
 export const ARC_SEEDS: ArcSeed[] = [
   // Alice
   { id: 'arc_alice_campagne', agentId: 'alice', kind: 'ambition', title: 'Parler à Thomas de la campagne', desire: 'Trouver le moment de parler à Thomas du projet de la nouvelle campagne.', secret: 'Alice a reçu une offre d’une agence concurrente et n’a rien dit.', secretAbout: 'thomas', tension: 'Si Thomas apprend l’offre avant qu’elle lui parle, il la croira déjà partie.', deadline: h(19), stakes: 0.7, goal: { type: 'talk_to', target: 'thomas', deep: true }, fate: [] },
@@ -97,17 +100,40 @@ export const ARC_SEEDS: ArcSeed[] = [
   { id: 'arc_lucie_parc', agentId: 'lucie', kind: 'care', title: 'Une pause au parc', desire: 'S’offrir une pause au parc entre deux services.', tension: 'Le restaurant ne laisse jamais de répit.', deadline: h(18), stakes: 0.4, goal: { type: 'be_at', locationId: 'park', after: h(14) } },
 ];
 
-export function arcSeedsOf(agentId: AgentId): ArcSeed[] {
-  return ARC_SEEDS.filter((s) => s.agentId === agentId);
+/** A seed with its texts read through `story.arc.<seedId>.title|desire|secret|tension|fate.<i>` (French literals as fallback). */
+function localizeSeed(s: ArcSeed): ArcSeed {
+  const k = `story.arc.${s.id}`;
+  const out: ArcSeed = { ...s, title: tOr(`${k}.title`, s.title), desire: tOr(`${k}.desire`, s.desire), tension: tOr(`${k}.tension`, s.tension) };
+  if (s.secret !== undefined) out.secret = tOr(`${k}.secret`, s.secret);
+  if (s.fate) out.fate = s.fate.map((f, i) => ({ ...f, description: tOr(`${k}.fate.${i}`, f.description) }));
+  return out;
 }
 
+const localizedSeeds = new Map<Locale, { list: ArcSeed[]; byId: Map<string, ArcSeed> }>();
+
+function seedsFor(locale: Locale) {
+  let c = localizedSeeds.get(locale);
+  if (!c) {
+    const list = ARC_SEEDS.map(localizeSeed);
+    c = { list, byId: new Map(list.map((x) => [x.id, x])) };
+    localizedSeeds.set(locale, c);
+  }
+  return c;
+}
+
+export function arcSeedsOf(agentId: AgentId): ArcSeed[] {
+  return seedsFor(getLocale()).list.filter((s) => s.agentId === agentId);
+}
+
+/** The seed with its texts in the active language (cached per language; `ARC_SEEDS` stays the French source). */
 export function arcSeed(seedId: string): ArcSeed {
-  const s = ARC_SEEDS.find((x) => x.id === seedId);
+  const s = seedsFor(getLocale()).byId.get(seedId);
   if (!s) throw new Error(`Unknown arc seed ${seedId}`);
   return s;
 }
 
-export const ARC_KIND_LABELS: Record<ArcSeed['kind'], string> = {
+/** French source of the arc kind labels (the catalogue's data part is generated from it). */
+export const ARC_KIND_LABELS_FR: Record<ArcSeed['kind'], string> = {
   romance: 'Cœur',
   ambition: 'Ambition',
   reconciliation: 'Réconciliation',
@@ -118,13 +144,20 @@ export const ARC_KIND_LABELS: Record<ArcSeed['kind'], string> = {
   pride: 'Fierté',
 };
 
-export const ARC_STATUS_LABELS: Record<ArcState['status'], string> = {
+/** French source of the arc status labels (the catalogue's data part is generated from it). */
+export const ARC_STATUS_LABELS_FR: Record<ArcState['status'], string> = {
   open: 'en suspens',
   advancing: 'en marche',
   fulfilled: 'accompli',
   failed: 'échoué',
   twisted: 'bouleversé',
 };
+
+/** Read through `story.arc_kind.<kind>` at access time. */
+export const ARC_KIND_LABELS: Record<ArcSeed['kind'], string> = labelTable('arc_kind', ARC_KIND_LABELS_FR);
+
+/** Read through `story.arc_status.<status>` at access time. */
+export const ARC_STATUS_LABELS: Record<ArcState['status'], string> = labelTable('arc_status', ARC_STATUS_LABELS_FR);
 
 // ---------------------------------------------------------------------------
 // State
@@ -236,62 +269,62 @@ export function evaluateBeat(arc: ArcState, ev: SimEvent, world: WorldState, pro
       if (!involved || !social || !ev.actors.includes(g.target)) return null;
       if (g.after !== undefined && ev.t < g.after) return null;
       const other = firstName(profiles, g.target);
-      if (ev.type === 'argument') return { arc, progress: 0.4, text: `${name} a parlé à ${other}, mais sur le ton de la dispute`, mechanism: 'La rencontre a tourné à l’accrochage', importance: 0.6 };
-      if (!g.deep || ev.type === 'conversation') return { arc, progress: 1, outcome: 'fulfilled', text: `${name} a enfin ${g.deep ? 'eu une vraie conversation avec' : 'parlé à'} ${other}`, mechanism: g.deep ? 'Une conversation profonde a eu lieu' : 'Les deux se sont parlé', importance: 0.85 };
+      if (ev.type === 'argument') return { arc, progress: 0.4, text: tr('story.beat_talk_argument', { name, other }), mechanism: tr('story.mech_encounter_turned_sour'), importance: 0.6 };
+      if (!g.deep || ev.type === 'conversation') return { arc, progress: 1, outcome: 'fulfilled', text: tr(g.deep ? 'story.beat_talk_deep' : 'story.beat_talk_plain', { name, other }), mechanism: tr(g.deep ? 'story.mech_deep_conversation' : 'story.mech_both_spoke'), importance: 0.85 };
       if (arc.progress >= 0.5) return null;
-      return { arc, progress: 0.5, text: `${name} a croisé ${other} et échangé quelques mots, sans aller plus loin`, mechanism: 'Simple échange : le vrai sujet n’a pas été abordé', importance: 0.55 };
+      return { arc, progress: 0.5, text: tr('story.beat_talk_brief', { name, other }), mechanism: tr('story.mech_brief_exchange'), importance: 0.55 };
     }
     case 'avoid': {
       if (!involved || !social || !ev.actors.includes(g.target)) return null;
       const other = firstName(profiles, g.target);
-      if (ev.type === 'conversation') return { arc, progress: 1, outcome: 'twisted', text: `${name} voulait éviter ${other}… et ils se sont parlé longuement`, mechanism: 'La rencontre évitée a eu lieu et a tout changé', importance: 0.95 };
-      if (ev.type === 'argument') return { arc, progress: 1, outcome: 'failed', text: `${name} n’a pas pu éviter ${other} : la rencontre a tourné à la dispute`, mechanism: 'Rencontre non souhaitée, conflictuelle', importance: 0.9 };
-      return { arc, progress: 0.6, outcome: 'failed', text: `${name} a croisé ${other} malgré tout et n’a pas su quoi dire`, mechanism: 'Présents au même endroit au même moment', importance: 0.7 };
+      if (ev.type === 'conversation') return { arc, progress: 1, outcome: 'twisted', text: tr('story.beat_avoid_talked_long', { name, other }), mechanism: tr('story.mech_avoid_met'), importance: 0.95 };
+      if (ev.type === 'argument') return { arc, progress: 1, outcome: 'failed', text: tr('story.beat_avoid_argument', { name, other }), mechanism: tr('story.mech_avoid_unwanted'), importance: 0.9 };
+      return { arc, progress: 0.6, outcome: 'failed', text: tr('story.beat_avoid_crossed', { name, other }), mechanism: tr('story.mech_avoid_same_place'), importance: 0.7 };
     }
     case 'commitment': {
       if (ev.data?.commitmentId !== g.commitmentId) return null;
-      if (ev.type === 'meeting_start' && involved) return { arc, progress: 0.7, text: `${name} est au rendez-vous`, mechanism: 'Le rendez-vous commence', importance: 0.5 };
-      if (ev.type === 'meeting_end' && involved) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} a tenu parole`, mechanism: 'L’engagement a été honoré jusqu’au bout', importance: 0.8 };
-      if (ev.type === 'meeting_missed') return { arc, progress: arc.progress, outcome: 'failed', text: `${name} n’y est pas ${agree(me, 'arrivé')}`, mechanism: ev.mechanism ?? 'Rendez-vous manqué', importance: 0.85 };
-      if (ev.type === 'commitment_cancelled' && involved) return { arc, progress: arc.progress, outcome: 'failed', text: `${name} a renoncé`, mechanism: 'Engagement annulé', importance: 0.8 };
+      if (ev.type === 'meeting_start' && involved) return { arc, progress: 0.7, text: tr('story.beat_commitment_present', { name }), mechanism: tr('story.mech_meeting_starts'), importance: 0.5 };
+      if (ev.type === 'meeting_end' && involved) return { arc, progress: 1, outcome: 'fulfilled', text: tr('story.beat_commitment_kept', { name }), mechanism: tr('story.mech_commitment_honored'), importance: 0.8 };
+      if (ev.type === 'meeting_missed') return { arc, progress: arc.progress, outcome: 'failed', text: tr('story.beat_commitment_missed', { name, arrived: agree(me, 'arrivé') }), mechanism: ev.mechanism ?? tr('story.mech_meeting_missed'), importance: 0.85 };
+      if (ev.type === 'commitment_cancelled' && involved) return { arc, progress: arc.progress, outcome: 'failed', text: tr('story.beat_commitment_gave_up', { name }), mechanism: tr('story.mech_commitment_cancelled'), importance: 0.8 };
       return null;
     }
     case 'on_time': {
       if (!involved || ev.data?.commitmentId !== g.commitmentId) return null;
-      if (ev.type === 'late') return { arc, progress: 0, outcome: 'failed', text: `${name} est encore en retard (${ev.data?.lateBy} min)`, mechanism: ev.mechanism ?? 'Arrivée après l’heure', importance: 0.8 };
+      if (ev.type === 'late') return { arc, progress: 0, outcome: 'failed', text: tr('story.beat_late_again', { name, n: ev.data?.lateBy as number | string | undefined }), mechanism: ev.mechanism ?? tr('story.mech_arrival_after_time'), importance: 0.8 };
       if (ev.type === 'work_start' && !ev.data?.resuming) {
         const lateBy = Number(ev.data?.lateBy ?? 0);
-        if (lateBy <= 5) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} est ${agree(me, 'arrivé')} à l’heure${lateBy < 0 ? `, ${-lateBy} min en avance` : ''}`, mechanism: 'Arrivée avant l’heure de début', importance: 0.8 };
+        if (lateBy <= 5) return { arc, progress: 1, outcome: 'fulfilled', text: lateBy < 0 ? tr('story.beat_on_time_early', { name, arrived: agree(me, 'arrivé'), n: -lateBy }) : tr('story.beat_on_time', { name, arrived: agree(me, 'arrivé') }), mechanism: tr('story.mech_arrival_before_start'), importance: 0.8 };
       }
       return null;
     }
     case 'be_at': {
       if (!involved || ev.type !== 'arrive' || ev.locationId !== g.locationId) return null;
       if (g.after !== undefined && ev.t < g.after) return null;
-      const locName = ev.label.split('arrive à ')[1]?.split(' (')[0] ?? g.locationId;
+      const locName = getCity().location(g.locationId).name;
       if (g.withAgent) {
         const other = world.agents[g.withAgent];
         const otherName = firstName(profiles, g.withAgent);
-        if (other?.locationId === g.locationId && !other.asleep) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} retrouve ${otherName} à ${locName}`, mechanism: 'Arrivée au lieu voulu pendant que l’autre y était', importance: 0.85 };
+        if (other?.locationId === g.locationId && !other.asleep) return { arc, progress: 1, outcome: 'fulfilled', text: tr('story.beat_be_at_reunion', { name, other: otherName, place: locName }), mechanism: tr('story.mech_be_at_other_present'), importance: 0.85 };
         const left = world.lastLeft?.[g.withAgent];
-        if (left && left.locationId === g.locationId && ev.t - left.t <= 15) return { arc, progress: Math.max(arc.progress, 0.5), text: `${name} arrive à ${locName}… ${otherName} vient de partir (il y a ${ev.t - left.t} min)`, mechanism: 'Occasion manquée de peu', importance: 0.7 };
+        if (left && left.locationId === g.locationId && ev.t - left.t <= 15) return { arc, progress: Math.max(arc.progress, 0.5), text: tr('story.beat_be_at_just_missed', { name, other: otherName, place: locName, n: ev.t - left.t }), mechanism: tr('story.mech_just_missed'), importance: 0.7 };
         if (arc.progress >= 0.3) return null;
-        return { arc, progress: 0.3, text: `${name} est à ${locName}, mais ${otherName} n’y est pas`, mechanism: 'Arrivée sans la personne espérée', importance: 0.45 };
+        return { arc, progress: 0.3, text: tr('story.beat_be_at_alone', { name, other: otherName, place: locName }), mechanism: tr('story.mech_arrived_without'), importance: 0.45 };
       }
-      return { arc, progress: 1, outcome: 'fulfilled', text: `${name} s’est offert ce moment`, mechanism: 'Arrivée au lieu désiré', importance: 0.7 };
+      return { arc, progress: 1, outcome: 'fulfilled', text: tr('story.beat_be_at_treat', { name }), mechanism: tr('story.mech_arrived_at_place'), importance: 0.7 };
     }
     case 'keep_wallet': {
       if (!involved) return null;
-      if (ev.type === 'lose_item') return { arc, progress: 0, outcome: 'failed', text: `${name} a encore perdu son portefeuille`, mechanism: ev.mechanism ?? 'Objet perdu', importance: 0.8 };
-      if (ev.type === 'return_item' && ev.actors[1] === me) return { arc, progress: arc.progress, text: `On a rendu son portefeuille à ${name}`, mechanism: 'Le trouveur et le propriétaire se sont rencontrés', importance: 0.6 };
+      if (ev.type === 'lose_item') return { arc, progress: 0, outcome: 'failed', text: tr('story.beat_wallet_lost', { name }), mechanism: ev.mechanism ?? tr('story.mech_item_lost'), importance: 0.8 };
+      if (ev.type === 'return_item' && ev.actors[1] === me) return { arc, progress: arc.progress, text: tr('story.beat_wallet_returned', { name }), mechanism: tr('story.mech_finder_met'), importance: 0.6 };
       return null;
     }
     case 'sell_out': {
       if (ev.locationId !== g.locationId) return null;
-      if (ev.type === 'shop_closed' && /vendu|dernière/i.test(ev.label + (ev.mechanism ?? ''))) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} a tout vendu`, mechanism: 'Stock épuisé avant la fermeture', importance: 0.8 };
+      if (ev.type === 'shop_closed' && ev.data?.soldOut) return { arc, progress: 1, outcome: 'fulfilled', text: tr('story.beat_sold_out', { name }), mechanism: tr('story.mech_stock_exhausted'), importance: 0.8 };
       if (ev.type === 'purchase') {
         const left = Number(ev.data?.stockLeft ?? NaN);
-        if (!Number.isNaN(left) && left <= 5 && arc.progress < 0.6) return { arc, progress: 0.6, text: `Il ne reste que ${left} pains à la boulangerie`, mechanism: 'Les ventes avancent', importance: 0.4 };
+        if (!Number.isNaN(left) && left <= 5 && arc.progress < 0.6) return { arc, progress: 0.6, text: tr('story.beat_bread_low', { n: left }), mechanism: tr('story.mech_sales_progress'), importance: 0.4 };
       }
       return null;
     }
@@ -302,13 +335,13 @@ export function evaluateBeat(arc: ArcState, ev: SimEvent, world: WorldState, pro
       if (others.every((o) => known.includes(o))) return null;
       const count = new Set([...known, ...others]).size;
       const progress = Math.min(1, count / g.min);
-      if (count >= g.min) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} a parlé à ${g.min} personnes différentes : rien ne lui échappe aujourd’hui`, mechanism: `${g.min} interlocuteurs dans la journée`, importance: 0.7 };
-      return { arc, progress, text: `${name} glane des nouvelles (${count}/${g.min} personnes)`, mechanism: 'Une nouvelle personne à qui parler', importance: 0.3 };
+      if (count >= g.min) return { arc, progress: 1, outcome: 'fulfilled', text: tr('story.beat_conversations_done', { name, min: g.min }), mechanism: tr('story.mech_conversations_done', { min: g.min }), importance: 0.7 };
+      return { arc, progress, text: tr('story.beat_conversations_progress', { name, count, min: g.min }), mechanism: tr('story.mech_new_person'), importance: 0.3 };
     }
     case 'money_floor': {
       if (!involved || ev.type !== 'purchase') return null;
       const money = world.agents[me]?.money ?? 0;
-      if (money < g.min) return { arc, progress: 0, outcome: 'failed', text: `${name} a entamé sa réserve : il ne reste que ${Math.round(money)} €`, mechanism: 'Dépense sous le seuil fixé', importance: 0.7 };
+      if (money < g.min) return { arc, progress: 0, outcome: 'failed', text: tr('story.beat_budget_dented', { name, amount: Math.round(money) }), mechanism: tr('story.mech_spend_below_floor'), importance: 0.7 };
       return null;
     }
     case 'bus_on_time': {
@@ -317,8 +350,8 @@ export function evaluateBeat(arc: ArcState, ev: SimEvent, world: WorldState, pro
       if (!bus) return null;
       const imposed = ev.type === 'bus_delay' ? Number(ev.data?.minutes ?? 0) : 0;
       const delay = Math.max(bus.delay, imposed);
-      if (delay >= g.maxDelay) return { arc, progress: 0, outcome: 'failed', text: `${name} ne tiendra pas l’horaire : le bus ${g.busId} a ${delay} min de retard`, mechanism: ev.mechanism ?? 'Retard constaté sur la ligne', importance: 0.8 };
-      if (delay >= 1 && arc.progress < 0.5) return { arc, progress: 0.5, text: `Le bus ${g.busId} prend ${delay} min de retard : ${name} serre les dents`, mechanism: ev.mechanism ?? 'Retard sur la ligne', importance: 0.4 };
+      if (delay >= g.maxDelay) return { arc, progress: 0, outcome: 'failed', text: tr('story.beat_bus_late_fail', { name, bus: g.busId, delay }), mechanism: ev.mechanism ?? tr('story.mech_line_delay_seen'), importance: 0.8 };
+      if (delay >= 1 && arc.progress < 0.5) return { arc, progress: 0.5, text: tr('story.beat_bus_late_warn', { name, bus: g.busId, delay }), mechanism: ev.mechanism ?? tr('story.mech_line_delay'), importance: 0.4 };
       return null;
     }
   }
@@ -332,26 +365,26 @@ export function deadlineOutcome(arc: ArcState, world: WorldState, profiles: Map<
   const g = seed.goal;
   switch (g.type) {
     case 'avoid':
-      return { outcome: 'fulfilled', text: `${name} a passé la journée sans croiser ${firstName(profiles, g.target)}`, mechanism: 'Aucune rencontre avant l’échéance' };
+      return { outcome: 'fulfilled', text: tr('story.deadline_avoid', { name, other: firstName(profiles, g.target) }), mechanism: tr('story.mech_no_meeting_before_deadline') };
     case 'keep_wallet':
-      return { outcome: 'fulfilled', text: `${name} rentre avec son portefeuille : rien de perdu aujourd’hui`, mechanism: 'Aucun objet perdu avant l’échéance' };
+      return { outcome: 'fulfilled', text: tr('story.deadline_wallet', { name }), mechanism: tr('story.mech_no_item_lost') };
     case 'money_floor':
-      return { outcome: 'fulfilled', text: `${name} a tenu son budget (${Math.round(world.agents[arc.agentId]?.money ?? 0)} €)`, mechanism: 'Solde au-dessus du seuil à l’échéance' };
+      return { outcome: 'fulfilled', text: tr('story.deadline_budget', { name, amount: Math.round(world.agents[arc.agentId]?.money ?? 0) }), mechanism: tr('story.mech_balance_above_floor') };
     case 'bus_on_time':
-      return { outcome: 'fulfilled', text: `${name} a tenu l’horaire jusqu’à la fin du service`, mechanism: 'Aucun retard notable avant la fin du service' };
+      return { outcome: 'fulfilled', text: tr('story.deadline_bus', { name }), mechanism: tr('story.mech_no_notable_delay') };
     case 'sell_out': {
       const stock = world.locations[g.locationId]?.stock ?? 0;
-      return { outcome: 'failed', text: `${name} ferme avec ${stock} pains invendus`, mechanism: 'Stock restant à la fermeture' };
+      return { outcome: 'failed', text: tr('story.deadline_stock', { name, n: stock }), mechanism: tr('story.mech_stock_left_at_closing') };
     }
     case 'talk_to':
-      return { outcome: 'failed', text: arc.progress > 0 ? `${name} a croisé ${firstName(profiles, g.target)} sans oser aller plus loin` : `${name} n’a pas trouvé l’occasion de parler à ${firstName(profiles, g.target)}`, mechanism: 'Échéance dépassée sans la conversation espérée' };
+      return { outcome: 'failed', text: tr(arc.progress > 0 ? 'story.deadline_talk_crossed' : 'story.deadline_talk_no_chance', { name, other: firstName(profiles, g.target) }), mechanism: tr('story.mech_deadline_without_talk') };
     case 'be_at':
-      return { outcome: 'failed', text: g.withAgent ? `${name} n’a pas réussi à retrouver ${firstName(profiles, g.withAgent)}` : `${name} n’a pas trouvé le temps`, mechanism: 'Échéance dépassée' };
+      return { outcome: 'failed', text: g.withAgent ? tr('story.deadline_be_at_missed', { name, other: firstName(profiles, g.withAgent) }) : tr('story.deadline_be_at_no_time', { name }), mechanism: tr('story.mech_deadline_passed') };
     case 'conversations':
-      return { outcome: 'failed', text: `${name} n’a parlé qu’à ${(arc.partners ?? []).length} personne${(arc.partners ?? []).length > 1 ? 's' : ''} sur ${g.min}`, mechanism: 'Échéance dépassée' };
+      return { outcome: 'failed', text: tr('story.deadline_conversations', { name, n: (arc.partners ?? []).length, min: g.min }), mechanism: tr('story.mech_deadline_passed') };
     case 'commitment':
     case 'on_time':
-      return { outcome: 'failed', text: `${name} n’a pas atteint son but`, mechanism: 'Échéance dépassée' };
+      return { outcome: 'failed', text: tr('story.deadline_goal_missed', { name }), mechanism: tr('story.mech_deadline_passed') };
   }
 }
 
@@ -359,7 +392,16 @@ export function deadlineOutcome(arc: ArcState, world: WorldState, profiles: Map<
 // Decisions: the desire of the day bends the utility scores
 // ---------------------------------------------------------------------------
 
-export const DESIRE_LABEL = 'Désir du jour';
+/**
+ * Prefix of the « Désir du jour » score components. Evaluated once, at load, in the default language:
+ * code that matches component labels at run time should call `desireLabel()` instead.
+ */
+export const DESIRE_LABEL = tr('story.desire_label');
+
+/** The « Désir du jour » prefix in the active language (components built by `applyDesire` start with it). */
+export function desireLabel(): string {
+  return tr('story.desire_label');
+}
 
 function urgency(arc: ArcState, t: Minute): number {
   const deadline = arcDeadline(arc);
@@ -381,7 +423,7 @@ export function applyDesire(candidates: Candidate[], agent: AgentState, world: W
   const u = urgency(arc, t);
   const push = (c: Candidate, value: number, why: string) => {
     if (Math.abs(value) < 0.005) return;
-    const comp: ScoreComponent = { label: `${DESIRE_LABEL} : ${why}`, value: Number(value.toFixed(3)) };
+    const comp: ScoreComponent = { label: tr('story.desire_component', { why }), value: Number(value.toFixed(3)), tag: 'desire' };
     c.components.push(comp);
     if (!c.rejected) c.score = c.components.reduce((s, x) => s + x.value, 0);
   };
@@ -391,31 +433,31 @@ export function applyDesire(candidates: Candidate[], agent: AgentState, world: W
         if (g.after !== undefined && t < g.after - 30) break;
         const target = world.agents[g.target];
         const there = target && !target.asleep && target.locationId && target.locationId === c.locationId;
-        if (c.withAgent === g.target || there) push(c, 0.1 + 0.3 * stakes * u, `revoir ${firstName(profiles, g.target)}`);
+        if (c.withAgent === g.target || there) push(c, 0.1 + 0.3 * stakes * u, tr('story.desire_why_see_again', { other: firstName(profiles, g.target) }));
         break;
       }
       case 'avoid': {
         const target = world.agents[g.target];
-        if (target && !target.asleep && target.locationId && target.locationId === c.locationId && !c.commitmentId) push(c, -0.25 * stakes, `éviter ${firstName(profiles, g.target)}`);
+        if (target && !target.asleep && target.locationId && target.locationId === c.locationId && !c.commitmentId) push(c, -0.25 * stakes, tr('story.desire_why_avoid', { other: firstName(profiles, g.target) }));
         break;
       }
       case 'commitment':
       case 'on_time':
-        if (c.commitmentId === g.commitmentId) push(c, 0.12 * stakes + 0.1 * (arc.attempt - 1), seed.title.toLowerCase());
+        if (c.commitmentId === g.commitmentId) push(c, 0.12 * stakes + 0.1 * (arc.attempt - 1), tr('story.desire_why_serve', { title: seed.title }));
         break;
       case 'be_at': {
         if (c.locationId !== g.locationId || c.commitmentId) break;
         if (g.after !== undefined && t < g.after - 30) break;
         const other = g.withAgent ? world.agents[g.withAgent] : undefined;
         const bonus = g.withAgent ? (other && other.locationId === g.locationId && !other.asleep ? 0.12 + 0.3 * stakes * u : 0.05 * stakes) : 0.08 + 0.25 * stakes * u;
-        push(c, bonus, seed.title.toLowerCase());
+        push(c, bonus, tr('story.desire_why_serve', { title: seed.title }));
         break;
       }
       case 'conversations':
-        if (['coffee', 'eat_cafe', 'relax_park', 'visit', 'eat_bakery', 'shop_groceries'].includes(c.action)) push(c, 0.1 * stakes * (1 - arc.progress) * u, 'glaner des nouvelles');
+        if (['coffee', 'eat_cafe', 'relax_park', 'visit', 'eat_bakery', 'shop_groceries'].includes(c.action)) push(c, 0.1 * stakes * (1 - arc.progress) * u, tr('story.desire_why_gather_news'));
         break;
       case 'money_floor':
-        if (c.components.some((x) => x.label.startsWith('Coût'))) push(c, -0.12 * stakes, 'tenir le budget');
+        if (c.components.some((x) => x.tag === 'cost')) push(c, -0.12 * stakes, tr('story.desire_why_budget'));
         break;
       case 'keep_wallet':
       case 'sell_out':
@@ -432,14 +474,16 @@ export function applyDesire(candidates: Candidate[], agent: AgentState, world: W
 export function detectDilemma(chosen: Candidate, candidates: Candidate[], arc: ArcState | undefined, t: Minute): { text: string; other: Candidate } | null {
   if (!arc || !isOpen(arc)) return null;
   if (arc.lastDilemma !== undefined && t - arc.lastDilemma < 90) return null;
-  const serves = (c: Candidate) => c.components.some((x) => x.label.startsWith(DESIRE_LABEL) && x.value > 0);
+  const prefix = desireLabel();
+  const isDesire = (x: { label: string; tag?: string }) => x.tag === 'desire' || x.label.startsWith(prefix);
+  const serves = (c: Candidate) => c.components.some((x) => isDesire(x) && x.value > 0);
   const valid = candidates.filter((c) => !c.rejected && c !== chosen).sort((a, b) => b.score - a.score);
   const runner = valid[0];
   if (!runner || chosen.score - runner.score > 0.3) return null;
   const chosenDesire = serves(chosen);
   const runnerDesire = serves(runner);
-  if (chosenDesire && runner.commitmentId && !runner.components.some((x) => x.label.startsWith(DESIRE_LABEL))) return { text: `hésite entre « ${runner.label} » et son envie (« ${chosen.label} ») — et suit son envie`, other: runner };
-  if (runnerDesire && chosen.commitmentId && !chosenDesire) return { text: `hésite entre son envie (« ${runner.label} ») et « ${chosen.label} » — et fait passer l’engagement d’abord`, other: runner };
+  if (chosenDesire && runner.commitmentId && !runner.components.some((x) => isDesire(x))) return { text: tr('story.dilemma_follows_desire', { runner: runner.label, chosen: chosen.label }), other: runner };
+  if (runnerDesire && chosen.commitmentId && !chosenDesire) return { text: tr('story.dilemma_commitment_first', { runner: runner.label, chosen: chosen.label }), other: runner };
   return null;
 }
 

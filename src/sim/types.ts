@@ -169,6 +169,8 @@ export interface Memory {
   about: AgentId[];
   /** Positive or negative colouring of the memory, -1..1. */
   valence: number;
+  /** Memory carried over from a previous day. */
+  yesterday?: boolean;
 }
 
 export type CommitmentKind = 'work' | 'school' | 'meeting' | 'appointment' | 'errand' | 'shift';
@@ -257,6 +259,8 @@ export type TravelMode = 'walk' | 'bus';
 export interface ScoreComponent {
   label: string;
   value: number;
+  /** Stable machine tag for components matched by code (language-independent). */
+  tag?: 'cost' | 'desire' | 'forced' | 'invitation' | 'advisor';
 }
 
 export interface Candidate {

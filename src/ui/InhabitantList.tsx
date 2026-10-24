@@ -7,9 +7,11 @@ import { useSimStore } from '../store/useSimStore';
 import { AGENTS } from '../sim/population';
 import type { AgentProfile, TraceAgent } from '../sim/types';
 import { fold, locName, moodColor, moodWord } from './format';
-import { useActiveReality, useMinute } from './hooks';
+import { useActiveReality, useLocale, useMinute } from './hooks';
+import { t } from '../i18n';
 
 export function InhabitantList() {
+  useLocale();
   const reality = useActiveReality();
   const minute = useMinute();
   const selectedId = useSimStore((s) => s.selectedAgentId);
@@ -31,17 +33,17 @@ export function InhabitantList() {
     <div className="inhabitants">
       <div className="col-head">
         <div className="col-title">
-          Habitants <span className="count">{list.length === AGENTS.length ? AGENTS.length : `${list.length}/${AGENTS.length}`}</span>
+          {t('ui.list_title')} <span className="count">{list.length === AGENTS.length ? AGENTS.length : `${list.length}/${AGENTS.length}`}</span>
         </div>
         <div className={`reality-tag ${isB ? 'b' : ''}`} title={reality.def.name}>
-          {isB ? 'Réalité B' : 'Réalité A'}
+          {isB ? t('ui.reality_b_short') : t('ui.reality_a_short')}
         </div>
       </div>
       <div className="search">
         <span aria-hidden>⌕</span>
-        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un nom, un métier…" aria-label="Rechercher un habitant" />
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('ui.list_search_placeholder')} aria-label={t('ui.list_search_aria')} />
         {q && (
-          <button className="link" onClick={() => setQ('')} title="Effacer la recherche">
+          <button className="link" onClick={() => setQ('')} title={t('ui.list_search_clear')}>
             ✕
           </button>
         )}
@@ -50,15 +52,16 @@ export function InhabitantList() {
         {list.map((a) => (
           <AgentCard key={a.id} a={a} tr={frame?.agents[a.id]} selected={selectedId === a.id} followed={followId === a.id} hovered={hoveredId === a.id} />
         ))}
-        {!list.length && <li className="empty">Aucun habitant ne correspond.</li>}
+        {!list.length && <li className="empty">{t('ui.list_none')}</li>}
       </ul>
     </div>
   );
 }
 
 const AgentCard = memo(function AgentCard({ a, tr, selected, followed, hovered }: { a: AgentProfile; tr?: TraceAgent; selected: boolean; followed: boolean; hovered: boolean }) {
+  useLocale();
   const { selectAgent, followAgent, hoverAgent } = useSimStore.getState();
-  const where = tr ? (tr.riding ? 'Dans le bus' : locName(tr.loc)) : '—';
+  const where = tr ? (tr.riding ? t('ui.format_travel_riding') : locName(tr.loc)) : '—';
   const mood = tr?.mood ?? 0;
   // Activity labels often already name the place ("Travaille — Agence Horizon", "En chemin").
   const showWhere = !!tr && !fold(tr.act).includes(fold(where));
@@ -71,13 +74,13 @@ const AgentCard = memo(function AgentCard({ a, tr, selected, followed, hovered }
       onBlur={() => useSimStore.getState().hoveredAgentId === a.id && hoverAgent(null)}
       style={{ ['--agent' as string]: a.color }}
     >
-      <button className="agent-card-main" onClick={() => selectAgent(selected ? null : a.id)} title={`${a.name} — ${a.occupation}`}>
+      <button className="agent-card-main" onClick={() => selectAgent(selected ? null : a.id)} title={t('ui.list_card_title', { name: a.name, occupation: a.occupation })}>
         <span className="agent-dot lg" style={{ background: a.color }} aria-hidden />
         <span className="agent-card-body">
           <span className="agent-card-line">
             <span className="agent-name">{a.firstName}</span>
-            <span className="agent-age">{a.age} ans</span>
-            <span className="mood-dot" style={{ background: moodColor(mood) }} title={`Humeur : ${moodWord(mood)} (${mood.toFixed(2)})`} />
+            <span className="agent-age">{t('ui.list_age', { age: a.age })}</span>
+            <span className="mood-dot" style={{ background: moodColor(mood) }} title={t('ui.list_mood_title', { mood: moodWord(mood), value: mood.toFixed(2) })} />
           </span>
           <span className="agent-occ">{a.occupation}</span>
           <span className="agent-now">
@@ -89,7 +92,7 @@ const AgentCard = memo(function AgentCard({ a, tr, selected, followed, hovered }
       <button
         className={`follow-btn ${followed ? 'on' : ''}`}
         onClick={() => followAgent(followed ? null : a.id)}
-        title={followed ? `Ne plus suivre ${a.firstName}` : `Suivre ${a.firstName} avec la caméra`}
+        title={followed ? t('ui.list_follow_stop', { name: a.firstName }) : t('ui.list_follow', { name: a.firstName })}
         aria-pressed={followed}
       >
         👁

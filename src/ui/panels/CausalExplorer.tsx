@@ -10,13 +10,15 @@ import { AGENTS } from '../../sim/population';
 import type { CausalGraph } from '../../sim/causal';
 import { fmtTime } from '../../sim/time';
 import type { SimEvent } from '../../sim/types';
+import { t } from '../../i18n';
 import { AgentChip, Badge, Empty, EventRow, FamilyDot, Section } from '../common';
 import { eventFamily, eventTypeLabel, locName } from '../format';
-import { useActiveReality } from '../hooks';
+import { useActiveReality, useLocale } from '../hooks';
 
 const MAX_INDIRECT = 40;
 
 export function CausalExplorer() {
+  useLocale();
   const selectedEventId = useSimStore((s) => s.selectedEventId);
   const reality = useActiveReality();
   const e = selectedEventId ? reality.eventById(selectedEventId) : undefined;
@@ -24,6 +26,7 @@ export function CausalExplorer() {
 }
 
 function EventPicker() {
+  useLocale();
   const reality = useActiveReality();
   const generation = useSimStore((s) => s.generation);
   const selectedAgentId = useSimStore((s) => s.selectedAgentId);
@@ -34,18 +37,18 @@ function EventPicker() {
   const list = agent ? markers.filter((e) => e.actors.includes(agent)) : markers;
   return (
     <div className="causal">
-      <p className="lead">Choisissez un événement pour remonter ses causes et suivre ses conséquences. Vous pouvez aussi cliquer un repère de la chronologie.</p>
-      <Section title="Les plus lourds de conséquences" count={top.length}>
+      <p className="lead">{t('ui.causal_pick_lead')}</p>
+      <Section title={t('ui.causal_top')} count={top.length}>
         {top.map(({ event, descendants }) => (
-          <EventRow key={event.id} e={event} onClick={() => selectEvent(event.id)} extra={<Badge tone="accent">{descendants} en aval</Badge>} />
+          <EventRow key={event.id} e={event} onClick={() => selectEvent(event.id)} extra={<Badge tone="accent">{t('ui.causal_downstream', { n: descendants })}</Badge>} />
         ))}
       </Section>
       <Section
-        title="Événements marquants"
+        title={t('ui.causal_markers')}
         count={list.length}
         right={
-          <select className="input sm" value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="Filtrer par habitant">
-            <option value="">Tous les habitants</option>
+          <select className="input sm" value={agent} onChange={(e) => setAgent(e.target.value)} aria-label={t('ui.causal_filter_aria')}>
+            <option value="">{t('ui.causal_all_agents')}</option>
             {AGENTS.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.firstName}
@@ -54,13 +57,14 @@ function EventPicker() {
           </select>
         }
       >
-        {list.length ? list.map((e) => <EventRow key={e.id} e={e} onClick={() => selectEvent(e.id)} />) : <Empty>Aucun événement marquant pour ce filtre.</Empty>}
+        {list.length ? list.map((e) => <EventRow key={e.id} e={e} onClick={() => selectEvent(e.id)} />) : <Empty>{t('ui.causal_markers_none')}</Empty>}
       </Section>
     </div>
   );
 }
 
 function EventCausality({ e }: { e: SimEvent }) {
+  useLocale();
   const reality = useActiveReality();
   const realityB = useSimStore((s) => s.realityB);
   const generation = useSimStore((s) => s.generation);
@@ -123,8 +127,8 @@ function EventCausality({ e }: { e: SimEvent }) {
           <span className="mono strong">{fmtTime(e.t)}</span>
           {e.locationId && <span className="muted small">· {locName(e.locationId)}</span>}
           <span className="grow" />
-          <button className="link small" onClick={() => selectEvent(null)} title="Choisir un autre événement">
-            Autre événement
+          <button className="link small" onClick={() => selectEvent(null)} title={t('ui.causal_other_event_title')}>
+            {t('ui.causal_other_event')}
           </button>
         </div>
         <h3>{e.label}</h3>
@@ -137,42 +141,42 @@ function EventCausality({ e }: { e: SimEvent }) {
         <div className="stats mini">
           <div className="stat">
             <span className="stat-v">{data.causes.length}</span>
-            <span className="stat-k">causes directes</span>
+            <span className="stat-k">{t('ui.causal_stat_causes')}</span>
           </div>
           <div className="stat">
             <span className="stat-v">{data.direct.length}</span>
-            <span className="stat-k">effets directs</span>
+            <span className="stat-k">{t('ui.causal_stat_effects')}</span>
           </div>
           <div className="stat">
             <span className="stat-v">{data.total}</span>
-            <span className="stat-k">événements en aval</span>
+            <span className="stat-k">{t('ui.causal_stat_downstream')}</span>
           </div>
           <div className="stat">
             <span className="stat-v">{data.impact.toFixed(1)}</span>
-            <span className="stat-k">score d’impact</span>
+            <span className="stat-k">{t('ui.causal_stat_impact')}</span>
           </div>
         </div>
         <div className="row gap">
           <button className="btn sm" onClick={() => seek(e.t)}>
-            ⏱ Voir à cet instant
+            {t('ui.causal_seek')}
           </button>
         </div>
         {e.randomDraws && e.randomDraws.length > 0 && (
           <div className="note small">
-            🎲 Aléa (graine) : {e.randomDraws.map((d) => `${d.key} = ${d.value.toFixed(3)}`).join(' · ')}
+            {t('ui.causal_draws', { draws: e.randomDraws.map((d) => `${d.key} = ${d.value.toFixed(3)}`).join(' · ') })}
           </div>
         )}
       </div>
 
       {intervention && (
         <div className="verified">
-          <Badge tone="ok">✓ Conséquence vérifiée de l’intervention</Badge>
+          <Badge tone="ok">{t('ui.causal_verified')}</Badge>
           {intervention.chain ? (
             <ol className="stepper">
               {intervention.chain.map((x, i) => (
                 <li key={x.id} className={x.id === e.id ? 'current' : ''}>
                   <span className="step-dot" />
-                  <button className="step-body" onClick={() => selectEvent(x.id)} title="Inspecter ce maillon">
+                  <button className="step-body" onClick={() => selectEvent(x.id)} title={t('ui.causal_step_title')}>
                     <span className="mono t">{fmtTime(x.t)}</span>
                     <span className="step-label">{x.label}</span>
                     {x.mechanism && i > 0 && <span className="step-mech">{x.mechanism}</span>}
@@ -181,13 +185,13 @@ function EventCausality({ e }: { e: SimEvent }) {
               ))}
             </ol>
           ) : (
-            <div className="muted small">Lien établi par les ancêtres de l’événement.</div>
+            <div className="muted small">{t('ui.causal_chain_ancestors')}</div>
           )}
         </div>
       )}
-      {realityB && !isB && <div className="note small">Passez à la réalité B pour voir si cet événement y est une conséquence de l’intervention.</div>}
+      {realityB && !isB && <div className="note small">{t('ui.causal_switch_to_b')}</div>}
 
-      <Section title="Pourquoi cet événement s’est-il produit ?" count={data.causes.length}>
+      <Section title={t('ui.causal_why')} count={data.causes.length}>
         {data.causes.length ? (
           <ul className="tree">
             {data.causes.map((c) => (
@@ -195,56 +199,58 @@ function EventCausality({ e }: { e: SimEvent }) {
             ))}
           </ul>
         ) : (
-          <Empty>Événement racine : il découle directement de la routine, d’un horaire ou d’un tirage aléatoire.</Empty>
+          <Empty>{t('ui.causal_root_event')}</Empty>
         )}
         {data.roots.length > 0 && (
           <div className="roots">
-            <div className="sub-title">Causes racines</div>
+            <div className="sub-title">{t('ui.causal_roots')}</div>
             {data.roots.slice(0, 12).map((r) => (
-              <EventRow key={r.id} e={r} onClick={() => selectEvent(r.id)} extra={r.randomDraws?.length ? <Badge tone="muted">aléa</Badge> : undefined} />
+              <EventRow key={r.id} e={r} onClick={() => selectEvent(r.id)} extra={r.randomDraws?.length ? <Badge tone="muted">{t('ui.causal_random')}</Badge> : undefined} />
             ))}
           </div>
         )}
       </Section>
 
-      <Section title="Conséquences" count={data.total}>
-        <div className="sub-title">Effets directs</div>
-        {data.direct.length ? data.direct.map((x) => <EventRow key={x.id} e={x} onClick={() => selectEvent(x.id)} sub={x.mechanism} extra={<SeekBtn t={x.t} />} />) : <Empty>Aucun effet direct.</Empty>}
+      <Section title={t('ui.causal_consequences')} count={data.total}>
+        <div className="sub-title">{t('ui.causal_direct')}</div>
+        {data.direct.length ? data.direct.map((x) => <EventRow key={x.id} e={x} onClick={() => selectEvent(x.id)} sub={x.mechanism} extra={<SeekBtn at={x.t} />} />) : <Empty>{t('ui.causal_direct_none')}</Empty>}
         <div className="row gap center sub-title-row">
-          <div className="sub-title">Effets indirects</div>
+          <div className="sub-title">{t('ui.causal_indirect')}</div>
           <label className="check small">
-            <input type="checkbox" checked={withDecisions} onChange={(ev) => setWithDecisions(ev.target.checked)} /> inclure les décisions
+            <input type="checkbox" checked={withDecisions} onChange={(ev) => setWithDecisions(ev.target.checked)} /> {t('ui.causal_include_decisions')}
           </label>
         </div>
         {indirect.groups.length ? (
           indirect.groups.map((g) => (
             <div key={g.depth} className="depth-group">
               <div className="depth-label">
-                <Badge tone="b">profondeur {g.depth}</Badge>
+                <Badge tone="b">{t('ui.causal_depth', { n: g.depth })}</Badge>
               </div>
               {g.events.map((x) => (
-                <EventRow key={x.id} e={x} onClick={() => selectEvent(x.id)} extra={<SeekBtn t={x.t} />} />
+                <EventRow key={x.id} e={x} onClick={() => selectEvent(x.id)} extra={<SeekBtn at={x.t} />} />
               ))}
             </div>
           ))
         ) : (
-          <Empty>Aucun effet indirect.</Empty>
+          <Empty>{t('ui.causal_indirect_none')}</Empty>
         )}
-        {data.total - data.direct.length > indirect.shown && <div className="muted small">Affichage limité à {MAX_INDIRECT} effets indirects.</div>}
+        {data.total - data.direct.length > indirect.shown && <div className="muted small">{t('ui.causal_limit', { n: MAX_INDIRECT })}</div>}
       </Section>
     </div>
   );
 }
 
-function SeekBtn({ t }: { t: number }) {
+function SeekBtn({ at }: { at: number }) {
+  useLocale();
   return (
-    <button className="icon-btn xs" onClick={() => useSimStore.getState().seek(t)} title={`Voir à cet instant (${fmtTime(t)})`}>
+    <button className="icon-btn xs" onClick={() => useSimStore.getState().seek(at)} title={t('ui.causal_seek_at_title', { time: fmtTime(at) })}>
       ⏱
     </button>
   );
 }
 
 function CauseNode({ e, graph, depth }: { e: SimEvent; graph: CausalGraph; depth: number }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   const { selectEvent } = useSimStore.getState();
   const children = open ? graph.directCauses(e.id) : [];
@@ -252,10 +258,10 @@ function CauseNode({ e, graph, depth }: { e: SimEvent; graph: CausalGraph; depth
   return (
     <li className="tree-node">
       <div className="tree-row">
-        <button className={`tree-toggle ${hasChildren ? '' : 'leaf'}`} onClick={() => hasChildren && setOpen(!open)} disabled={!hasChildren} aria-expanded={open} title={hasChildren ? (open ? 'Replier' : 'Voir ses propres causes') : 'Cause racine'}>
+        <button className={`tree-toggle ${hasChildren ? '' : 'leaf'}`} onClick={() => hasChildren && setOpen(!open)} disabled={!hasChildren} aria-expanded={open} title={hasChildren ? (open ? t('ui.common_collapse') : t('ui.causal_expand_causes')) : t('ui.causal_root_cause')}>
           {hasChildren ? (open ? '▾' : '▸') : '•'}
         </button>
-        <button className="tree-main" onClick={() => selectEvent(e.id)} title="Inspecter cet événement">
+        <button className="tree-main" onClick={() => selectEvent(e.id)} title={t('ui.causal_inspect_event')}>
           <span className="mono t">{fmtTime(e.t)}</span>
           <FamilyDot e={e} />
           <span className="tree-text">
@@ -266,7 +272,7 @@ function CauseNode({ e, graph, depth }: { e: SimEvent; graph: CausalGraph; depth
         <span className="tree-badges">
           {e.randomDraws?.length ? (
             <Badge tone="muted" title={e.randomDraws.map((d) => `${d.key} = ${d.value.toFixed(3)}`).join('\n')}>
-              🎲 aléa
+              {t('ui.causal_random_badge')}
             </Badge>
           ) : null}
           <Badge tone="b">d{depth}</Badge>

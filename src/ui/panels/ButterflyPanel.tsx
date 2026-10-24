@@ -9,13 +9,15 @@ import { useSimStore } from '../../store/useSimStore';
 import { aiInterpret } from '../../ai/client';
 import { getCity, LOCATIONS } from '../../sim/city';
 import { defaultLocationFor } from '../../sim/decision';
-import { busDelayFor, INTERVENTION_TEMPLATES, interpretFrench, newInterventionId, validateIntervention } from '../../sim/interventions';
+import { t as tr } from '../../i18n';
+import { busDelayFor, newInterventionId, validateIntervention } from '../../sim/interventions';
+import { interpretText, interventionTemplates } from '../interpret';
 import { AGENTS, profileOf } from '../../sim/population';
 import { fmtTime } from '../../sim/time';
 import { DAY_END, DAY_START, type ActionType, type Intervention, type InterventionKind, type Weather } from '../../sim/types';
-import { Badge, Empty, KV, Section } from '../common';
+import { Badge, Empty, KV, Section, fill, rich } from '../common';
 import { INTERVENTION_KIND_LABELS, actionLabel, firstName, locName, parseClock } from '../format';
-import { useActiveReality, useMinute } from '../hooks';
+import { useActiveReality, useLocale, useMinute } from '../hooks';
 
 const FORCE_ACTIONS: ActionType[] = ['coffee', 'eat_bakery', 'eat_cafe', 'eat_restaurant', 'shop_groceries', 'relax_park', 'read_library', 'workout', 'stroll', 'rest_home', 'stay_home'];
 const PLACES = LOCATIONS.filter((l) => l.kind !== 'bus_stop');
@@ -32,41 +34,43 @@ interface Interpretation {
 
 /** Human-readable fields of an intervention. */
 export function interventionFields(iv: Intervention): [string, string][] {
-  const f: [string, string][] = [['Type', INTERVENTION_KIND_LABELS[iv.kind]], ['À partir de', fmtTime(iv.t)]];
+  const f: [string, string][] = [[tr('ui.field_type'), INTERVENTION_KIND_LABELS[iv.kind]], [tr('ui.field_from'), fmtTime(iv.t)]];
   switch (iv.kind) {
     case 'bus_delay':
-      f.push(['Bus', iv.busId], ['Retard', `${iv.minutes} min`]);
+      f.push([tr('ui.field_bus'), iv.busId], [tr('ui.field_delay'), tr('common.minutes', { n: iv.minutes })]);
       break;
     case 'stay_home':
-      f.push(['Habitant', firstName(iv.agentId)], ['Jusqu’à', fmtTime(iv.until)]);
+      f.push([tr('ui.field_agent'), firstName(iv.agentId)], [tr('ui.field_until'), fmtTime(iv.until)]);
       break;
     case 'force_action':
-      f.push(['Habitant', firstName(iv.agentId)], ['Action', actionLabel(iv.action)]);
-      if (iv.locationId) f.push(['Lieu', locName(iv.locationId)]);
+      f.push([tr('ui.field_agent'), firstName(iv.agentId)], [tr('ui.field_action'), actionLabel(iv.action)]);
+      if (iv.locationId) f.push([tr('ui.field_place'), locName(iv.locationId)]);
       break;
     case 'agent_delay':
-      f.push(['Habitant', firstName(iv.agentId)], ['Retard', `${iv.minutes} min`]);
+      f.push([tr('ui.field_agent'), firstName(iv.agentId)], [tr('ui.field_delay'), tr('common.minutes', { n: iv.minutes })]);
       break;
     case 'location_hours':
-      f.push(['Lieu', locName(iv.locationId)]);
-      if (iv.closes !== undefined) f.push(['Fermeture', fmtTime(iv.closes)]);
-      if (iv.opens !== undefined) f.push(['Ouverture', fmtTime(iv.opens)]);
+      f.push([tr('ui.field_place'), locName(iv.locationId)]);
+      if (iv.closes !== undefined) f.push([tr('ui.field_closing'), fmtTime(iv.closes)]);
+      if (iv.opens !== undefined) f.push([tr('ui.field_opening'), fmtTime(iv.opens)]);
       break;
     case 'weather':
-      f.push(['Météo', iv.condition === 'rain' ? 'Pluie' : 'Ciel dégagé']);
-      if (iv.until !== undefined) f.push(['Jusqu’à', fmtTime(iv.until)]);
+      f.push([tr('ui.field_weather'), iv.condition === 'rain' ? tr('ui.field_weather_rain') : tr('ui.field_weather_clear')]);
+      if (iv.until !== undefined) f.push([tr('ui.field_until'), fmtTime(iv.until)]);
       break;
     case 'cancel_commitment':
-      f.push(['Habitant', firstName(iv.agentId)], ['Engagement', iv.commitmentId ?? 'le prochain']);
+      f.push([tr('ui.field_agent'), firstName(iv.agentId)], [tr('ui.field_commitment'), iv.commitmentId ?? tr('ui.field_next_one')]);
       break;
     case 'encounter':
-      f.push(['Personnes', `${firstName(iv.agentA)} & ${firstName(iv.agentB)}`], ['Lieu', locName(iv.locationId)]);
+      f.push([tr('ui.field_people'), tr('ui.field_pair', { a: firstName(iv.agentA), b: firstName(iv.agentB) })], [tr('ui.field_place'), locName(iv.locationId)]);
       break;
   }
   return f;
 }
 
 export function ButterflyPanel() {
+  useLocale();
+  const templates = interventionTemplates();
   const minute = useMinute();
   const reality = useActiveReality();
   const realityA = useSimStore((s) => s.realityA);
@@ -91,7 +95,7 @@ export function ButterflyPanel() {
     setBusy(true);
     setError(null);
     const local = () => {
-      const r = interpretFrench(text, { t, selectedEvent, events: realityA.events });
+      const r = interpretText(text, { t, selectedEvent, events: realityA.events });
       return { source: 'local' as const, ...r };
     };
     try {
@@ -106,10 +110,10 @@ export function ButterflyPanel() {
               return;
             }
           }
-          setInterp({ ...local(), note: 'L’IA n’a pas produit d’intervention valide : interprétation locale utilisée.' });
+          setInterp({ ...local(), note: tr('ui.butterfly_note_invalid') });
           return;
         } catch {
-          setInterp({ ...local(), note: 'Service IA injoignable : interprétation locale utilisée.' });
+          setInterp({ ...local(), note: tr('ui.butterfly_note_unreachable') });
           return;
         }
       }
@@ -131,67 +135,65 @@ export function ButterflyPanel() {
 
   return (
     <div className="butterfly">
-      <p className="lead">
-        Changez un seul détail de la journée. Le moteur rejoue tout avec la <strong>même graine</strong> : chaque différence observée découle de votre intervention… ou du hasard qu’elle a déplacé.
-      </p>
+      <p className="lead">{rich(tr('ui.butterfly_lead'))}</p>
       <div className="row gap center">
-        <span className="muted">Heure courante</span>
+        <span className="muted">{tr('ui.butterfly_current_time')}</span>
         <span className="mono strong">{fmtTime(minute)}</span>
-        {realityB && <Badge tone="b">s’ajoutera à la réalité B</Badge>}
+        {realityB && <Badge tone="b">{tr('ui.butterfly_adds_to_b')}</Badge>}
       </div>
 
       {selectedEvent?.type === 'bus_arrive' && selectedEvent.busId && (
         <div className="shortcut">
           <div>
-            <div className="strong">Raccourci</div>
+            <div className="strong">{tr('ui.butterfly_shortcut')}</div>
             <div className="muted small">{selectedEvent.label}</div>
           </div>
           <div className="row gap center">
-            Retarder ce bus de
-            <input className="input mono num" type="number" min={1} max={60} value={busMinutes} onChange={(e) => setBusMinutes(Math.max(1, Math.min(60, Number(e.target.value) || 1)))} aria-label="Minutes de retard" />
-            min
-            <button className="btn accent sm" onClick={() => create(busDelayFor(selectedEvent, busMinutes))} title="Créer la réalité B avec ce retard">
-              Créer
+            {fill(tr('ui.butterfly_shortcut_delay'), {
+              input: <input className="input mono num" type="number" min={1} max={60} value={busMinutes} onChange={(e) => setBusMinutes(Math.max(1, Math.min(60, Number(e.target.value) || 1)))} aria-label={tr('ui.butterfly_delay_aria')} />,
+            })}
+            <button className="btn accent sm" onClick={() => create(busDelayFor(selectedEvent, busMinutes))} title={tr('ui.butterfly_shortcut_create_title')}>
+              {tr('ui.butterfly_shortcut_create')}
             </button>
           </div>
         </div>
       )}
 
-      <Section title="Décrire en français">
+      <Section title={tr('ui.butterfly_describe')}>
         <textarea
           className="input textarea"
           rows={3}
           value={text}
-          placeholder={INTERVENTION_TEMPLATES.slice(0, 3)
+          placeholder={templates.slice(0, 3)
             .map((x) => x.example)
             .join('\n')}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) interpret();
           }}
-          aria-label="Intervention en langage naturel"
+          aria-label={tr('ui.butterfly_text_aria')}
         />
         <div className="chips examples">
-          {INTERVENTION_TEMPLATES.map((x) => (
+          {templates.map((x) => (
             <button key={x.id} className="chip" onClick={() => (setText(x.example), setInterp(null))} title={x.example}>
               {x.label}
             </button>
           ))}
         </div>
         <div className="row gap center">
-          <button className="btn primary" onClick={interpret} disabled={!text.trim() || busy} title="Traduire la phrase en intervention structurée (Ctrl+Entrée)">
-            {busy ? 'Interprétation…' : 'Interpréter'}
+          <button className="btn primary" onClick={interpret} disabled={!text.trim() || busy} title={tr('ui.butterfly_interpret_title')}>
+            {busy ? tr('ui.butterfly_interpreting') : tr('ui.butterfly_interpret')}
           </button>
-          <span className="muted small">{ai.enabled ? `Interprétation par l’IA (${ai.model ?? 'modèle'}) avec repli local` : 'Interprétation locale (sans IA)'}</span>
+          <span className="muted small">{ai.enabled ? tr('ui.butterfly_interp_ai', { model: ai.model ?? tr('ui.butterfly_model_default') }) : tr('ui.butterfly_interp_local')}</span>
         </div>
 
         {interp && (
           <div className={`interp ${interp.ok && !validation.length ? 'ok' : 'bad'}`}>
             <div className="row gap center">
-              <Badge tone={interp.source === 'ia' ? 'b' : 'muted'}>{interp.source === 'ia' ? 'IA' : 'local'}</Badge>
+              <Badge tone={interp.source === 'ia' ? 'b' : 'muted'}>{interp.source === 'ia' ? tr('ui.common_ai_badge') : tr('ui.butterfly_source_local')}</Badge>
               {interp.confidence !== undefined && (
-                <span className="muted small" title="Confiance de l’interprétation">
-                  confiance {Math.round(interp.confidence * 100)} %
+                <span className="muted small" title={tr('ui.butterfly_confidence_title')}>
+                  {tr('ui.butterfly_confidence', { n: Math.round(interp.confidence * 100) })}
                 </span>
               )}
             </div>
@@ -207,7 +209,7 @@ export function ButterflyPanel() {
             {interp.intervention && (
               <>
                 <div className="iv-summary">
-                  <div className="iv-desc">« {interp.intervention.description} »</div>
+                  <div className="iv-desc">{tr('ui.quote', { text: interp.intervention.description })}</div>
                   <div className="kv-grid">
                     {interventionFields(interp.intervention).map(([k, v]) => (
                       <KV key={k} k={k}>
@@ -218,11 +220,11 @@ export function ButterflyPanel() {
                 </div>
                 {validation.length > 0 && <div className="error">{validation.join(' ')}</div>}
                 <div className="row gap center">
-                  <button className="btn accent" disabled={validation.length > 0} onClick={() => create(interp.intervention!)} title="Simuler la journée modifiée">
-                    🦋 Créer la réalité B
+                  <button className="btn accent" disabled={validation.length > 0} onClick={() => create(interp.intervention!)} title={tr('ui.butterfly_create_title')}>
+                    {tr('ui.butterfly_create_b')}
                   </button>
                   <button className="link small" onClick={() => setShowJson(!showJson)}>
-                    {showJson ? 'Masquer' : 'Détails'} JSON
+                    {showJson ? tr('ui.butterfly_json_hide') : tr('ui.butterfly_json_show')}
                   </button>
                 </div>
                 {showJson && <pre className="json">{JSON.stringify(interp.intervention, null, 2)}</pre>}
@@ -232,14 +234,14 @@ export function ButterflyPanel() {
         )}
       </Section>
 
-      <Section title="Formulaire structuré" defaultOpen={!ai.enabled}>
+      <Section title={tr('ui.butterfly_form')} defaultOpen={!ai.enabled}>
         <StructuredForm t={t} onCreate={create} />
       </Section>
 
       {error && <div className="error">{error}</div>}
 
       {realityB && (
-        <Section title="Réalité B" count={realityB.def.interventions.length}>
+        <Section title={tr('ui.butterfly_reality_b')} count={realityB.def.interventions.length}>
           <ul className="iv-list">
             {realityB.def.interventions.map((iv, i) => (
               <li key={iv.id}>
@@ -251,18 +253,18 @@ export function ButterflyPanel() {
               </li>
             ))}
           </ul>
-          <p className="muted small">Toute nouvelle intervention créée ici s’ajoute à la réalité B (les interventions s’empilent).</p>
+          <p className="muted small">{tr('ui.butterfly_stacking')}</p>
           <div className="row gap wrap">
             <button className="btn sm" onClick={() => switchReality('B')}>
-              Voir la réalité B
+              {tr('ui.butterfly_view_b')}
             </button>
             <button
               className="btn sm danger"
               onClick={() => {
-                if (window.confirm('Abandonner la réalité B et toutes ses interventions ?')) discardRealityB();
+                if (window.confirm(tr('ui.butterfly_discard_confirm'))) discardRealityB();
               }}
             >
-              Abandonner la réalité B
+              {tr('ui.butterfly_discard_b')}
             </button>
           </div>
         </Section>
@@ -272,6 +274,8 @@ export function ButterflyPanel() {
 }
 
 function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Intervention) => void }) {
+  useLocale();
+  const templates = interventionTemplates();
   const realityA = useSimStore((s) => s.realityA);
   const realityB = useSimStore((s) => s.realityB);
   const base = realityB ?? realityA;
@@ -294,31 +298,31 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
   const commitments = useMemo(() => (base.engine.state.agents[agentId]?.commitments ?? []).filter((c) => c.end >= (startT ?? t)).sort((x, y) => x.start - y.start), [base, agentId, startT, t]);
 
   const build = (): Intervention | string => {
-    if (startT === null || startT < DAY_START || startT >= DAY_END) return 'Heure de début invalide (HH:MM entre 06:00 et 23:59).';
+    if (startT === null || startT < DAY_START || startT >= DAY_END) return tr('ui.form_err_start');
     const id = newInterventionId();
     const name = firstName(agentId);
     const city = getCity();
     switch (kind) {
       case 'bus_delay': {
         const arr = arrivals.find((e) => e.id === busArrivalId) ?? arrivals[0];
-        if (!arr) return 'Aucun passage de bus après cette heure.';
+        if (!arr) return tr('ui.form_err_no_bus');
         return busDelayFor(arr, minutes);
       }
       case 'stay_home': {
         const u = parseClock(until);
-        if (u === null) return 'Heure de fin invalide.';
-        return { id, kind, agentId, t: startT, until: u, description: `${name} reste à la maison de ${fmtTime(startT)} à ${fmtTime(u)}` };
+        if (u === null) return tr('ui.form_err_end');
+        return { id, kind, agentId, t: startT, until: u, description: tr('ui.iv_stay_home', { name, from: fmtTime(startT), until: fmtTime(u) }) };
       }
       case 'force_action': {
         const loc = locationId || defaultLocationFor(action, profileOf(agentId), city);
-        return { id, kind, agentId, t: startT, action, locationId: loc, description: `${name} décide : ${actionLabel(action).toLowerCase()} (${locName(loc)}) à ${fmtTime(startT)}` };
+        return { id, kind, agentId, t: startT, action, locationId: loc, description: tr('ui.iv_force_action', { name, action: actionLabel(action).toLowerCase(), place: locName(loc), time: fmtTime(startT) }) };
       }
       case 'agent_delay':
-        return { id, kind, agentId, t: startT, minutes, description: `${name} s’attarde ${minutes} min à partir de ${fmtTime(startT)}` };
+        return { id, kind, agentId, t: startT, minutes, description: tr('ui.iv_agent_delay', { name, n: minutes, time: fmtTime(startT) }) };
       case 'location_hours': {
         const c = parseClock(closes);
-        if (c === null) return 'Heure de fermeture invalide.';
-        return { id, kind, locationId, t: Math.min(startT, c), closes: c, description: `${locName(locationId)} ferme à ${fmtTime(c)}` };
+        if (c === null) return tr('ui.form_err_close');
+        return { id, kind, locationId, t: Math.min(startT, c), closes: c, description: tr('ui.iv_location_closes', { place: locName(locationId), time: fmtTime(c) }) };
       }
       case 'weather': {
         const u = until ? parseClock(until) : null;
@@ -328,31 +332,31 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
           t: startT,
           condition,
           until: condition === 'rain' && u !== null && u > startT ? u : undefined,
-          description: condition === 'rain' ? `La pluie commence à ${fmtTime(startT)}${u !== null && u > startT ? ` jusqu’à ${fmtTime(u)}` : ''}` : `Le ciel se dégage à ${fmtTime(startT)}`,
+          description: condition === 'rain' ? (u !== null && u > startT ? tr('ui.iv_rain_until', { time: fmtTime(startT), until: fmtTime(u) }) : tr('ui.iv_rain', { time: fmtTime(startT) })) : tr('ui.iv_clear', { time: fmtTime(startT) }),
         };
       }
       case 'cancel_commitment': {
         const c = commitments.find((x) => x.id === commitmentId);
-        return { id, kind, agentId, t: startT, commitmentId: c?.id, description: c ? `${name} ne se rend pas à « ${c.label} » (${fmtTime(c.start)})` : `${name} ne se rend pas à son prochain rendez-vous` };
+        return { id, kind, agentId, t: startT, commitmentId: c?.id, description: c ? tr('ui.iv_cancel_named', { name, label: c.label, time: fmtTime(c.start) }) : tr('ui.iv_cancel_next', { name }) };
       }
       case 'encounter':
-        return { id, kind, agentA: agentId, agentB, locationId, t: startT, description: `${name} et ${firstName(agentB)} se retrouvent à ${locName(locationId)} à partir de ${fmtTime(startT)}` };
+        return { id, kind, agentA: agentId, agentB, locationId, t: startT, description: tr('ui.iv_encounter', { name, other: firstName(agentB), place: locName(locationId), time: fmtTime(startT) }) };
       case 'lose_item':
-        return { id, kind, agentId, t: startT, item: 'wallet', description: `${name} oublie son portefeuille à ${fmtTime(startT)} (s’il est dans un lieu public)` };
+        return { id, kind, agentId, t: startT, item: 'wallet', description: tr('ui.iv_lose_item', { name, time: fmtTime(startT) }) };
       case 'theft':
-        return { id, kind, agentId, t: startT, description: `${name} se fait voler son portefeuille à ${fmtTime(startT)}` };
+        return { id, kind, agentId, t: startT, description: tr('ui.iv_theft', { name, time: fmtTime(startT) }) };
       case 'accident':
-        return { id, kind, agentId, t: startT, minutes: Math.max(10, minutes * 10), description: `${name} a un accident à ${fmtTime(startT)} (${Math.max(10, minutes * 10)} min à la clinique)` };
+        return { id, kind, agentId, t: startT, minutes: Math.max(10, minutes * 10), description: tr('ui.iv_accident', { name, time: fmtTime(startT), n: Math.max(10, minutes * 10) }) };
       case 'fire':
-        return { id, kind, locationId, t: startT, description: `Un incendie se déclare à ${locName(locationId)} à ${fmtTime(startT)}` };
+        return { id, kind, locationId, t: startT, description: tr('ui.iv_fire', { place: locName(locationId), time: fmtTime(startT) }) };
       case 'breakup':
-        return { id, kind, agentA: agentId, agentB, t: startT, description: `${name} et ${firstName(agentB)} se séparent à ${fmtTime(startT)}` };
+        return { id, kind, agentA: agentId, agentB, t: startT, description: tr('ui.iv_breakup', { name, other: firstName(agentB), time: fmtTime(startT) }) };
       case 'dismissal':
-        return { id, kind, agentId, t: startT, description: `${name} est renvoyé à ${fmtTime(startT)}` };
+        return { id, kind, agentId, t: startT, description: tr('ui.iv_dismissal', { name, time: fmtTime(startT) }) };
       case 'promotion':
-        return { id, kind, agentId, t: startT, description: `${name} est promu à ${fmtTime(startT)}` };
+        return { id, kind, agentId, t: startT, description: tr('ui.iv_promotion', { name, time: fmtTime(startT) }) };
       case 'illness':
-        return { id, kind, agentId, t: startT, minutes: Math.max(10, minutes * 10), description: `${name} fait un malaise à ${fmtTime(startT)} et se repose ${Math.max(10, minutes * 10)} min` };
+        return { id, kind, agentId, t: startT, minutes: Math.max(10, minutes * 10), description: tr('ui.iv_illness', { name, time: fmtTime(startT), n: Math.max(10, minutes * 10) }) };
     }
   };
 
@@ -372,8 +376,8 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
 
   return (
     <div className="form">
-      <div className="kind-grid" role="radiogroup" aria-label="Type d’intervention">
-        {INTERVENTION_TEMPLATES.map((x) => (
+      <div className="kind-grid" role="radiogroup" aria-label={tr('ui.form_kind_aria')}>
+        {templates.map((x) => (
           <button key={x.id} className={`kind ${kind === x.kind ? 'active' : ''}`} onClick={() => (setKind(x.kind), setError(null))} role="radio" aria-checked={kind === x.kind} title={x.example}>
             {x.label}
           </button>
@@ -381,16 +385,16 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
       </div>
       <div className="form-grid">
         <label>
-          <span>Heure de début</span>
+          <span>{tr('ui.form_start_time')}</span>
           <input className="input mono" value={time} placeholder={fmtTime(t)} onChange={(e) => setTime(e.target.value)} />
         </label>
         {needsAgent && (
           <label>
-            <span>{kind === 'encounter' ? 'Habitant 1' : 'Habitant'}</span>
+            <span>{kind === 'encounter' ? tr('ui.form_agent_1') : tr('ui.form_agent')}</span>
             <select className="input" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
               {AGENTS.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.firstName} — {a.occupation}
+                  {tr('ui.form_agent_option', { name: a.firstName, occupation: a.occupation })}
                 </option>
               ))}
             </select>
@@ -398,7 +402,7 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
         )}
         {kind === 'encounter' && (
           <label>
-            <span>Habitant 2</span>
+            <span>{tr('ui.form_agent_2')}</span>
             <select className="input" value={agentB} onChange={(e) => setAgentB(e.target.value)}>
               {AGENTS.filter((a) => a.id !== agentId).map((a) => (
                 <option key={a.id} value={a.id}>
@@ -410,7 +414,7 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
         )}
         {kind === 'force_action' && (
           <label>
-            <span>Action</span>
+            <span>{tr('ui.form_action')}</span>
             <select className="input" value={action} onChange={(e) => setAction(e.target.value as ActionType)}>
               {FORCE_ACTIONS.map((a) => (
                 <option key={a} value={a}>
@@ -422,9 +426,9 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
         )}
         {needsLocation && (
           <label>
-            <span>Lieu</span>
+            <span>{tr('ui.form_place')}</span>
             <select className="input" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              {kind === 'force_action' && <option value="">Lieu habituel</option>}
+              {kind === 'force_action' && <option value="">{tr('ui.form_usual_place')}</option>}
               {PLACES.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -435,11 +439,11 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
         )}
         {kind === 'bus_delay' && (
           <label className="wide">
-            <span>Passage de bus</span>
+            <span>{tr('ui.form_bus_pass')}</span>
             <select className="input" value={busArrivalId} onChange={(e) => setBusArrivalId(e.target.value)}>
               {arrivals.map((e) => (
                 <option key={e.id} value={e.id}>
-                  {fmtTime(e.t)} · {e.busId} · {locName(e.locationId)}
+                  {tr('ui.form_bus_option', { time: fmtTime(e.t), bus: e.busId ?? '', place: locName(e.locationId) })}
                 </option>
               ))}
             </select>
@@ -447,49 +451,49 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
         )}
         {needsMinutes && (
           <label>
-            <span>Minutes</span>
+            <span>{tr('ui.form_minutes')}</span>
             <input className="input mono" type="number" min={1} max={60} value={minutes} onChange={(e) => setMinutes(Math.max(1, Math.min(60, Number(e.target.value) || 1)))} />
           </label>
         )}
         {(kind === 'stay_home' || (kind === 'weather' && condition === 'rain')) && (
           <label>
-            <span>Jusqu’à</span>
+            <span>{tr('ui.form_until')}</span>
             <input className="input mono" value={until} placeholder="HH:MM" onChange={(e) => setUntil(e.target.value)} />
           </label>
         )}
         {kind === 'location_hours' && (
           <label>
-            <span>Ferme à</span>
+            <span>{tr('ui.form_closes_at')}</span>
             <input className="input mono" value={closes} placeholder="HH:MM" onChange={(e) => setCloses(e.target.value)} />
           </label>
         )}
         {kind === 'weather' && (
           <label>
-            <span>Condition</span>
+            <span>{tr('ui.form_condition')}</span>
             <select className="input" value={condition} onChange={(e) => setCondition(e.target.value as Weather)}>
-              <option value="rain">Pluie</option>
-              <option value="clear">Ciel dégagé</option>
+              <option value="rain">{tr('ui.field_weather_rain')}</option>
+              <option value="clear">{tr('ui.field_weather_clear')}</option>
             </select>
           </label>
         )}
         {kind === 'cancel_commitment' && (
           <label className="wide">
-            <span>Engagement</span>
+            <span>{tr('ui.form_commitment')}</span>
             <select className="input" value={commitmentId} onChange={(e) => setCommitmentId(e.target.value)}>
-              <option value="">Le prochain rendez-vous</option>
+              <option value="">{tr('ui.form_next_meeting')}</option>
               {commitments.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {fmtTime(c.start)} · {c.label}
+                  {tr('ui.form_commitment_option', { time: fmtTime(c.start), label: c.label })}
                 </option>
               ))}
             </select>
           </label>
         )}
       </div>
-      {typeof preview !== 'string' ? <div className="iv-desc">« {preview.description} »</div> : <Empty>{preview}</Empty>}
+      {typeof preview !== 'string' ? <div className="iv-desc">{tr('ui.quote', { text: preview.description })}</div> : <Empty>{preview}</Empty>}
       {error && <div className="error">{error}</div>}
-      <button className="btn accent" onClick={submit} disabled={typeof preview === 'string'} title="Simuler la journée avec cette intervention">
-        🦋 Créer la réalité B
+      <button className="btn accent" onClick={submit} disabled={typeof preview === 'string'} title={tr('ui.form_create_title')}>
+        {tr('ui.butterfly_create_b')}
       </button>
     </div>
   );

@@ -9,8 +9,9 @@
  * Pure data and helpers; the store applies them and the interface shows them.
  */
 
+import { t } from '../i18n';
 import { arcOf, arcSeed, effectiveStakes } from './drama';
-import { agree, profileOf } from './population';
+import { agree, labelTable, profileOf } from './population';
 import type { Reality } from './reality';
 import { fmtTime } from './time';
 import type { AgentId, ArcSeed, ArcStatus, Intervention, Minute } from './types';
@@ -78,7 +79,11 @@ export interface QuestCard {
   trivialInA: boolean;
 }
 
-export const DIFFICULTY_LABELS: Record<number, string> = { 1: 'Entraînement', 2: 'Facile', 3: 'Moyen', 4: 'Difficile', 5: 'Très difficile' };
+/** French source of the difficulty labels (the catalogue's data part is generated from it). */
+export const DIFFICULTY_LABELS_FR: Record<number, string> = { 1: 'Entraînement', 2: 'Facile', 3: 'Moyen', 4: 'Difficile', 5: 'Très difficile' };
+
+/** Read through `story.difficulty.<n>` at access time. */
+export const DIFFICULTY_LABELS: Record<number, string> = labelTable('difficulty', DIFFICULTY_LABELS_FR);
 
 /** Difficulty from the goal type and the stakes; tuned so that Léa's « À l’heure au lycée » is the tutorial. */
 export function questDifficulty(seed: ArcSeed): number {
@@ -157,11 +162,11 @@ export function newGame(A: Reality, agentId: AgentId): GameState {
 
 /** Can this gesture be applied now? (budget, time not in the past, not a duplicate of the loop). */
 export function canApplyGesture(game: GameState, current: Intervention[], iv: Intervention, now: Minute): { ok: boolean; reason?: string } {
-  if (game.phase !== 'playing') return { ok: false, reason: 'La journée est terminée : relancez la boucle.' };
-  if (current.length >= game.budget) return { ok: false, reason: `Budget de gestes épuisé (${game.budget} par boucle).` };
-  if (iv.t < Math.floor(now) - 1) return { ok: false, reason: `Impossible de revenir en arrière : il est ${fmtTime(Math.floor(now))}.` };
-  if (iv.t >= DAY_END) return { ok: false, reason: 'Trop tard : la journée se termine à minuit.' };
-  if (current.some((c) => gestureKey(c) === gestureKey(iv))) return { ok: false, reason: 'Ce geste est déjà en place dans cette boucle.' };
+  if (game.phase !== 'playing') return { ok: false, reason: t('story.gesture_day_over') };
+  if (current.length >= game.budget) return { ok: false, reason: t('story.gesture_budget_spent', { budget: game.budget }) };
+  if (iv.t < Math.floor(now) - 1) return { ok: false, reason: t('story.gesture_no_rewind', { time: fmtTime(Math.floor(now)) }) };
+  if (iv.t >= DAY_END) return { ok: false, reason: t('story.gesture_too_late') };
+  if (current.some((c) => gestureKey(c) === gestureKey(iv))) return { ok: false, reason: t('story.gesture_duplicate') };
   return { ok: true };
 }
 
@@ -200,7 +205,7 @@ export function nextLoop(game: GameState): GameState {
 
 /** Human-readable one-line summary of a gesture (its description, with the time). */
 export function gestureLabel(g: Gesture): string {
-  return `${fmtTime(g.intervention.t)} — ${g.intervention.description}`;
+  return t('story.gesture_label', { time: fmtTime(g.intervention.t), description: g.intervention.description });
 }
 
 /** Score-like summary for the end-of-loop screen. */
@@ -211,13 +216,14 @@ export function loopSummary(game: GameState, played: Reality): { title: string; 
   const outcome = loopOutcome(played, game.agentId);
   const lines: string[] = [];
   if (seed && arc) {
-    lines.push(`Objectif : ${seed.title} (enjeu ${Math.round(effectiveStakes(arc) * 100)} %).`);
+    lines.push(t('story.loop_goal', { title: seed.title, percent: Math.round(effectiveStakes(arc) * 100) }));
     const res = arc.resolutionEventId ? played.eventById(arc.resolutionEventId) : undefined;
-    if (res) lines.push(`${fmtTime(res.t)} — ${res.label}.`);
-    else lines.push(`À minuit, l’histoire restait en suspens (${Math.round(arc.progress * 100)} %).`);
+    if (res) lines.push(t('story.loop_resolution', { time: fmtTime(res.t), label: res.label }));
+    else lines.push(t('story.loop_pending', { percent: Math.round(arc.progress * 100) }));
   }
-  lines.push(`Gestes utilisés : ${played.def.interventions.length} / ${game.budget}.`);
-  const title = outcome === 'fulfilled' ? `${p.firstName} y est ${agree(p.id, 'arrivé')} — boucle ${game.loop}` : outcome === 'twisted' ? `Coup de théâtre pour ${p.firstName} — boucle ${game.loop}` : `${p.firstName} n’y est pas ${agree(p.id, 'arrivé')} — boucle ${game.loop}`;
+  lines.push(t('story.loop_gestures_used', { n: played.def.interventions.length, budget: game.budget }));
+  const params = { name: p.firstName, loop: game.loop, arrived: agree(p.id, 'arrivé') };
+  const title = outcome === 'fulfilled' ? t('story.loop_title_fulfilled', params) : outcome === 'twisted' ? t('story.loop_title_twisted', params) : t('story.loop_title_failed', params);
   return { title, lines };
 }
 

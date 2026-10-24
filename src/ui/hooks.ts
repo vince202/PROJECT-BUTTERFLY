@@ -7,6 +7,16 @@ import { useCallback, useMemo } from 'react';
 import { useActiveReality, useSimStore, type RealityId } from '../store/useSimStore';
 import type { Reality } from '../sim/reality';
 import type { Minute, SimEvent, WorldState } from '../sim/types';
+import type { Locale } from '../i18n';
+
+/**
+ * Subscribes the calling component to the interface language: it re-renders
+ * when the language changes, so every `t()` call it makes at render time
+ * returns the new text. Call it once in each component that renders text.
+ */
+export function useLocale(): Locale {
+  return useSimStore((s) => s.locale);
+}
 
 /** Integer minute of the display clock (re-renders once per simulated minute). */
 export function useMinute(): Minute {

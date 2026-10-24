@@ -9,12 +9,14 @@ import { ARC_STATUS_LABELS } from '../../sim/drama';
 import { profileOf } from '../../sim/population';
 import { fmtTime } from '../../sim/time';
 import type { SimEvent } from '../../sim/types';
-import { AgentDot, Badge, Empty, FamilyDot, Section } from '../common';
+import { t } from '../../i18n';
+import { AgentDot, Badge, Empty, FamilyDot, Section, fill } from '../common';
 import { firstName, locName, moodColor, signed } from '../format';
 import { ARC_STATUS_TONE } from '../drama';
-import { useGoToEvent, useMinute } from '../hooks';
+import { useGoToEvent, useLocale, useMinute } from '../hooks';
 
 export function ComparePanel() {
+  useLocale();
   const comparison = useSimStore((s) => s.comparison);
   const realityA = useSimStore((s) => s.realityA);
   const realityB = useSimStore((s) => s.realityB);
@@ -30,9 +32,9 @@ export function ComparePanel() {
   if (!comparison || !realityB) {
     return (
       <Empty>
-        Aucune réalité B pour l’instant.{' '}
+        {t('ui.compare_none')}{' '}
         <button className="link" onClick={() => setPanel('butterfly')}>
-          Créer une intervention
+          {t('ui.compare_create_iv')}
         </button>
       </Empty>
     );
@@ -65,21 +67,21 @@ export function ComparePanel() {
       </ul>
 
       <div className="stats compare-stats">
-        <Stat v={comparison.same} k="identiques" />
-        <Stat v={comparison.shifted.length} k="décalés" tone="accent" />
-        <Stat v={comparison.onlyA.length} k="seulement A" tone="a" />
-        <Stat v={comparison.onlyB.length} k="seulement B" tone="b" />
-        <Stat v={comparison.consequences.length} k="conséquences vérifiées" tone="ok" />
-        <Stat v={comparison.affectedAgents.length} k="habitants touchés" tone="danger" />
-        <Stat v={comparison.arcChanges.length} k="destins modifiés" tone="warn" />
+        <Stat v={comparison.same} k={t('ui.compare_stat_same')} />
+        <Stat v={comparison.shifted.length} k={t('ui.compare_stat_shifted')} tone="accent" />
+        <Stat v={comparison.onlyA.length} k={t('ui.compare_stat_only_a')} tone="a" />
+        <Stat v={comparison.onlyB.length} k={t('ui.compare_stat_only_b')} tone="b" />
+        <Stat v={comparison.consequences.length} k={t('ui.compare_stat_consequences')} tone="ok" />
+        <Stat v={comparison.affectedAgents.length} k={t('ui.compare_stat_affected')} tone="danger" />
+        <Stat v={comparison.arcChanges.length} k={t('ui.compare_stat_destinies')} tone="warn" />
       </div>
 
       <div className="two-cards">
-        <MatchCard title="Première divergence" m={comparison.firstDivergence} onOpen={openMatch} tone="div" />
-        <MatchCard title="Première conséquence" m={comparison.firstConsequence} onOpen={openMatch} tone="ok" />
+        <MatchCard title={t('ui.compare_first_divergence')} m={comparison.firstDivergence} onOpen={openMatch} tone="div" />
+        <MatchCard title={t('ui.compare_first_consequence')} m={comparison.firstConsequence} onOpen={openMatch} tone="ok" />
       </div>
 
-      <Section title="Destins modifiés" count={comparison.arcChanges.length} className="destinies">
+      <Section title={t('ui.compare_destinies')} count={comparison.arcChanges.length} className="destinies">
         {comparison.arcChanges.length ? (
           <ul className="destiny-list">
             {comparison.arcChanges.map((c) => (
@@ -87,11 +89,11 @@ export function ComparePanel() {
             ))}
           </ul>
         ) : (
-          <Empty>Aucun destin modifié : chaque histoire du jour a la même issue dans les deux réalités.</Empty>
+          <Empty>{t('ui.compare_destinies_none')}</Empty>
         )}
       </Section>
 
-      <Section title="Chronologie de la divergence" count={comparison.consequences.length}>
+      <Section title={t('ui.compare_divergence')} count={comparison.consequences.length}>
         {comparison.consequences.length ? (
           <ol className="divergence">
             {comparison.consequences.map((m, i) => (
@@ -99,12 +101,12 @@ export function ComparePanel() {
             ))}
           </ol>
         ) : (
-          <Empty>Aucune conséquence vérifiée : l’intervention n’a pas modifié le cours de la journée.</Empty>
+          <Empty>{t('ui.compare_divergence_none')}</Empty>
         )}
       </Section>
 
-      <Section title="Différences observées sans lien causal prouvé" count={unverified.length} defaultOpen={false}>
-        <p className="muted small">Ces écarts existent entre A et B mais le graphe causal ne les relie pas à l’intervention. « Probable » : un acteur avait déjà été touché auparavant.</p>
+      <Section title={t('ui.compare_unverified')} count={unverified.length} defaultOpen={false}>
+        <p className="muted small">{t('ui.compare_unverified_note')}</p>
         {unverified.length ? (
           <ol className="divergence">
             {unverified.slice(0, 80).map((m, i) => (
@@ -112,29 +114,29 @@ export function ComparePanel() {
             ))}
           </ol>
         ) : (
-          <Empty>Aucune.</Empty>
+          <Empty>{t('ui.compare_unverified_none')}</Empty>
         )}
       </Section>
 
       <Section
-        title="À cet instant"
+        title={t('ui.compare_now')}
         count={positions.length}
         right={
-          <button className="btn xs" onClick={() => switchReality(activeId === 'A' ? 'B' : 'A')} title="Changer de réalité en gardant la même heure">
-            Voir la réalité {activeId === 'A' ? 'B' : 'A'}
+          <button className="btn xs" onClick={() => switchReality(activeId === 'A' ? 'B' : 'A')} title={t('ui.compare_switch_title')}>
+            {activeId === 'A' ? t('ui.compare_view_b') : t('ui.compare_view_a')}
           </button>
         }
       >
         <div className="muted small">
-          À <span className="mono">{fmtTime(minute)}</span>, habitants dont le lieu ou l’activité diffère :
+          {fill(t('ui.compare_now_differs'), { time: <span className="mono">{fmtTime(minute)}</span> })}
         </div>
         {positions.length ? (
           <table className="table">
             <thead>
               <tr>
-                <th>Habitant</th>
-                <th className="col-a">Réalité A</th>
-                <th className="col-b">Réalité B</th>
+                <th>{t('ui.compare_col_agent')}</th>
+                <th className="col-a">{t('ui.reality_a_short')}</th>
+                <th className="col-b">{t('ui.reality_b_short')}</th>
               </tr>
             </thead>
             <tbody>
@@ -156,16 +158,16 @@ export function ComparePanel() {
             </tbody>
           </table>
         ) : (
-          <Empty>À cette heure, tout le monde est au même endroit dans les deux réalités.</Empty>
+          <Empty>{t('ui.compare_positions_none')}</Empty>
         )}
       </Section>
 
       <Section
-        title="Bilan par habitant (fin de journée)"
+        title={t('ui.compare_summary')}
         count={diffs.length}
         right={
           <label className="check small">
-            <input type="checkbox" checked={onlyAffected} onChange={(e) => setOnlyAffected(e.target.checked)} /> touchés seulement
+            <input type="checkbox" checked={onlyAffected} onChange={(e) => setOnlyAffected(e.target.checked)} /> {t('ui.compare_only_affected')}
           </label>
         }
       >
@@ -173,13 +175,13 @@ export function ComparePanel() {
           <table className="table agents-table">
             <thead>
               <tr>
-                <th>Habitant</th>
-                <th>Lieu A / B</th>
-                <th>Activité A / B</th>
-                <th>Humeur</th>
-                <th title="Objectifs accomplis">Obj.</th>
-                <th title="Relations modifiées">Rel.</th>
-                <th title="Événements touchés de façon vérifiée">Touchés</th>
+                <th>{t('ui.compare_col_agent')}</th>
+                <th>{t('ui.compare_col_place')}</th>
+                <th>{t('ui.compare_col_activity')}</th>
+                <th>{t('ui.compare_col_mood')}</th>
+                <th title={t('ui.compare_col_goals_title')}>{t('ui.compare_col_goals')}</th>
+                <th title={t('ui.compare_col_rels_title')}>{t('ui.compare_col_rels')}</th>
+                <th title={t('ui.compare_col_affected_title')}>{t('ui.compare_col_affected')}</th>
               </tr>
             </thead>
             <tbody>
@@ -188,7 +190,7 @@ export function ComparePanel() {
                 const locDiff = d.locationA !== d.locationB;
                 const actDiff = d.activityA !== d.activityB;
                 return (
-                  <tr key={d.agentId} className={`clickable ${isAff ? 'affected' : ''}`} onClick={() => selectAgent(d.agentId)} title={`${profileOf(d.agentId).name} — cliquer pour ouvrir la fiche`}>
+                  <tr key={d.agentId} className={`clickable ${isAff ? 'affected' : ''}`} onClick={() => selectAgent(d.agentId)} title={t('ui.compare_row_title', { name: profileOf(d.agentId).name })}>
                     <td>
                       <AgentDot id={d.agentId} /> {firstName(d.agentId)}
                     </td>
@@ -212,7 +214,7 @@ export function ComparePanel() {
                     <td className={`mono ${d.objectivesA !== d.objectivesB ? 'diff' : ''}`}>
                       {d.objectivesA}/{d.objectivesB}
                     </td>
-                    <td className="mono" title={d.relationshipChanges.map((r) => `${firstName(r.other)} : ${signed(r.a)} → ${signed(r.b)}`).join('\n')}>
+                    <td className="mono" title={d.relationshipChanges.map((r) => t('ui.compare_rel_change', { name: firstName(r.other), a: signed(r.a), b: signed(r.b) })).join('\n')}>
                       {d.relationshipChanges.length || '—'}
                     </td>
                     <td className="mono">{d.affectedEvents ? <Badge tone="danger">{d.affectedEvents}</Badge> : '—'}</td>
@@ -237,27 +239,28 @@ function Stat({ v, k, tone }: { v: number; k: string; tone?: string }) {
 }
 
 function DestinyRow({ c, onOpen }: { c: ArcChange; onOpen: () => void }) {
+  useLocale();
   const e = c.eventB ?? c.eventA;
   const where = c.eventB ? 'B' : c.eventA ? 'A' : null;
   return (
     <li className="destiny">
-      <button className="destiny-main" onClick={onOpen} title={where ? `Voir le point de bascule dans la réalité ${where}${e ? ` (${fmtTime(e.t)})` : ''}` : `Ouvrir la fiche de ${firstName(c.agentId)}`}>
+      <button className="destiny-main" onClick={onOpen} title={where ? (e ? t('ui.compare_destiny_view_at', { reality: where, time: fmtTime(e.t) }) : t('ui.compare_destiny_view', { reality: where })) : t('ui.compare_destiny_open', { name: firstName(c.agentId) })}>
         <AgentDot id={c.agentId} />
         <span className="destiny-text">
           <span>
-            <span className="strong">{firstName(c.agentId)}</span> <span className="muted">— « {c.title} »</span>
+            <span className="strong">{firstName(c.agentId)}</span> <span className="muted">— {t('ui.quote', { text: c.title })}</span>
           </span>
           {e && <span className="destiny-sub">{fmtTime(e.t)} · {e.label}</span>}
         </span>
       </button>
       <span className="destiny-badges">
-        <Badge tone={ARC_STATUS_TONE[c.statusA]} title="Issue dans la réalité A">A · {ARC_STATUS_LABELS[c.statusA]}</Badge>
+        <Badge tone={ARC_STATUS_TONE[c.statusA]} title={t('ui.compare_outcome_a_title')}>{t('ui.compare_outcome_a', { status: ARC_STATUS_LABELS[c.statusA] })}</Badge>
         <span className="muted" aria-hidden>→</span>
-        <Badge tone={ARC_STATUS_TONE[c.statusB]} title="Issue dans la réalité B">B · {ARC_STATUS_LABELS[c.statusB]}</Badge>
+        <Badge tone={ARC_STATUS_TONE[c.statusB]} title={t('ui.compare_outcome_b_title')}>{t('ui.compare_outcome_b', { status: ARC_STATUS_LABELS[c.statusB] })}</Badge>
         {c.verified ? (
-          <Badge tone="ok" title="Le point de bascule en B descend causalement de l’intervention">vérifié</Badge>
+          <Badge tone="ok" title={t('ui.compare_verified_title')}>{t('ui.compare_verified')}</Badge>
         ) : (
-          <Badge tone="muted" title="Issue différente, mais le graphe causal ne la relie pas à l’intervention">sans lien prouvé</Badge>
+          <Badge tone="muted" title={t('ui.compare_unproven_title')}>{t('ui.compare_unproven')}</Badge>
         )}
       </span>
     </li>
@@ -265,23 +268,24 @@ function DestinyRow({ c, onOpen }: { c: ArcChange; onOpen: () => void }) {
 }
 
 function statusBadge(m: EventMatch) {
-  if (m.status === 'only_b') return <Badge tone="b">B seulement</Badge>;
-  if (m.status === 'only_a') return <Badge tone="a">n’a pas eu lieu (A seulement)</Badge>;
-  if (m.status === 'shifted') return m.dt ? <Badge tone="accent">décalé {m.dt > 0 ? '+' : ''}{m.dt} min</Badge> : <Badge tone="accent">modifié</Badge>;
-  return <Badge>identique</Badge>;
+  if (m.status === 'only_b') return <Badge tone="b">{t('ui.compare_b_only')}</Badge>;
+  if (m.status === 'only_a') return <Badge tone="a">{t('ui.compare_a_only')}</Badge>;
+  if (m.status === 'shifted') return m.dt ? <Badge tone="accent">{t('ui.compare_shifted', { dt: `${m.dt > 0 ? '+' : ''}${m.dt}` })}</Badge> : <Badge tone="accent">{t('ui.compare_modified')}</Badge>;
+  return <Badge>{t('ui.compare_same')}</Badge>;
 }
 
 function causalBadge(m: EventMatch) {
-  if (m.causal === 'verified') return <Badge tone="ok">vérifié</Badge>;
-  if (m.causal === 'probable') return <Badge tone="warn">probable</Badge>;
-  return <Badge tone="muted">sans lien prouvé</Badge>;
+  if (m.causal === 'verified') return <Badge tone="ok">{t('ui.compare_verified')}</Badge>;
+  if (m.causal === 'probable') return <Badge tone="warn">{t('ui.compare_probable')}</Badge>;
+  return <Badge tone="muted">{t('ui.compare_unproven')}</Badge>;
 }
 
 function MatchRow({ m, onOpen }: { m: EventMatch; onOpen: (m: EventMatch) => void }) {
+  useLocale();
   const e = (m.b ?? m.a)! as SimEvent;
   return (
     <li className={`match ${m.status}`}>
-      <button className="match-main" onClick={() => onOpen(m)} title="Voir cet événement (bascule vers la bonne réalité)">
+      <button className="match-main" onClick={() => onOpen(m)} title={t('ui.compare_match_title')}>
         <span className="mono t">
           {fmtTime(e.t)}
           {m.status === 'shifted' && m.a && <span className="t-was">({fmtTime(m.a.t)})</span>}
@@ -298,18 +302,19 @@ function MatchRow({ m, onOpen }: { m: EventMatch; onOpen: (m: EventMatch) => voi
 }
 
 function MatchCard({ title, m, onOpen, tone }: { title: string; m: EventMatch | null; onOpen: (m: EventMatch) => void; tone: string }) {
+  useLocale();
   const e = m ? (m.b ?? m.a)! : null;
   return (
     <div className={`match-card tone-${tone}`}>
       <div className="match-card-title">{title}</div>
       {m && e ? (
-        <button className="match-card-body" onClick={() => onOpen(m)} title="Voir cet événement">
+        <button className="match-card-body" onClick={() => onOpen(m)} title={t('ui.compare_match_card_title')}>
           <span className="mono strong">{fmtTime(e.t)}</span>
           <span>{e.label}</span>
           <span className="match-badges">{statusBadge(m)}</span>
         </button>
       ) : (
-        <div className="muted small">Aucune</div>
+        <div className="muted small">{t('ui.compare_no_match')}</div>
       )}
     </div>
   );

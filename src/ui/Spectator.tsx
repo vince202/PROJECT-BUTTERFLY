@@ -14,11 +14,14 @@ import { SPEEDS, speedTitle } from '../store/speed';
 import { questCards } from '../sim/game';
 import { AGENTS } from '../sim/population';
 import { QUEST_LINK_LABELS, questAlerts } from '../sim/quest';
-import { fmtTime, periodOfDay } from '../sim/time';
+import { fmtTime, periodKey, periodLabel } from '../sim/time';
 import { DAY_END, DAY_LENGTH, DAY_START, GRAVITY_LABELS, type AgentId, type Gravity, type SimEvent } from '../sim/types';
 import { arcStatusAt, dramaSubject, isDramaHighlight, truncate } from './drama';
 import { eventFamily, eventTypeLabel, fold, locName, moodColor, moodWord, weatherLabel } from './format';
-import { useActiveReality, useMinute } from './hooks';
+import { useActiveReality, useLocale, useMinute } from './hooks';
+import { LangToggle } from './LangToggle';
+import { fill, rich } from './common';
+import { t } from '../i18n';
 import { usePresence } from './mode';
 import { AlertBubbles, AlertDriver, GameAlertFeed } from './game/Alerts';
 import { GameHud } from './game/GameHud';
@@ -32,6 +35,7 @@ const HINT_KEY = 'butterfly:spectator-hint-dismissed';
 const GAME_HINT_KEY = 'butterfly:game-hint-dismissed';
 
 export function SpectatorOverlay({ leaving = false }: { leaving?: boolean }) {
+  useLocale();
   const game = useSimStore((s) => s.game);
   const pickerDismissed = useGameUi((s) => s.pickerDismissed);
   const picking = !game && !pickerDismissed;
@@ -58,21 +62,22 @@ export function SpectatorOverlay({ leaving = false }: { leaving?: boolean }) {
 // ---------------------------------------------------------------------------
 
 function SpecClock() {
+  useLocale();
   const minute = useMinute();
   const reality = useActiveReality();
   const day = useSimStore((s) => s.day);
   const isB = useSimStore((s) => s.activeRealityId === 'B' && !!s.realityB);
   const weather = weatherLabel(reality.frameAt(minute)?.weather);
   return (
-    <div className="spec-clock glass" title={`${reality.def.name} · Jour ${day}`}>
+    <div className="spec-clock glass" title={t('ui.spectator_clock_title', { name: reality.def.name, day })}>
       <span className="spec-brand">
-        <span aria-hidden>🦋</span> BUTTERFLY
+        <span aria-hidden>🦋</span> {t('common.app_name')}
       </span>
       <span className="spec-clock-row">
         <span className="spec-time mono">{fmtTime(minute)}</span>
         <span className="spec-meta">
-          <span className="spec-period">{periodOfDay(minute)}</span>
-          <span className="spec-weather" title={`Météo : ${weather.text}`} aria-label={`Météo : ${weather.text}`}>
+          <span className="spec-period">{periodLabel(periodKey(minute))}</span>
+          <span className="spec-weather" title={t('ui.topbar_weather_title', { weather: weather.text })} aria-label={t('ui.topbar_weather_title', { weather: weather.text })}>
             {weather.icon}
           </span>
           {isB && <span className="spec-b">B</span>}
@@ -87,6 +92,7 @@ function SpecClock() {
 // ---------------------------------------------------------------------------
 
 function SpecCorner() {
+  useLocale();
   const hasB = useSimStore((s) => !!s.realityB);
   const activeId = useSimStore((s) => s.activeRealityId);
   const inGame = useSimStore((s) => !!s.game);
@@ -95,30 +101,31 @@ function SpecCorner() {
   return (
     <div className="spec-corner">
       {!inGame && pickerDismissed && (
-        <button className="spec-round glass" onClick={() => useGameUi.getState().setPickerDismissed(false)} title="Choisir un habitant à suivre et jouer la boucle" aria-label="Jouer">
+        <button className="spec-round glass" onClick={() => useGameUi.getState().setPickerDismissed(false)} title={t('ui.spectator_play_title')} aria-label={t('ui.spectator_play_aria')}>
           <span aria-hidden>⟲</span>
-          <span className="spec-round-label">Jouer — choisir qui suivre</span>
+          <span className="spec-round-label">{t('ui.spectator_play_label')}</span>
         </button>
       )}
       {inGame && (
-        <button className="spec-round glass" onClick={() => useGameUi.getState().setNotebookOpen(!useGameUi.getState().notebookOpen)} title="Carnet des gestes (N)" aria-label="Carnet">
+        <button className="spec-round glass" onClick={() => useGameUi.getState().setNotebookOpen(!useGameUi.getState().notebookOpen)} title={t('ui.spectator_notebook_title')} aria-label={t('ui.spectator_notebook')}>
           <span aria-hidden>📓</span>
-          <span className="spec-round-label">Carnet</span>
+          <span className="spec-round-label">{t('ui.spectator_notebook')}</span>
         </button>
       )}
       {hasB && !inGame && (
-        <div className="seg reality spec-reality glass" role="group" aria-label="Réalité affichée">
-          <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title="Réalité A — la journée originale">
+        <div className="seg reality spec-reality glass" role="group" aria-label={t('ui.topbar_reality_group')}>
+          <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title={t('ui.topbar_reality_a_title')}>
             A
           </button>
-          <button className={`b ${activeId === 'B' ? 'active' : ''}`} onClick={() => switchReality('B')} title="Réalité B — la journée modifiée">
+          <button className={`b ${activeId === 'B' ? 'active' : ''}`} onClick={() => switchReality('B')} title={t('ui.spectator_reality_b_title')}>
             B
           </button>
         </div>
       )}
-      <button className="spec-round glass" onClick={() => setUiMode('lab')} title="Mode laboratoire (Tab)" aria-label="Mode laboratoire">
+      <LangToggle className="spec-lang glass" />
+      <button className="spec-round glass" onClick={() => setUiMode('lab')} title={t('ui.spectator_lab_title')} aria-label={t('ui.spectator_lab')}>
         <span aria-hidden>🧪</span>
-        <span className="spec-round-label">Mode laboratoire</span>
+        <span className="spec-round-label">{t('ui.spectator_lab')}</span>
       </button>
     </div>
   );
@@ -131,23 +138,24 @@ function SpecCorner() {
 const pos = (t: number) => ((Math.max(DAY_START, Math.min(DAY_END, t)) - DAY_START) / DAY_LENGTH) * 100;
 
 function PlaybackPill() {
+  useLocale();
   const playing = useSimStore((s) => s.playing);
   const speed = useSimStore((s) => s.speed);
   const inGame = useSimStore((s) => !!s.game);
   const { restart, togglePlay, setSpeed } = useSimStore.getState();
   return (
-    <div className={`spec-pill glass ${inGame ? 'game' : ''}`} role="group" aria-label="Lecture">
+    <div className={`spec-pill glass ${inGame ? 'game' : ''}`} role="group" aria-label={t('ui.topbar_playback_group')}>
       <Scrub />
       <div className="spec-pill-row">
         {!inGame && (
-          <button className="spec-btn" onClick={restart} title="Revenir à 06:00" aria-label="Revenir à 06:00">
+          <button className="spec-btn" onClick={restart} title={t('ui.topbar_back_to_start')} aria-label={t('ui.topbar_back_to_start')}>
             ⏮
           </button>
         )}
-        <button className={`spec-btn play ${playing ? 'on' : ''}`} onClick={togglePlay} title={playing ? 'Pause (Espace)' : 'Lecture (Espace)'} aria-label={playing ? 'Pause' : 'Lecture'}>
+        <button className={`spec-btn play ${playing ? 'on' : ''}`} onClick={togglePlay} title={playing ? t('ui.topbar_pause_title') : t('ui.topbar_play_title')} aria-label={playing ? t('ui.spectator_pause') : t('ui.spectator_play')}>
           {playing ? '⏸' : '▶'}
         </button>
-        <div className="spec-speed" role="group" aria-label="Vitesse" title="×1 = temps réel · touches + / −">
+        <div className="spec-speed" role="group" aria-label={t('ui.topbar_speed_group')} title={t('ui.spectator_speed_hint')}>
           {SPEEDS.map((s) => (
             <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)} title={speedTitle(s)} aria-pressed={speed === s}>
               ×{s}
@@ -160,6 +168,7 @@ function PlaybackPill() {
 }
 
 function Scrub() {
+  useLocale();
   const time = useSimStore((s) => s.time);
   const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -208,7 +217,7 @@ function Scrub() {
         onKeyDown={onKey}
         tabIndex={0}
         role="slider"
-        aria-label="Heure de la journée"
+        aria-label={t('ui.spectator_scrub_aria')}
         aria-valuemin={DAY_START}
         aria-valuemax={DAY_END}
         aria-valuenow={Math.floor(time)}
@@ -240,6 +249,7 @@ function ScrubMarkers({ time }: { time: number }) {
   const game = useSimStore((s) => s.game);
   const realityA = useSimStore((s) => s.realityA);
   const generation = useSimStore((s) => s.generation);
+  const locale = useLocale();
   const [tip, setTip] = useState<{ key: string; pinned: boolean } | null>(null);
   const markers = useMemo(() => {
     if (!game) return [];
@@ -247,16 +257,16 @@ function ScrubMarkers({ time }: { time: number }) {
       key: a.event.id,
       t: a.event.t,
       gravity: a.gravity,
-      label: `${eventTypeLabel(a.event.type)} (${GRAVITY_LABELS[a.gravity]}) — ${a.event.label}${a.link !== 'none' ? ` · lié à votre quête : ${QUEST_LINK_LABELS[a.link]}` : ''}`,
+      label: a.link !== 'none' ? t('ui.spectator_marker_label_linked', { type: eventTypeLabel(a.event.type), gravity: GRAVITY_LABELS[a.gravity], label: a.event.label, link: QUEST_LINK_LABELS[a.link] }) : t('ui.spectator_marker_label', { type: eventTypeLabel(a.event.type), gravity: GRAVITY_LABELS[a.gravity], label: a.event.label }),
       linked: a.link !== 'none',
     }));
     const card = questCards(realityA).find((c) => c.agentId === game.agentId);
-    if (card) out.push({ key: 'deadline', t: card.deadline, gravity: 'deadline', label: `Échéance de la quête — ${card.title}`, linked: true });
+    if (card) out.push({ key: 'deadline', t: card.deadline, gravity: 'deadline', label: t('ui.spectator_deadline', { title: card.title }), linked: true });
     return out;
-  }, [game?.agentId, realityA, generation]);
+  }, [game?.agentId, realityA, generation, locale]);
   if (!game || !markers.length) return null;
   const shown = tip ? markers.find((m) => m.key === tip.key) : undefined;
-  const when = (t: number) => (t <= Math.floor(time) ? 'déjà passé' : 'à venir');
+  const when = (at: number) => (at <= Math.floor(time) ? t('ui.spectator_past') : t('ui.spectator_upcoming'));
   return (
     <>
       {markers.map((m) => (
@@ -272,7 +282,7 @@ function ScrubMarkers({ time }: { time: number }) {
             setTip((x) => (x?.key === m.key && x.pinned ? null : { key: m.key, pinned: true }));
           }}
           role="button"
-          aria-label={`${fmtTime(m.t)} — ${m.label} (${when(m.t)})`}
+          aria-label={t('ui.spectator_marker_aria', { time: fmtTime(m.t), label: m.label, when: when(m.t) })}
         />
       ))}
       {shown && (
@@ -304,6 +314,7 @@ function ContextCards() {
 }
 
 function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; selected?: boolean; leaving: boolean }) {
+  useLocale();
   const reality = useActiveReality();
   const minute = useMinute();
   const followed = useSimStore((s) => s.followAgentId === id);
@@ -313,7 +324,7 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
   const profile = AGENTS.find((a) => a.id === id);
   if (!profile) return null;
   const tr = reality.frameAt(minute)?.agents[id];
-  const where = tr ? (tr.riding ? 'Dans le bus' : locName(tr.loc)) : '—';
+  const where = tr ? (tr.riding ? t('ui.format_travel_riding') : locName(tr.loc)) : '—';
   const mood = tr?.mood ?? 0;
   const act = tr?.act ?? '—';
   // Activity labels often already name the place ("Travaille — Agence Horizon", "En chemin").
@@ -328,18 +339,18 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
     <section
       className={`spec-card glass ${selected ? 'selected' : 'preview'} ${leaving ? 'leaving' : ''} ${tr?.asleep ? 'asleep' : ''}`}
       style={{ ['--agent' as string]: profile.color }}
-      aria-label={`${profile.name}${selected ? ' (sélectionné·e)' : ''}`}
+      aria-label={selected ? t('ui.spectator_card_aria_selected', { name: profile.name }) : t('ui.spectator_card_aria', { name: profile.name })}
     >
       <header className="spec-card-head">
         <span className="agent-dot lg" style={{ background: profile.color }} aria-hidden />
         <span className="spec-card-id">
           <span className="spec-card-name">{profile.name}</span>
           <span className="spec-card-sub">
-            {profile.age} ans · {profile.occupation}
+            {t('ui.inspector_age_occupation', { age: profile.age, occupation: profile.occupation })}
           </span>
         </span>
         {selected && (
-          <button className="spec-x" onClick={() => selectAgent(null)} title="Désélectionner (Échap)" aria-label="Désélectionner">
+          <button className="spec-x" onClick={() => selectAgent(null)} title={t('ui.spectator_deselect_title')} aria-label={t('ui.spectator_deselect')}>
             ✕
           </button>
         )}
@@ -356,17 +367,17 @@ function AgentContextCard({ id, selected = false, leaving }: { id: AgentId; sele
         <div className={`spec-card-arc st-${arcAt.status}`} title={arcAt.seed.desire}>
           <span className="fam-dot fam-drama" aria-hidden />
           <span className="spec-card-arc-text">
-            Aujourd’hui : <strong>{arcAt.seed.title}</strong> — {arcAt.statusLabel}
+            {fill(t('ui.spectator_today'), { title: <strong>{arcAt.seed.title}</strong>, status: arcAt.statusLabel })}
           </span>
         </div>
       )}
       {selected && (
         <div className="spec-card-actions">
-          <button className={`spec-chip ${followed ? 'on' : ''}`} onClick={() => followAgent(followed ? null : id)} aria-pressed={followed} title={followed ? `Ne plus suivre ${profile.firstName}` : `Suivre ${profile.firstName} avec la caméra`}>
-            👁 {followed ? 'Suivi·e' : 'Suivre'}
+          <button className={`spec-chip ${followed ? 'on' : ''}`} onClick={() => followAgent(followed ? null : id)} aria-pressed={followed} title={followed ? t('ui.list_follow_stop', { name: profile.firstName }) : t('ui.list_follow', { name: profile.firstName })}>
+            👁 {followed ? t('ui.spectator_following') : t('ui.spectator_follow')}
           </button>
-          <button className="spec-chip accent" onClick={why} title={`Ouvrir le laboratoire sur la fiche de ${profile.firstName}`}>
-            Pourquoi ?
+          <button className="spec-chip accent" onClick={why} title={t('ui.spectator_why_title', { name: profile.firstName })}>
+            {t('ui.spectator_why')}
           </button>
         </div>
       )}
@@ -399,6 +410,7 @@ interface DramaToast {
  * ignored. Hovering the feed holds the toasts.
  */
 function DramaFeed() {
+  useLocale();
   const reality = useActiveReality();
   const generation = useSimStore((s) => s.generation);
   const [toasts, setToasts] = useState<DramaToast[]>([]);
@@ -438,7 +450,7 @@ function DramaFeed() {
     <div
       className="drama-feed"
       role="log"
-      aria-label="Fil dramatique"
+      aria-label={t('ui.spectator_feed_aria')}
       aria-live="polite"
       onMouseEnter={() => {
         setHeld(true);
@@ -453,7 +465,7 @@ function DramaFeed() {
       {toasts.map(({ e, leaving }) => {
         const who = dramaSubject(e);
         return (
-          <button key={e.id} className={`drama-toast glass ${leaving ? 'leaving' : ''}`} onClick={() => who && selectAgent(who)} title={`${eventTypeLabel(e.type)} — ${e.label}`}>
+          <button key={e.id} className={`drama-toast glass ${leaving ? 'leaving' : ''}`} onClick={() => who && selectAgent(who)} title={t('ui.event_title', { type: eventTypeLabel(e.type), label: e.label })}>
             <span className={`fam-dot fam-${eventFamily(e.type)}`} aria-hidden />
             <span className="drama-toast-time mono">{fmtTime(e.t)}</span>
             <span className="drama-toast-kind">{eventTypeLabel(e.type)}</span>
@@ -470,6 +482,7 @@ function DramaFeed() {
 // ---------------------------------------------------------------------------
 
 function EventToast() {
+  useLocale();
   const selectedEventId = useSimStore((s) => s.selectedEventId);
   const reality = useActiveReality();
   const shown = usePresence<string>(selectedEventId);
@@ -480,13 +493,13 @@ function EventToast() {
     <div className={`spec-toast glass ${shown.leaving ? 'leaving' : ''}`} role="status">
       <span className={`fam-dot fam-${eventFamily(e.type)}`} aria-hidden />
       <span className="spec-toast-time mono">{fmtTime(e.t)}</span>
-      <span className="spec-toast-text" title={`${eventTypeLabel(e.type)} — ${e.label}`}>
+      <span className="spec-toast-text" title={t('ui.event_title', { type: eventTypeLabel(e.type), label: e.label })}>
         {e.label}
       </span>
-      <button className="spec-chip accent" onClick={() => setUiMode('lab')} title="Voir les causes et conséquences dans le laboratoire">
-        Détails
+      <button className="spec-chip accent" onClick={() => setUiMode('lab')} title={t('ui.spectator_toast_details_title')}>
+        {t('ui.spectator_toast_details')}
       </button>
-      <button className="spec-x" onClick={() => selectEvent(null)} title="Fermer (Échap)" aria-label="Fermer">
+      <button className="spec-x" onClick={() => selectEvent(null)} title={t('ui.spectator_toast_close_title')} aria-label={t('ui.inspector_close')}>
         ✕
       </button>
     </div>
@@ -506,6 +519,7 @@ function readHintDismissed(key: string): boolean {
 }
 
 function FirstRunHint({ game }: { game: boolean }) {
+  useLocale();
   const key = game ? GAME_HINT_KEY : HINT_KEY;
   const [hidden, setHidden] = useState(true);
   useEffect(() => setHidden(readHintDismissed(key)), [key]);
@@ -520,16 +534,8 @@ function FirstRunHint({ game }: { game: boolean }) {
   };
   return (
     <div className="spec-hint glass" role="note">
-      {game ? (
-        <span>
-          <kbd>Espace</kbd> lecture · <kbd>G</kbd> faire un geste · <kbd>N</kbd> carnet · <kbd>Échap</kbd> fermer · <kbd>Tab</kbd> laboratoire
-        </span>
-      ) : (
-        <span>
-          Survolez un habitant · Molette pour zoomer · <kbd>Tab</kbd> pour le laboratoire
-        </span>
-      )}
-      <button className="spec-x" onClick={dismiss} title="Masquer cette aide" aria-label="Masquer cette aide">
+      {game ? <span>{rich(t('ui.spectator_hint_game'))}</span> : <span>{rich(t('ui.spectator_hint'))}</span>}
+      <button className="spec-x" onClick={dismiss} title={t('ui.spectator_hint_hide')} aria-label={t('ui.spectator_hint_hide')}>
         ✕
       </button>
     </div>

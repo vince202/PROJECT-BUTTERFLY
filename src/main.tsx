@@ -12,6 +12,12 @@ declare global {
 }
 window.__butterfly = useSimStore;
 
+// Keep <html lang> in step with the interface language.
+document.documentElement.lang = useSimStore.getState().locale;
+useSimStore.subscribe((s, prev) => {
+  if (s.locale !== prev.locale) document.documentElement.lang = s.locale;
+});
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />

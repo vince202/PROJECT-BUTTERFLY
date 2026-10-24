@@ -211,6 +211,8 @@ select.input { padding-right: 4px; }
 .seg button:disabled { opacity: 0.4; }
 .seg.speed button { font-family: var(--mono); padding: 0 7px; }
 .seg.speed button.active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(246, 183, 60, 0.5); }
+.seg.lang-toggle button { font-family: var(--mono); padding: 0 7px; font-size: 11.5px; letter-spacing: 0.04em; }
+.seg.lang-toggle button.active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(246, 183, 60, 0.5); }
 .seg.reality button.active { color: var(--real-a); }
 .seg.reality button.b.active { background: var(--b-soft); color: var(--real-b); box-shadow: inset 0 0 0 1px rgba(199, 146, 234, 0.5); }
 
@@ -820,6 +822,8 @@ select.input { padding-right: 4px; }
   animation: modeInTop var(--mode-in, 300ms) var(--ease) both;
 }
 .spec-reality { padding: 3px; border-radius: 999px; }
+.spec-lang { padding: 3px; border-radius: 999px; }
+.spectator-ui .seg.spec-lang button { height: 32px; min-width: 34px; border-radius: 999px; font-weight: 700; }
 .spectator-ui .seg.spec-reality button { height: 32px; min-width: 34px; border-radius: 999px; font-weight: 700; }
 .spec-round {
   height: 44px; min-width: 44px; padding: 0 12px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 0;

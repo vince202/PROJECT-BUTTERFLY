@@ -10,6 +10,7 @@
  * the deterministic engine never depends on it.
  */
 
+import { t } from '../i18n';
 import type { AgentId, AgentProfile, AgentState, Memory, Minute } from './types';
 import { fmtTime } from './time';
 
@@ -155,7 +156,7 @@ export interface RecalledMemory {
 /** Recency decays over about half a day (and yesterday's memories start lower). */
 export function recencyScore(memory: Memory, now: Minute): number {
   const age = Math.max(0, now - memory.t);
-  const yesterday = memory.text.startsWith('Hier');
+  const yesterday = memory.yesterday === true;
   return Math.exp(-age / 360) * (yesterday ? 0.6 : 1);
 }
 
@@ -192,15 +193,15 @@ export function recallMemoriesSync(memories: Memory[], query: string, embedder: 
  * what is pending, what the day is about. Names matter most for recall.
  */
 export function situationQuery(agent: AgentState, profile: AgentProfile, opts: { t: Minute; locationName: string; present: string[]; nextCommitment?: string; desire?: string; options?: string[] }): string {
-  const parts = [`${profile.firstName} à ${opts.locationName} (${fmtTime(opts.t)})`];
-  if (opts.present.length) parts.push(`avec ${opts.present.join(', ')}`);
-  if (opts.nextCommitment) parts.push(`prochain engagement : ${opts.nextCommitment}`);
+  const parts = [t('story.recall_at', { name: profile.firstName, place: opts.locationName, time: fmtTime(opts.t) })];
+  if (opts.present.length) parts.push(t('story.recall_with', { names: opts.present.join(', ') }));
+  if (opts.nextCommitment) parts.push(t('story.recall_next_commitment', { label: opts.nextCommitment }));
   if (opts.desire) parts.push(opts.desire);
-  if (opts.options?.length) parts.push(`options : ${opts.options.join(', ')}`);
-  if (agent.needs.hunger > 60) parts.push('faim, manger');
-  if (agent.needs.fatigue > 70) parts.push('fatigue, repos');
-  if (agent.needs.social > 60) parts.push('solitude, compagnie');
-  return parts.join(' ; ');
+  if (opts.options?.length) parts.push(t('story.recall_options', { list: opts.options.join(', ') }));
+  if (agent.needs.hunger > 60) parts.push(t('story.recall_hunger'));
+  if (agent.needs.fatigue > 70) parts.push(t('story.recall_fatigue'));
+  if (agent.needs.social > 60) parts.push(t('story.recall_lonely'));
+  return parts.join(t('story.sep_semicolon'));
 }
 
 /** Names of the other inhabitants present at the agent's location. */

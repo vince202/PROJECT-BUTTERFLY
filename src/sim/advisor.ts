@@ -14,10 +14,11 @@
  */
 
 import { UtilityPolicy, type DecisionContext, type DecisionOutcome, type DecisionPolicy } from './decision';
+import { t as tx } from '../i18n';
 import { profileOf } from './population';
 import { Reality, type RealityDef } from './reality';
 import { fmtTime } from './time';
-import { ARC_STATUS_LABELS, DESIRE_LABEL, arcDeadline, arcOf, arcSeed } from './drama';
+import { ARC_STATUS_LABELS, arcDeadline, arcOf, arcSeed, desireLabel } from './drama';
 import { presentNames, recallMemories, situationQuery, type Embedder } from './recall';
 import type { AgentId, AgentProfile, AgentState, Candidate, Memory, Minute } from './types';
 
@@ -107,16 +108,16 @@ function describeAgent(agent: AgentState, profile: AgentProfile, ctx: DecisionCo
     t: ctx.t,
     time: fmtTime(ctx.t),
     occupation: profile.occupation,
-    traits: `forts : ${top.join(', ')} ; faibles : ${low.join(', ')}`,
-    needs: `faim ${Math.round(agent.needs.hunger)}, fatigue ${Math.round(agent.needs.fatigue)}, solitude ${Math.round(agent.needs.social)}, ennui ${Math.round(agent.needs.boredom)} (0 = comblé, 100 = urgent)`,
-    mood: `humeur ${agent.emotions.mood.toFixed(2)} (−1..1), stress ${agent.emotions.stress.toFixed(2)}`,
+    traits: tx('story.advisor_traits', { strong: top.join(', '), weak: low.join(', ') }),
+    needs: tx('story.advisor_needs', { hunger: Math.round(agent.needs.hunger), fatigue: Math.round(agent.needs.fatigue), social: Math.round(agent.needs.social), boredom: Math.round(agent.needs.boredom) }),
+    mood: tx('story.advisor_mood', { mood: agent.emotions.mood.toFixed(2), stress: agent.emotions.stress.toFixed(2) }),
     goals: profile.goals,
-    location: agent.locationId ? ctx.city.location(agent.locationId).name : 'dans la rue',
+    location: agent.locationId ? ctx.city.location(agent.locationId).name : tx('story.in_the_street'),
     recentMemories: agent.memories.slice(-4).map((m) => `${fmtTime(m.t)} ${m.text}`),
     influences: agent.influences.map((i) => i.reason),
-    nextCommitment: next ? `${next.label} à ${fmtTime(next.start)} (${ctx.city.location(next.locationId).name})` : undefined,
+    nextCommitment: next ? tx('story.advisor_next_commitment', { label: next.label, time: fmtTime(next.start), place: ctx.city.location(next.locationId).name }) : undefined,
     stakes: describeStakes(agent, ctx),
-    situation: situationQuery(agent, profile, { t: ctx.t, locationName: agent.locationId ? ctx.city.location(agent.locationId).name : 'dans la rue', present: presentNames(agent, ctx.world.agents, ctx.profiles), nextCommitment: next?.label, desire: arcOf(ctx.world, agent.id) ? arcSeed(arcOf(ctx.world, agent.id)!.seedId).desire : undefined }),
+    situation: situationQuery(agent, profile, { t: ctx.t, locationName: agent.locationId ? ctx.city.location(agent.locationId).name : tx('story.in_the_street'), present: presentNames(agent, ctx.world.agents, ctx.profiles), nextCommitment: next?.label, desire: arcOf(ctx.world, agent.id) ? arcSeed(arcOf(ctx.world, agent.id)!.seedId).desire : undefined }),
     memoryPool: agent.memories.slice(-40),
   };
 }
@@ -125,9 +126,10 @@ function describeStakes(agent: AgentState, ctx: DecisionContext): string | undef
   const arc = arcOf(ctx.world, agent.id);
   if (!arc) return undefined;
   const seed = arcSeed(arc.seedId);
-  const state = arc.status === 'open' || arc.status === 'advancing' ? `encore en jeu (${Math.round(arc.progress * 100)} %), échéance ${fmtTime(arcDeadline(arc))}` : ARC_STATUS_LABELS[arc.status];
-  const secret = seed.secret ? ` Secret : ${seed.secret}${arc.knownBy.length ? ` (connu de ${arc.knownBy.length} personne${arc.knownBy.length > 1 ? 's' : ''})` : ''}` : '';
-  return `« ${seed.title} » — ${seed.desire} ${seed.tension} État : ${state}.${secret}`;
+  const state = arc.status === 'open' || arc.status === 'advancing' ? tx('story.advisor_state_open', { percent: Math.round(arc.progress * 100), time: fmtTime(arcDeadline(arc)) }) : ARC_STATUS_LABELS[arc.status];
+  const p = { title: seed.title, desire: seed.desire, tension: seed.tension, state, secret: seed.secret, n: arc.knownBy.length };
+  if (!seed.secret) return tx('story.advisor_stakes', p);
+  return tx(arc.knownBy.length ? 'story.advisor_stakes_secret_known' : 'story.advisor_stakes_secret', p);
 }
 
 export type AdvisorRole = 'character' | 'antagonist';
@@ -157,7 +159,7 @@ export class AdvisedPolicy implements DecisionPolicy {
     if (ctx.current) return base; // periodic re-evaluations are not open choices
     const valid = base.candidates.filter((c) => !c.rejected);
     if (valid.length < 2) return base;
-    if (base.chosen.components.some((c) => c.label.startsWith('Intervention') || c.label.startsWith('Invitation'))) return base;
+    if (base.chosen.components.some((c) => c.tag === 'forced' || c.tag === 'invitation')) return base;
     if (base.chosen.commitmentId && base.chosen.score >= 0.8) return base; // a due commitment is not open to debate
     const sorted = [...valid].sort((a, b) => b.score - a.score);
     if (sorted[0].score - sorted[1].score > this.margin) return base;
@@ -170,9 +172,9 @@ export class AdvisedPolicy implements DecisionPolicy {
       const chosen = options.find((c) => choiceOf(c) === hit.choice);
       if (chosen) {
         this.applied += 1;
-        const withTag: Candidate = { ...chosen, components: [...chosen.components, { label: `Conseiller IA : ${hit.reason}`, value: 0 }] };
+        const withTag: Candidate = { ...chosen, components: [...chosen.components, { label: tx('engine.comp_advisor', { reason: hit.reason }), value: 0, tag: 'advisor' }] };
         const candidates = base.candidates.map((c) => (c === chosen ? withTag : c));
-        return { chosen: withTag, candidates, reasons: [`Arbitrage du conseiller : ${hit.reason}`, ...base.reasons] };
+        return { chosen: withTag, candidates, reasons: [tx('engine.reason_advisor', { reason: hit.reason }), ...base.reasons] };
       }
       this.declined.add(key);
       return base;
@@ -217,7 +219,7 @@ export async function generateWithAdvisor(def: Omit<RealityDef, 'policy'>, advis
     policy.applied = 0;
     reality = new Reality({ ...def, policy }).generate();
     const requests = [...policy.pending.values()].slice(0, maxReq);
-    log.push(`passe ${pass} : ${policy.pending.size} décisions ouvertes sans réponse, ${policy.applied} conseils appliqués`);
+    log.push(tx('engine.advisor_log_pass', { pass, pending: policy.pending.size, applied: policy.applied }));
     opts.onPass?.({ pass, pending: policy.pending.size, answered });
     if (!requests.length) break;
     await attachRelevantMemories(requests, opts.embedder, opts.recallK ?? 5);
@@ -230,18 +232,18 @@ export async function generateWithAdvisor(def: Omit<RealityDef, 'policy'>, advis
         policy.cache.set(a.key, a);
         answered += 1;
       } else {
-        policy.cache.set(a.key, { key: a.key, choice: req.baseline, reason: 'réponse invalide, choix utilitaire conservé', fallback: true });
+        policy.cache.set(a.key, { key: a.key, choice: req.baseline, reason: tx('engine.advisor_invalid_answer'), fallback: true });
       }
     }
     // Requests the advisor left unanswered keep the utility choice (cached so the day stabilises).
-    for (const r of requests) if (!policy.cache.has(r.key)) policy.cache.set(r.key, { key: r.key, choice: r.baseline, reason: 'sans avis, choix utilitaire', fallback: true });
+    for (const r of requests) if (!policy.cache.has(r.key)) policy.cache.set(r.key, { key: r.key, choice: r.baseline, reason: tx('engine.advisor_no_answer'), fallback: true });
   }
   // Final deterministic run with the complete cache (no more questions asked).
   policy.pending.clear();
   policy.applied = 0;
   reality = new Reality({ ...def, policy }).generate();
   const unresolved = policy.pending.size;
-  log.push(`relecture finale : ${policy.applied} conseils appliqués, ${unresolved} décisions ouvertes restantes (choix utilitaire)`);
+  log.push(tx('engine.advisor_log_final', { applied: policy.applied, unresolved }));
   return { reality, policy, passes: Math.min(pass, maxPasses), answered, applied: policy.applied, unresolved, log };
 }
 
@@ -283,21 +285,22 @@ export class MockAdvisor implements DecisionAdvisor {
         // The dramaturge: among plausible options (close to the best score), take the one that serves the desire least.
         const best = Math.max(...r.candidates.map((c) => c.score));
         const plausible = r.candidates.filter((c) => best - c.score <= 0.4);
-        const desireOf = (c: AdviceCandidate) => c.components.filter((x) => x.label.startsWith(DESIRE_LABEL)).reduce((s, x) => s + x.value, 0);
+        const desire = desireLabel();
+        const desireOf = (c: AdviceCandidate) => c.components.filter((x) => x.label.startsWith(desire)).reduce((s, x) => s + x.value, 0);
         const pick = [...plausible].sort((a, b) => desireOf(a) - desireOf(b) || b.score - a.score)[0] ?? r.candidates[0];
-        return { key: r.key, choice: pick.choice, reason: desireOf(pick) < desireOf(r.candidates.find((c) => c.choice === r.baseline) ?? pick) ? 'le dramaturge détourne l’habitant de son désir' : 'rien de plausible ne contrarie l’histoire ici' };
+        return { key: r.key, choice: pick.choice, reason: desireOf(pick) < desireOf(r.candidates.find((c) => c.choice === r.baseline) ?? pick) ? tx('story.advisor_reason_dramaturge_diverts') : tx('story.advisor_reason_nothing_plausible') };
       }
       const prefer = (pred: (c: AdviceCandidate) => boolean) => r.candidates.find(pred);
       let pick: AdviceCandidate | undefined;
       let reason = '';
       const fatigue = Number(/fatigue (\d+)/.exec(r.needs)?.[1] ?? 0);
-      if (fatigue > 70 && (pick = prefer((c) => c.choice.startsWith('rest_home') || c.choice.startsWith('sleep')))) reason = 'trop fatigué pour autre chose';
-      else if (p.traits.sociability > 0.7 && (pick = prefer((c) => /coffee|visit|eat_cafe|eat_restaurant/.test(c.choice)))) reason = 'a besoin de compagnie';
-      else if (p.traits.curiosity > 0.75 && (pick = prefer((c) => /read_library|relax_park/.test(c.choice)))) reason = 'curiosité : envie de nouveauté';
-      else if (p.traits.frugality > 0.75 && (pick = prefer((c) => /eat_home|rest_home/.test(c.choice)))) reason = 'économe : préfère rester simple';
+      if (fatigue > 70 && (pick = prefer((c) => c.choice.startsWith('rest_home') || c.choice.startsWith('sleep')))) reason = tx('story.advisor_reason_too_tired');
+      else if (p.traits.sociability > 0.7 && (pick = prefer((c) => /coffee|visit|eat_cafe|eat_restaurant/.test(c.choice)))) reason = tx('story.advisor_reason_needs_company');
+      else if (p.traits.curiosity > 0.75 && (pick = prefer((c) => /read_library|relax_park/.test(c.choice)))) reason = tx('story.advisor_reason_curious');
+      else if (p.traits.frugality > 0.75 && (pick = prefer((c) => /eat_home|rest_home/.test(c.choice)))) reason = tx('story.advisor_reason_frugal');
       if (!pick) {
         pick = r.candidates.find((c) => c.choice === r.baseline) ?? r.candidates[0];
-        reason = 'le choix utilitaire paraît raisonnable';
+        reason = tx('story.advisor_reason_utility_fine');
       }
       return { key: r.key, choice: pick.choice, reason };
     });

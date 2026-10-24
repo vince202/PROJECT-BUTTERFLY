@@ -12,6 +12,8 @@ import { useSimStore } from '../../store/useSimStore';
 import { loopSummary, type GameState } from '../../sim/game';
 import { fmtTime } from '../../sim/time';
 import { DAY_END, DAY_START } from '../../sim/types';
+import { t } from '../../i18n';
+import { useLocale } from '../hooks';
 import { prefersReducedMotion } from '../mode';
 import { OUTCOME_MARKS } from './gestures';
 
@@ -20,6 +22,7 @@ const REWIND_MS = 1600;
 const REWIND_FRAMES = 24;
 
 export function LoopOverlay({ game }: { game: GameState }) {
+  useLocale();
   const hidden = useGameUi((s) => s.bilanHidden);
   const rewinding = useGameUi((s) => s.rewinding);
   if (rewinding) return <Rewind />;
@@ -54,21 +57,23 @@ export function rewindAndRestart() {
 }
 
 function Rewind() {
+  useLocale();
   const time = useSimStore((s) => s.time);
   const turns = (DAY_END - time) / 60;
   return (
-    <div className="rewind" role="status" aria-label="La journée recommence">
+    <div className="rewind" role="status" aria-label={t('ui.loop_rewind_aria')}>
       <div className="rewind-dial" aria-hidden>
         <span className="rewind-hand" style={{ transform: `rotate(${-turns * 360}deg)` }} />
         <span className="rewind-hand short" style={{ transform: `rotate(${-turns * 30}deg)` }} />
       </div>
       <div className="rewind-time mono">{fmtTime(Math.floor(time))}</div>
-      <div className="rewind-text">⟲ La journée recommence</div>
+      <div className="rewind-text">{t('ui.loop_rewind_text')}</div>
     </div>
   );
 }
 
 function Bilan({ game }: { game: GameState }) {
+  useLocale();
   const realityA = useSimStore((s) => s.realityA);
   const realityB = useSimStore((s) => s.realityB);
   const played = realityB ?? realityA;
@@ -100,7 +105,7 @@ function Bilan({ game }: { game: GameState }) {
         }}
       >
         <div className="bilan-kicker">
-          {won ? '☀ Minuit — la boucle est réussie' : '☾ Minuit — la boucle se referme'} · {fmtTime(record?.endedAt ?? DAY_END)}
+          {t(won ? 'ui.loop_kicker_won' : 'ui.loop_kicker', { time: fmtTime(record?.endedAt ?? DAY_END) })}
         </div>
         <h2 id="bilan-title" className="bilan-title">
           <span className={`bilan-mark tone-${mark.tone}`} aria-hidden>
@@ -115,7 +120,7 @@ function Bilan({ game }: { game: GameState }) {
         </ul>
         <div className="bilan-cols">
           <div>
-            <h3 className="bilan-h">Vos gestes</h3>
+            <h3 className="bilan-h">{t('ui.loop_gestures')}</h3>
             {gestures.length ? (
               <ul className="bilan-list">
                 {gestures.map((iv) => (
@@ -125,11 +130,11 @@ function Bilan({ game }: { game: GameState }) {
                 ))}
               </ul>
             ) : (
-              <p className="bilan-empty">Aucun geste : la journée s’est répétée telle quelle.</p>
+              <p className="bilan-empty">{t('ui.loop_gestures_none')}</p>
             )}
           </div>
           <div>
-            <h3 className="bilan-h">Destins modifiés</h3>
+            <h3 className="bilan-h">{t('ui.loop_destinies')}</h3>
             {destinies.length ? (
               <ul className="bilan-list">
                 {destinies.map((d, i) => (
@@ -137,20 +142,20 @@ function Bilan({ game }: { game: GameState }) {
                 ))}
               </ul>
             ) : (
-              <p className="bilan-empty">Personne d’autre n’a vu son histoire changer.</p>
+              <p className="bilan-empty">{t('ui.loop_destinies_none')}</p>
             )}
           </div>
         </div>
-        <p className="bilan-note">Vos gestes rejoignent le carnet. Demain sera encore aujourd’hui.</p>
+        <p className="bilan-note">{t('ui.loop_note')}</p>
         <div className="bilan-actions">
           <button className="spec-chip accent" onClick={rewindAndRestart} autoFocus>
-            ⟲ {won ? 'Rejouer pour faire mieux' : 'Rejouer la journée'}
+            {won ? t('ui.loop_replay_won') : t('ui.loop_replay')}
           </button>
           <button className="spec-chip" onClick={change}>
-            {won ? 'Choisir une autre quête' : 'Changer de personnage'}
+            {won ? t('ui.loop_choose_other') : t('ui.notebook_change')}
           </button>
-          <button className="spec-chip ghost" onClick={() => useGameUi.getState().setBilanHidden(true)} title="Regarder la ville à minuit (Échap)">
-            Fermer
+          <button className="spec-chip ghost" onClick={() => useGameUi.getState().setBilanHidden(true)} title={t('ui.loop_close_title')}>
+            {t('ui.inspector_close')}
           </button>
         </div>
       </section>

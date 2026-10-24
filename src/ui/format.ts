@@ -1,8 +1,13 @@
 /**
- * French labels and small formatting helpers shared by the UI.
- * Pure functions only (no React).
+ * Labels (in the active language, through `t`) and small formatting helpers
+ * shared by the UI. Pure functions only (no React).
+ *
+ * The label tables below are objects whose entries are getters: reading
+ * `EVENT_TYPE_LABELS[type]` resolves the text at call time, so a language
+ * change is picked up by the next render without rebuilding anything.
  */
 
+import { t } from '../i18n';
 import { getCity } from '../sim/city';
 import { ACTION_LABELS } from '../sim/decision';
 import { profileOf } from '../sim/population';
@@ -20,59 +25,14 @@ import type {
   Weather,
 } from '../sim/types';
 
-export const EVENT_TYPE_LABELS: Record<EventType, string> = {
-  day_start: 'Début de journée',
-  wake: 'Réveil',
-  decision: 'Décision',
-  depart: 'Départ',
-  arrive: 'Arrivée',
-  activity_start: 'Début d’activité',
-  activity_end: 'Fin d’activité',
-  bus_depart: 'Départ du bus',
-  bus_arrive: 'Arrivée du bus',
-  bus_delay: 'Retard de bus',
-  board_bus: 'Montée dans le bus',
-  alight_bus: 'Descente du bus',
-  miss_bus: 'Bus manqué',
-  wait_start: 'Attente',
-  meeting_start: 'Rendez-vous',
-  meeting_missed: 'Rendez-vous manqué',
-  meeting_end: 'Fin de rendez-vous',
-  encounter: 'Rencontre',
-  conversation: 'Conversation',
-  argument: 'Dispute',
-  purchase: 'Achat',
-  shop_closed: 'Fermeture d’un lieu',
-  found_closed: 'Porte close',
-  lose_item: 'Objet perdu',
-  find_item: 'Objet trouvé',
-  return_item: 'Objet rendu',
-  weather: 'Météo',
-  late: 'Retard',
-  work_start: 'Début du travail',
-  work_end: 'Fin du travail',
-  sleep: 'Coucher',
-  intervention: 'Intervention',
-  plan_change: 'Changement de plan',
-  invitation: 'Invitation',
-  new_commitment: 'Nouvel engagement',
-  commitment_cancelled: 'Engagement annulé',
-  mood_shift: 'Changement d’humeur',
-  arc_beat: 'Temps fort',
-  arc_resolved: 'Point de bascule',
-  revelation: 'Confidence',
-  gossip: 'Rumeur',
-  dilemma: 'Dilemme',
-  incident: 'Coup du sort',
-  accident: 'Accident',
-  fire: 'Incendie',
-  theft: 'Vol',
-  breakup: 'Rupture',
-  dismissal: 'Renvoi',
-  promotion: 'Promotion',
-  illness: 'Malaise',
-  day_end: 'Fin de journée',
-};
+/** Record of getters `ui.format_<prefix>_<key>`: texts are looked up when read, in the current language. */
+function labels<K extends string>(prefix: string, keys: readonly K[]): Record<K, string> {
+  const o = {} as Record<K, string>;
+  for (const k of keys) Object.defineProperty(o, k, { get: () => t(`ui.format_${prefix}_${k}`), enumerable: true });
+  return o;
+}
+
+export const EVENT_TYPE_LABELS: Record<EventType, string> = labels('event', ['day_start', 'wake', 'decision', 'depart', 'arrive', 'activity_start', 'activity_end', 'bus_depart', 'bus_arrive', 'bus_delay', 'board_bus', 'alight_bus', 'miss_bus', 'wait_start', 'meeting_start', 'meeting_missed', 'meeting_end', 'encounter', 'conversation', 'argument', 'purchase', 'shop_closed', 'found_closed', 'lose_item', 'find_item', 'return_item', 'weather', 'late', 'work_start', 'work_end', 'sleep', 'intervention', 'plan_change', 'invitation', 'new_commitment', 'commitment_cancelled', 'mood_shift', 'arc_beat', 'arc_resolved', 'revelation', 'gossip', 'dilemma', 'incident', 'accident', 'fire', 'theft', 'breakup', 'dismissal', 'promotion', 'illness', 'day_end']);
 
 export const eventTypeLabel = (t: EventType): string => EVENT_TYPE_LABELS[t] ?? t;
 
@@ -134,98 +94,35 @@ export function eventFamily(t: EventType): EventFamily {
   }
 }
 
-export const FAMILY_LABELS: Record<EventFamily, string> = {
-  social: 'Rencontres',
-  trouble: 'Contretemps',
-  bus: 'Bus',
-  world: 'Objets, météo, commerces',
-  decision: 'Décisions',
-  drama: 'Drame',
-  intervention: 'Intervention',
-  routine: 'Routine',
-};
+export const FAMILY_LABELS: Record<EventFamily, string> = labels('family', ['social', 'trouble', 'bus', 'world', 'decision', 'drama', 'intervention', 'routine']);
 
-export const RELATIONSHIP_LABELS: Record<RelationshipKind, string> = {
-  friend: 'ami·e',
-  partner: 'partenaire',
-  ex: 'ex',
-  colleague: 'collègue',
-  family: 'famille',
-  neighbor: 'voisin·e',
-  acquaintance: 'connaissance',
-  rival: 'rival·e',
-  boss: 'patron·ne',
-  employee: 'employé·e',
-  crush: 'coup de cœur',
-  patient: 'patient·e',
-  doctor: 'médecin',
-  teacher: 'enseignant·e',
-  student: 'élève',
-};
+export const RELATIONSHIP_LABELS: Record<RelationshipKind, string> = labels('rel', ['friend', 'partner', 'ex', 'colleague', 'family', 'neighbor', 'acquaintance', 'rival', 'boss', 'employee', 'crush', 'patient', 'doctor', 'teacher', 'student']);
 
-export const TRAIT_LABELS: Record<TraitName, string> = {
-  punctuality: 'Ponctualité',
-  sociability: 'Sociabilité',
-  impulsivity: 'Impulsivité',
-  curiosity: 'Curiosité',
-  ambition: 'Ambition',
-  patience: 'Patience',
-  honesty: 'Honnêteté',
-  frugality: 'Économie',
-  vitality: 'Vitalité',
-};
+export const TRAIT_LABELS: Record<TraitName, string> = labels('trait', ['punctuality', 'sociability', 'impulsivity', 'curiosity', 'ambition', 'patience', 'honesty', 'frugality', 'vitality']);
 
-export const NEED_LABELS: Record<NeedName, string> = {
-  hunger: 'Faim',
-  fatigue: 'Fatigue',
-  social: 'Solitude',
-  boredom: 'Ennui',
-};
+export const NEED_LABELS: Record<NeedName, string> = labels('need', ['hunger', 'fatigue', 'social', 'boredom']);
 
 export const COMMITMENT_STATUS: Record<Commitment['status'], { label: string; tone: string }> = {
-  pending: { label: 'prévu', tone: 'muted' },
-  ongoing: { label: 'en cours', tone: 'accent' },
-  done: { label: 'accompli', tone: 'ok' },
-  missed: { label: 'manqué', tone: 'danger' },
-  cancelled: { label: 'abandonné', tone: 'warn' },
+  pending: { get label() { return t('ui.format_commit_pending'); }, tone: 'muted' },
+  ongoing: { get label() { return t('ui.format_commit_ongoing'); }, tone: 'accent' },
+  done: { get label() { return t('ui.format_commit_done'); }, tone: 'ok' },
+  missed: { get label() { return t('ui.format_commit_missed'); }, tone: 'danger' },
+  cancelled: { get label() { return t('ui.format_commit_cancelled'); }, tone: 'warn' },
 };
 
-export const TRAVEL_STAGE_LABELS: Record<TravelStage, string> = {
-  walking: 'Marche',
-  to_stop: 'Va à l’arrêt de bus',
-  waiting: 'Attend le bus',
-  riding: 'Dans le bus',
-  from_stop: 'Descendu du bus, termine à pied',
-};
+export const TRAVEL_STAGE_LABELS: Record<TravelStage, string> = labels('travel', ['walking', 'to_stop', 'waiting', 'riding', 'from_stop']);
 
-export const INTERVENTION_KIND_LABELS: Record<InterventionKind, string> = {
-  bus_delay: 'Retard de bus',
-  stay_home: 'Rester chez soi',
-  force_action: 'Décision forcée',
-  agent_delay: 'Départ retardé',
-  location_hours: 'Horaires d’un lieu',
-  weather: 'Météo',
-  cancel_commitment: 'Rendez-vous manqué',
-  encounter: 'Rencontre provoquée',
-  lose_item: 'Portefeuille oublié',
-  theft: 'Vol',
-  accident: 'Accident',
-  fire: 'Incendie',
-  breakup: 'Rupture',
-  dismissal: 'Renvoi',
-  promotion: 'Promotion',
-  illness: 'Malaise',
-};
+export const INTERVENTION_KIND_LABELS: Record<InterventionKind, string> = labels('iv', ['bus_delay', 'stay_home', 'force_action', 'agent_delay', 'location_hours', 'weather', 'cancel_commitment', 'encounter', 'lose_item', 'theft', 'accident', 'fire', 'breakup', 'dismissal', 'promotion', 'illness']);
 
 export const actionLabel = (a: ActionType): string => ACTION_LABELS[a] ?? a;
 
 export function weatherLabel(w: Weather | undefined): { icon: string; text: string } {
-  return w === 'rain' ? { icon: '🌧', text: 'Pluie' } : { icon: '☀', text: 'Dégagé' };
+  return w === 'rain' ? { icon: '🌧', text: t('ui.format_weather_rain') } : { icon: '☀', text: t('ui.format_weather_clear') };
 }
 
 /** Location display name; tolerant to unknown / empty ids. */
-export function locName(id: LocationId | null | undefined, fallback = 'En chemin'): string {
-  if (!id) return fallback;
+export function locName(id: LocationId | null | undefined, fallback?: string): string {
+  if (!id) return fallback ?? t('ui.format_en_route');
   return getCity().locations.get(id)?.name ?? id;
 }
 
@@ -246,18 +143,18 @@ export function agentColor(id: AgentId): string {
 }
 
 export function moodWord(m: number): string {
-  if (m > 0.5) return 'rayonnant·e';
-  if (m > 0.2) return 'de bonne humeur';
-  if (m > -0.2) return 'neutre';
-  if (m > -0.5) return 'contrarié·e';
-  return 'abattu·e';
+  if (m > 0.5) return t('ui.format_mood_radiant');
+  if (m > 0.2) return t('ui.format_mood_good');
+  if (m > -0.2) return t('ui.format_mood_neutral');
+  if (m > -0.5) return t('ui.format_mood_upset');
+  return t('ui.format_mood_down');
 }
 
 export function stressWord(s: number): string {
-  if (s > 0.75) return 'débordé·e';
-  if (s > 0.5) return 'tendu·e';
-  if (s > 0.25) return 'légèrement tendu·e';
-  return 'serein·e';
+  if (s > 0.75) return t('ui.format_stress_overwhelmed');
+  if (s > 0.5) return t('ui.format_stress_tense');
+  if (s > 0.25) return t('ui.format_stress_slightly_tense');
+  return t('ui.format_stress_calm');
 }
 
 /** Colour of a mood value -1..1 (red → grey → green). */
@@ -278,7 +175,7 @@ export function signed(v: number, digits = 2): string {
 }
 
 export function pct(v: number): string {
-  return `${Math.round(v * 100)} %`;
+  return t('ui.format_pct', { n: Math.round(v * 100) });
 }
 
 /** Accent-insensitive, case-insensitive normalisation for search. */

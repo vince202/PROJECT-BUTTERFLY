@@ -4,6 +4,7 @@
  * the application falls back to deterministic local behaviour.
  */
 
+import { getLocale, t } from '../i18n';
 import type { AiStatus } from '../store/useSimStore';
 import type { Intervention, SimEvent } from '../sim/types';
 import type { AdviceAnswer, AdviceRequest, DecisionAdvisor } from '../sim/advisor';
@@ -26,11 +27,11 @@ async function post<T>(path: string, body: unknown, timeoutMs = 20000): Promise<
 export async function checkAiStatus(): Promise<AiStatus> {
   try {
     const res = await fetch(`${BASE}/status`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return { checked: true, enabled: false, message: 'Serveur IA indisponible — narration IA désactivée' };
+    if (!res.ok) return { checked: true, enabled: false, message: t('ui.ai_server_unavailable') };
     const data = (await res.json()) as { enabled: boolean; model?: string; message?: string; advisor?: string | null; advisorModel?: string; embedder?: string | null; embedModel?: string };
     return { checked: true, enabled: data.enabled, model: data.model, message: data.message, advisor: data.advisor ?? undefined, advisorModel: data.advisorModel, embedder: data.embedder ?? undefined, embedModel: data.embedModel } as AiStatus;
   } catch {
-    return { checked: true, enabled: false, message: 'Serveur IA non démarré — narration IA désactivée' };
+    return { checked: true, enabled: false, message: t('ui.ai_server_down') };
   }
 }
 
@@ -41,9 +42,9 @@ export interface AiInterpretResponse {
   issues: string[];
 }
 
-/** Ask the LLM to translate a French request into a structured intervention. */
+/** Ask the LLM to translate a request (in the interface language) into a structured intervention. */
 export function aiInterpret(text: string, context: { t: number; selectedEvent?: SimEvent | null; recentEvents: SimEvent[] }): Promise<AiInterpretResponse> {
-  return post<AiInterpretResponse>('/interpret', { text, context });
+  return post<AiInterpretResponse>('/interpret', { text, context, locale: getLocale() });
 }
 
 export interface AiNarrateResponse {
@@ -55,7 +56,7 @@ export interface AiNarrateResponse {
 export type NarrationStyle = 'day' | 'agent' | 'causal' | 'compare' | 'morning' | 'dialogue' | 'counterfactual';
 
 export function aiNarrate(facts: string, style: NarrationStyle): Promise<AiNarrateResponse> {
-  return post<AiNarrateResponse>('/narrate', { facts, style }, 60000);
+  return post<AiNarrateResponse>('/narrate', { facts, style, locale: getLocale() }, 60000);
 }
 
 /** Embedder backed by the local Ollama server (through /api/ai/embed); falls back to the lexical embedder on failure. */

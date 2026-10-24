@@ -9,11 +9,15 @@ import { useGameUi } from '../../store/gameUi';
 import { useSimStore } from '../../store/useSimStore';
 import { questCards, type QuestCard } from '../../sim/game';
 import { fmtTime } from '../../sim/time';
+import { t } from '../../i18n';
+import { rich } from '../common';
+import { useLocale } from '../hooks';
 
 /** The tutorial quest, always shown first. */
 export const TRAINING_AGENT = 'lea';
 
 export function QuestPicker({ leaving = false }: { leaving?: boolean }) {
+  useLocale();
   const realityA = useSimStore((s) => s.realityA);
   const generation = useSimStore((s) => s.generation);
   const cards = useMemo(() => {
@@ -32,15 +36,13 @@ export function QuestPicker({ leaving = false }: { leaving?: boolean }) {
         <header className="quest-picker-head">
           <div>
             <div className="quest-picker-kicker">
-              <span aria-hidden>🦋</span> Une journée qui se répète
+              <span aria-hidden>🦋</span> {t('ui.picker_kicker')}
             </div>
-            <h2 id="quest-picker-title">Choisir qui suivre</h2>
-            <p className="quest-picker-lead">
-              Chaque jour recommence à 06:00. Suivez un habitant, offrez-lui quelques <strong>gestes</strong> pour infléchir sa journée, regardez-la se dérouler — sans retour en arrière. À minuit, la boucle se referme et tout recommence ; votre carnet, lui, se souvient.
-            </p>
+            <h2 id="quest-picker-title">{t('ui.picker_title')}</h2>
+            <p className="quest-picker-lead">{rich(t('ui.picker_lead'))}</p>
           </div>
-          <button className="spec-chip" onClick={dismiss} title="Regarder la ville sans jouer (Échap)">
-            Simplement regarder la ville
+          <button className="spec-chip" onClick={dismiss} title={t('ui.picker_dismiss_title')}>
+            {t('ui.picker_dismiss')}
           </button>
         </header>
         <ul className="quest-grid">
@@ -56,15 +58,16 @@ export function QuestPicker({ leaving = false }: { leaving?: boolean }) {
 }
 
 function QuestCardView({ card: c, training, onPick }: { card: QuestCard; training: boolean; onPick: () => void }) {
+  useLocale();
   const dim = c.trivialInA && !training;
   return (
     <button
       className={`quest-card ${training ? 'training' : ''} ${dim ? 'dim' : ''}`}
       style={{ ['--agent' as string]: c.color }}
       onClick={onPick}
-      title={`Suivre ${c.firstName} — ${c.title}\n${c.desire}\nTension : ${c.tension}\nÉchéance : ${fmtTime(c.deadline)}`}
+      title={t('ui.picker_card_title', { name: c.firstName, title: c.title, desire: c.desire, tension: c.tension, deadline: fmtTime(c.deadline) })}
     >
-      {training && <span className="quest-ribbon">★ Commencez ici</span>}
+      {training && <span className="quest-ribbon">{t('ui.picker_ribbon')}</span>}
       <span className="quest-card-head">
         <span className="agent-dot lg" style={{ background: c.color }} aria-hidden />
         <span className="quest-card-name">{c.firstName}</span>
@@ -73,7 +76,7 @@ function QuestCardView({ card: c, training, onPick }: { card: QuestCard; trainin
       <span className="quest-card-title">{c.title}</span>
       <span className="quest-card-desire">{c.desire}</span>
       <span className="quest-card-foot">
-        <span className={`quest-diff d${c.difficulty}`} aria-label={`Difficulté : ${c.difficultyLabel}`}>
+        <span className={`quest-diff d${c.difficulty}`} aria-label={t('ui.picker_difficulty_aria', { label: c.difficultyLabel })}>
           <span className="quest-pips" aria-hidden>
             {[1, 2, 3, 4, 5].map((i) => (
               <span key={i} className={i <= c.difficulty ? 'on' : ''} />
@@ -82,10 +85,10 @@ function QuestCardView({ card: c, training, onPick }: { card: QuestCard; trainin
           {c.difficultyLabel}
         </span>
         <span className="quest-budget">
-          {c.budget} gestes · ⏳ {fmtTime(c.deadline)}
+          {t('ui.picker_budget', { n: c.budget, time: fmtTime(c.deadline) })}
         </span>
       </span>
-      {c.trivialInA && <span className="quest-trivial">déjà réussi dans la journée telle qu’elle se répète</span>}
+      {c.trivialInA && <span className="quest-trivial">{t('ui.picker_trivial')}</span>}
     </button>
   );
 }

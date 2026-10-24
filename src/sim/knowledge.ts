@@ -9,6 +9,7 @@
  * intervention editor (imagination), the advisors (precedents) and the narrator.
  */
 
+import { t } from '../i18n';
 import type { Comparison } from './compare';
 import { arcSeed } from './drama';
 import { profileOf } from './population';
@@ -47,7 +48,7 @@ function clip(s: string, n = 140): string {
 }
 
 function grain(g: Omit<KnowledgeGrain, 'text'>): KnowledgeGrain {
-  const text = `${g.situation} → ${g.cause} → ${g.effects.join(' ; ') || 'rien de notable'}`;
+  const text = t('story.grain_text', { situation: g.situation, cause: g.cause, effects: g.effects.join(t('story.sep_semicolon')) || t('story.grain_nothing_notable') });
   return { ...g, text };
 }
 
@@ -66,8 +67,8 @@ export function arcGrains(reality: Reality): KnowledgeGrain[] {
       grain({
         signature: `arc|${arc.seedId}|${arc.status}`,
         kind: 'arc',
-        situation: `${first(arc.agentId)} voulait : ${seed.desire} ${seed.tension}`,
-        cause: resolution?.mechanism ? clip(resolution.mechanism, 120) : `échéance ${fmtTime(seed.deadline ?? 1439)}`,
+        situation: t('story.grain_arc_situation', { name: first(arc.agentId), desire: seed.desire, tension: seed.tension }),
+        cause: resolution?.mechanism ? clip(resolution.mechanism, 120) : t('story.grain_arc_deadline', { time: fmtTime(seed.deadline ?? 1439) }),
         effects,
         agents: [arc.agentId],
         seed: reality.seed,
@@ -95,9 +96,9 @@ export function secretGrains(reality: Reality): KnowledgeGrain[] {
       grain({
         signature: `secret|${arc.seedId}|${reached ? 'reached' : 'kept'}|${arc.knownBy.length}`,
         kind: 'secret',
-        situation: `Le secret de ${first(arc.agentId)} (${seed.secret})`,
+        situation: t('story.grain_secret_situation', { name: first(arc.agentId), secret: seed.secret }),
         cause: `${fmtTime(trail[0].t)} ${clip(trail[0].label, 110)}`,
-        effects: trail.slice(1, 5).map((e) => `${fmtTime(e.t)} ${clip(e.label, 100)}`).concat(reached ? [`la rumeur atteint ${first(seed.secretAbout!)}`] : [`connu de ${arc.knownBy.map(first).join(', ')}`]),
+        effects: trail.slice(1, 5).map((e) => `${fmtTime(e.t)} ${clip(e.label, 100)}`).concat(reached ? [t('story.grain_secret_reached', { name: first(seed.secretAbout!) })] : [t('story.grain_secret_known_by', { names: arc.knownBy.map(first).join(', ') })]),
         agents: [arc.agentId, ...arc.knownBy],
         seed: reality.seed,
         day: state.day,
@@ -126,9 +127,9 @@ export function chainGrains(reality: Reality, n = 5): KnowledgeGrain[] {
       grain({
         signature: `chain|${event.signature}|${far[0].e.signature}`,
         kind: 'chain',
-        situation: `${periodOfDay(event.t)}, ${fmtTime(event.t)}${event.locationId ? `, ${reality.engine.city.location(event.locationId).name}` : ''}`,
+        situation: event.locationId ? t('story.grain_chain_situation_at', { period: periodOfDay(event.t), time: fmtTime(event.t), place: reality.engine.city.location(event.locationId).name }) : t('story.grain_chain_situation', { period: periodOfDay(event.t), time: fmtTime(event.t) }),
         cause: clip(event.label, 110),
-        effects: far.map((x) => `${fmtTime(x.e.t)} ${clip(x.e.label, 100)} (${x.d} maillons)`),
+        effects: far.map((x) => t('story.grain_chain_effect', { text: `${fmtTime(x.e.t)} ${clip(x.e.label, 100)}`, n: x.d })),
         agents: [...new Set([...event.actors, ...far.flatMap((x) => x.e.actors)])],
         seed: reality.seed,
         day: reality.engine.state.day,
@@ -152,7 +153,11 @@ export function encounterGrains(reality: Reality, max = 12): KnowledgeGrain[] {
       grain({
         signature: `encounter|${e.signature}|${e.type}`,
         kind: 'encounter',
-        situation: `${e.actors.map(first).join(' et ')}, ${periodOfDay(e.t)}${e.locationId ? `, ${reality.engine.city.location(e.locationId).name}` : e.busId ? `, bus ${e.busId}` : ', dans la rue'}`,
+        situation: e.locationId
+          ? t('story.grain_encounter_at', { names: e.actors.map(first).join(t('story.list_and')), period: periodOfDay(e.t), place: reality.engine.city.location(e.locationId).name })
+          : e.busId
+            ? t('story.grain_encounter_bus', { names: e.actors.map(first).join(t('story.list_and')), period: periodOfDay(e.t), bus: e.busId })
+            : t('story.grain_encounter_street', { names: e.actors.map(first).join(t('story.list_and')), period: periodOfDay(e.t) }),
         cause: clip(e.label, 110),
         effects: after.map((x) => `${fmtTime(x.t)} ${clip(x.label, 100)}`),
         agents: e.actors,
@@ -173,18 +178,26 @@ export function interventionGrains(A: Reality, B: Reality, comparison: Compariso
   for (const iv of B.def.interventions) {
     const root = comparison.interventionEvents.find((e) => e.interventionId === iv.id) ?? comparison.interventionEvents[0];
     const consequences = comparison.consequences.filter((m) => m.b || m.a).slice(0, 8);
-    const effects = consequences.map((m) => (m.b ? `${fmtTime(m.b.t)} ${clip(m.b.label, 100)}${m.status === 'shifted' ? ` (décalé de ${m.dt! > 0 ? '+' : ''}${m.dt} min)` : ''}` : `« ${clip(m.a!.label, 90)} » n’a pas eu lieu`));
-    for (const c of comparison.arcChanges) effects.push(`destin modifié : ${c.text}`);
+    const effects = consequences.map((m) => {
+      if (!m.b) return t('story.grain_effect_absent', { label: clip(m.a!.label, 90) });
+      const text = `${fmtTime(m.b.t)} ${clip(m.b.label, 100)}`;
+      return m.status === 'shifted' ? t('story.grain_effect_shifted', { text, delta: `${m.dt! > 0 ? '+' : ''}${m.dt}` }) : text;
+    });
+    for (const c of comparison.arcChanges) effects.push(t('story.grain_effect_destiny', { text: c.text }));
     const touched = comparison.affectedAgents;
     const agentId = 'agentId' in iv ? iv.agentId : 'agentA' in iv ? iv.agentA : undefined;
-    const situation = `${periodOfDay(iv.t)}, ${fmtTime(iv.t)}${agentId ? `, ${first(agentId)}` : ''}${'busId' in iv ? `, bus ${iv.busId}` : ''}${'locationId' in iv && iv.locationId ? `, ${A.engine.city.location(iv.locationId).name}` : ''} (${iv.kind})`;
+    const where = [t('story.grain_when', { period: periodOfDay(iv.t), time: fmtTime(iv.t) })];
+    if (agentId) where.push(first(agentId));
+    if ('busId' in iv) where.push(t('story.grain_bus', { bus: iv.busId }));
+    if ('locationId' in iv && iv.locationId) where.push(A.engine.city.location(iv.locationId).name);
+    const situation = t('story.grain_intervention_situation', { where: where.join(', '), kind: iv.kind });
     out.push(
       grain({
         signature: `intervention|${iv.kind}|${agentId ?? ('busId' in iv ? iv.busId : '')}|${Math.round(iv.t / 30)}|${comparison.arcChanges.map((c) => `${c.arcId}:${c.statusB}`).sort().join(',')}`,
         kind: 'intervention',
         situation,
         cause: root ? clip(root.label, 120) : iv.description,
-        effects: effects.length ? effects : ['aucune conséquence notable : la journée se déroule presque à l’identique'],
+        effects: effects.length ? effects : [t('story.grain_no_effect')],
         agents: touched,
         seed: A.seed,
         day: A.engine.state.day,

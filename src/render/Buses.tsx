@@ -10,6 +10,7 @@ import { Suspense, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import { getLocale, t } from '../i18n';
 import { BUS_LINES } from '../sim/city';
 import { useActiveReality, useSimStore } from '../store/useSimStore';
 import { bulbMat } from './kit';
@@ -216,10 +217,10 @@ function BusFleet() {
       r.label.visible = lab;
       if (lab) {
         const delay = Math.round(b0.delay);
-        const key = `${id}|${delay}`;
+        const key = `${id}|${delay}|${getLocale()}`;
         if (key !== r.labelKey) {
           r.labelKey = key;
-          const l = makeLabel({ text: `Bus ${id}`, suffix: delay > 0 ? `+${delay} min` : undefined, dot: lineColor, fontSize: 28 });
+          const l = makeLabel({ text: t('ui.render_bus_label', { id }), suffix: delay > 0 ? t('ui.render_bus_delay', { n: delay }) : undefined, dot: lineColor, fontSize: 28 });
           const mat = r.label.material as THREE.SpriteMaterial;
           mat.map?.dispose();
           mat.map = l.texture;

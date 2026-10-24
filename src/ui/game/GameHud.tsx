@@ -11,16 +11,18 @@ import { useSimStore } from '../../store/useSimStore';
 import { ARC_STATUS_LABELS, arcOf } from '../../sim/drama';
 import { questCards, type GameState } from '../../sim/game';
 import { profileOf } from '../../sim/population';
-import { fmtTime, periodOfDay } from '../../sim/time';
+import { fmtTime, periodKey, periodLabel } from '../../sim/time';
 import { DAY_END } from '../../sim/types';
 import { ARC_STATUS_TONE, arcStatusAt } from '../drama';
 import { weatherLabel } from '../format';
-import { cachedStateAt, useActiveReality, useMinute } from '../hooks';
+import { t } from '../../i18n';
+import { cachedStateAt, useActiveReality, useLocale, useMinute } from '../hooks';
 
 /** The objective's progress is read from the world state every 15 simulated minutes. */
 const PROGRESS_BUCKET = 15;
 
 export function GameHud({ game }: { game: GameState }) {
+  useLocale();
   return (
     <div className="game-hud">
       <LoopClock game={game} />
@@ -30,6 +32,7 @@ export function GameHud({ game }: { game: GameState }) {
 }
 
 function LoopClock({ game }: { game: GameState }) {
+  useLocale();
   const minute = useMinute();
   const reality = useActiveReality();
   const viewingA = useSimStore((s) => s.activeRealityId === 'A');
@@ -45,20 +48,20 @@ function LoopClock({ game }: { game: GameState }) {
   return (
     <div className="spec-clock game-clock glass" title={reality.def.name}>
       <span className="spec-brand">
-        <span aria-hidden>⟲</span> BOUCLE {game.loop}
+        <span aria-hidden>⟲</span> {t('ui.hud_loop', { n: game.loop })}
       </span>
       <span className="spec-clock-row">
         <span className="spec-time mono">{fmtTime(minute)}</span>
         <span className="spec-meta">
-          <span className="spec-period">{periodOfDay(minute)}</span>
-          <span className="spec-weather" title={`Météo : ${weather.text}`} aria-label={`Météo : ${weather.text}`}>
+          <span className="spec-period">{periodLabel(periodKey(minute))}</span>
+          <span className="spec-weather" title={t('ui.topbar_weather_title', { weather: weather.text })} aria-label={t('ui.topbar_weather_title', { weather: weather.text })}>
             {weather.icon}
           </span>
         </span>
       </span>
       {hasB && !viewingA && (
-        <span key={pulse} className={`game-b-badge ${pulse ? 'pulse' : ''}`} title="La journée que vous êtes en train de modifier">
-          Réalité B — votre boucle
+        <span key={pulse} className={`game-b-badge ${pulse ? 'pulse' : ''}`} title={t('ui.hud_b_badge_title')}>
+          {t('common.reality_b_loop')}
         </span>
       )}
       {notice && (
@@ -67,8 +70,8 @@ function LoopClock({ game }: { game: GameState }) {
         </div>
       )}
       {viewingA && hasB && (
-        <span className="game-a-badge" title="Vous regardez la journée telle qu’elle se répète, sans vos gestes">
-          Réalité A — la journée telle qu’elle se répète
+        <span className="game-a-badge" title={t('ui.hud_a_badge_title')}>
+          {t('ui.hud_a_badge')}
         </span>
       )}
     </div>
@@ -76,6 +79,7 @@ function LoopClock({ game }: { game: GameState }) {
 }
 
 function ObjectiveCard({ game }: { game: GameState }) {
+  useLocale();
   const minute = useMinute();
   const reality = useActiveReality();
   const realityA = useSimStore((s) => s.realityA);
@@ -93,26 +97,26 @@ function ObjectiveCard({ game }: { game: GameState }) {
   const progress = final ? (arcOf(reality.engine.state, game.agentId)?.progress ?? bucketProgress) : bucketProgress;
   const tone = ARC_STATUS_TONE[status];
   const left = card.deadline - minute;
-  const deadlineText = final ? `réglé à ${fmtTime(arcAt.arc.resolvedAt ?? card.deadline)}` : left > 0 ? `dans ${left >= 60 ? `${Math.floor(left / 60)} h ${String(left % 60).padStart(2, '0')}` : `${left} min`}` : 'échéance passée';
+  const deadlineText = final ? t('ui.hud_deadline_settled', { time: fmtTime(arcAt.arc.resolvedAt ?? card.deadline) }) : left > 0 ? t('ui.hud_deadline_in', { dur: left >= 60 ? t('ui.hud_duration_hm', { h: Math.floor(left / 60), m: String(left % 60).padStart(2, '0') }) : t('common.minutes', { n: left }) }) : t('ui.hud_deadline_passed');
   const used = realityB?.def.interventions.length ?? 0;
   const remaining = Math.max(0, game.budget - used);
   const playing = game.phase === 'playing';
-  const gestureBlock = !playing ? 'La journée est terminée : relancez la boucle.' : remaining === 0 ? `Budget de gestes épuisé (${game.budget} par boucle).` : null;
+  const gestureBlock = !playing ? t('ui.hud_block_over') : remaining === 0 ? t('ui.hud_block_budget', { n: game.budget }) : null;
   const p = profileOf(game.agentId);
   const { setComposerOpen, setNotebookOpen, setBilanHidden } = useGameUi.getState();
   const { switchReality } = useSimStore.getState();
   return (
-    <section className={`objective glass st-${status}`} style={{ ['--agent' as string]: p.color }} aria-label="Objectif de la boucle">
+    <section className={`objective glass st-${status}`} style={{ ['--agent' as string]: p.color }} aria-label={t('ui.hud_objective_aria')}>
       <header className="objective-head">
         <span className="agent-dot lg" style={{ background: p.color }} aria-hidden />
         <span className="objective-who">
-          <span className="objective-kicker">Objectif de {p.firstName}</span>
+          <span className="objective-kicker">{t('ui.hud_objective_of', { name: p.firstName })}</span>
           <span className="objective-title">{card.title}</span>
         </span>
         <span className={`badge tone-${tone}`}>{ARC_STATUS_LABELS[status]}</span>
       </header>
       <p className="objective-desire">{card.desire}</p>
-      <div className="objective-progress" title={`Progression : ${Math.round(progress * 100)} %`}>
+      <div className="objective-progress" title={t('ui.hud_progress_title', { n: Math.round(progress * 100) })}>
         <span className="objective-bar" aria-hidden>
           <span className={`objective-fill tone-${tone}`} style={{ width: `${Math.round(progress * 100)}%` }} />
         </span>
@@ -121,7 +125,7 @@ function ObjectiveCard({ game }: { game: GameState }) {
         </span>
       </div>
       <div className="objective-row">
-        <span className="gesture-budget" title={`${used} geste${used > 1 ? 's' : ''} utilisé${used > 1 ? 's' : ''} sur ${game.budget} dans cette boucle`} aria-label={`${remaining} geste${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''} sur ${game.budget}`}>
+        <span className="gesture-budget" title={t('ui.hud_budget_used', { used, total: game.budget })} aria-label={t('ui.hud_budget_left', { left: remaining, total: game.budget })}>
           {Array.from({ length: game.budget }, (_, i) => (
             <span key={i} className={`gesture-pip ${i < remaining ? 'on' : ''}`} aria-hidden />
           ))}
@@ -130,22 +134,22 @@ function ObjectiveCard({ game }: { game: GameState }) {
           </span>
         </span>
         {playing ? (
-          <button className="spec-chip accent" onClick={() => setComposerOpen(true)} disabled={!!gestureBlock} title={gestureBlock ?? 'Intervenir dans la journée (G)'}>
-            ✦ Faire un geste
+          <button className="spec-chip accent" onClick={() => setComposerOpen(true)} disabled={!!gestureBlock} title={gestureBlock ?? t('ui.hud_make_gesture_title')}>
+            {t('ui.hud_make_gesture')}
           </button>
         ) : (
-          <button className="spec-chip accent" onClick={() => setBilanHidden(false)} title="Revoir le bilan de la boucle">
-            Bilan de la boucle
+          <button className="spec-chip accent" onClick={() => setBilanHidden(false)} title={t('ui.hud_review_title')}>
+            {t('ui.hud_review')}
           </button>
         )}
-        <button className="spec-chip" onClick={() => setNotebookOpen(true)} title="Carnet des gestes (N)">
+        <button className="spec-chip" onClick={() => setNotebookOpen(true)} title={t('ui.spectator_notebook_title')}>
           📓 <span className="mono">{game.notebook.length}</span>
         </button>
       </div>
-      <label className={`objective-toggle ${realityB ? '' : 'disabled'}`} title={realityB ? 'Basculer sur la réalité A pour planifier, puis revenir à votre boucle' : 'Aucun geste encore : vous regardez déjà la journée telle qu’elle se répète'}>
+      <label className={`objective-toggle ${realityB ? '' : 'disabled'}`} title={realityB ? t('ui.hud_toggle_title_b') : t('ui.hud_toggle_title_none')}>
         <input type="checkbox" checked={viewingA && !!realityB} disabled={!realityB} onChange={(e) => switchReality(e.target.checked ? 'A' : 'B')} />
         <span className="objective-switch" aria-hidden />
-        Voir la journée telle qu’elle se répète
+        {t('ui.hud_toggle')}
       </label>
     </section>
   );

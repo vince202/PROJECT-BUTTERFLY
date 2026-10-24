@@ -10,7 +10,8 @@ import { useSimStore } from '../../store/useSimStore';
 import { canApplyGesture, gestureKey, gestureLabel, type GameState } from '../../sim/game';
 import { profileOf } from '../../sim/population';
 import { fmtTime } from '../../sim/time';
-import { useMinute } from '../hooks';
+import { t } from '../../i18n';
+import { useLocale, useMinute } from '../hooks';
 import { OUTCOME_MARKS, reuseIntervention } from './gestures';
 
 export function Notebook({ game }: { game: GameState }) {
@@ -20,6 +21,7 @@ export function Notebook({ game }: { game: GameState }) {
 }
 
 function NotebookDrawer({ game }: { game: GameState }) {
+  useLocale();
   const minute = useMinute();
   const realityB = useSimStore((s) => s.realityB);
   const current = realityB?.def.interventions ?? [];
@@ -40,7 +42,7 @@ function NotebookDrawer({ game }: { game: GameState }) {
     <aside
       className="notebook glass"
       role="dialog"
-      aria-label="Carnet"
+      aria-label={t('ui.spectator_notebook')}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.stopPropagation();
@@ -49,24 +51,24 @@ function NotebookDrawer({ game }: { game: GameState }) {
       }}
     >
       <header className="notebook-head">
-        <span className="notebook-title">📓 Carnet</span>
+        <span className="notebook-title">📓 {t('ui.spectator_notebook')}</span>
         <span className="notebook-sub">
-          {p.firstName} · boucle {game.loop}
+          {t('ui.notebook_sub', { name: p.firstName, loop: game.loop })}
         </span>
-        <button className="spec-x" onClick={close} title="Fermer (Échap)" aria-label="Fermer">
+        <button className="spec-x" onClick={close} title={t('ui.spectator_toast_close_title')} aria-label={t('ui.inspector_close')}>
           ✕
         </button>
       </header>
-      <p className="notebook-lead">Ce que vous avez déjà tenté. La ville oublie à chaque boucle ; ce carnet, non.</p>
+      <p className="notebook-lead">{t('ui.notebook_lead')}</p>
 
-      <h3 className="notebook-h">Gestes</h3>
+      <h3 className="notebook-h">{t('ui.notebook_gestures')}</h3>
       {notebook.length === 0 ? (
-        <p className="notebook-empty">Aucun geste encore. Ils s’inscrivent ici à minuit, à la fin de chaque boucle.</p>
+        <p className="notebook-empty">{t('ui.notebook_gestures_none')}</p>
       ) : (
         <ul className="notebook-list">
           {notebook.map((g) => {
             const here = inPlace.has(g.key);
-            const check = here ? { ok: false, reason: 'Déjà en place dans cette boucle.' } : canApplyGesture(game, current, g.intervention, minute);
+            const check = here ? { ok: false, reason: t('ui.notebook_already') } : canApplyGesture(game, current, g.intervention, minute);
             return (
               <li key={g.key} className={`notebook-item ${here ? 'here' : ''}`}>
                 <div className="notebook-line">
@@ -76,13 +78,13 @@ function NotebookDrawer({ game }: { game: GameState }) {
                   {g.loops.map((loop, i) => {
                     const m = OUTCOME_MARKS[g.outcomes[i] ?? 'unfinished'];
                     return (
-                      <span key={loop} className={`notebook-outcome tone-${m.tone}`} title={`Boucle ${loop} : quête ${m.label}`}>
+                      <span key={loop} className={`notebook-outcome tone-${m.tone}`} title={t('ui.notebook_outcome_title', { loop, label: m.label })}>
                         B{loop} {m.sym}
                       </span>
                     );
                   })}
-                  <button className="spec-chip notebook-reuse" disabled={!check.ok} onClick={() => reuse(g.intervention)} title={check.ok ? `Rejouer ce geste dans la boucle ${game.loop}` : check.reason}>
-                    {here ? 'En place' : 'Réutiliser'}
+                  <button className="spec-chip notebook-reuse" disabled={!check.ok} onClick={() => reuse(g.intervention)} title={check.ok ? t('ui.notebook_reuse_title', { loop: game.loop }) : check.reason}>
+                    {here ? t('ui.notebook_in_place') : t('ui.notebook_reuse')}
                   </button>
                 </div>
                 {!check.ok && !here && <div className="notebook-why">{check.reason}</div>}
@@ -92,21 +94,21 @@ function NotebookDrawer({ game }: { game: GameState }) {
         </ul>
       )}
 
-      <h3 className="notebook-h">Boucles</h3>
+      <h3 className="notebook-h">{t('ui.notebook_loops')}</h3>
       {game.loops.length === 0 ? (
-        <p className="notebook-empty">Première boucle en cours, jusqu’à minuit.</p>
+        <p className="notebook-empty">{t('ui.notebook_loops_none')}</p>
       ) : (
         <ul className="notebook-loops">
           {game.loops.map((l) => {
             const m = OUTCOME_MARKS[l.outcome];
             return (
-              <li key={l.loop} className={`tone-${m.tone}`} title={l.resolution ?? `Quête ${m.label}`}>
-                <span className="notebook-loop-n">Boucle {l.loop}</span>
+              <li key={l.loop} className={`tone-${m.tone}`} title={l.resolution ?? t('ui.notebook_loop_quest_title', { label: m.label })}>
+                <span className="notebook-loop-n">{t('ui.notebook_loop_n', { n: l.loop })}</span>
                 <span className={`notebook-outcome tone-${m.tone}`}>
                   {m.sym} {m.label}
                 </span>
                 <span className="muted">
-                  {l.interventions.length} geste{l.interventions.length > 1 ? 's' : ''} · {Math.round(l.progress * 100)} % · {fmtTime(l.endedAt)}
+                  {t('ui.notebook_loop_meta', { n: l.interventions.length, pct: Math.round(l.progress * 100), time: fmtTime(l.endedAt) })}
                 </span>
               </li>
             );
@@ -114,8 +116,8 @@ function NotebookDrawer({ game }: { game: GameState }) {
         </ul>
       )}
       <div className="notebook-foot">
-        <button className="spec-chip" onClick={changeCharacter} title="Abandonner cette quête et choisir un autre habitant">
-          Changer de personnage
+        <button className="spec-chip" onClick={changeCharacter} title={t('ui.notebook_change_title')}>
+          {t('ui.notebook_change')}
         </button>
       </div>
     </aside>

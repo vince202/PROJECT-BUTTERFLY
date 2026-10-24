@@ -8,17 +8,24 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useSimStore, type PanelId } from '../store/useSimStore';
 import { SPEEDS, speedTitle } from '../store/speed';
-import { fmtTime, periodOfDay } from '../sim/time';
+import { fmtTime, periodKey, periodLabel } from '../sim/time';
 import { DAY_END, DAY_START } from '../sim/types';
 import { parseClock, weatherLabel } from './format';
-import { useActiveReality, useMinute } from './hooks';
+import { useActiveReality, useLocale, useMinute } from './hooks';
+import { LangToggle } from './LangToggle';
+import { t } from '../i18n';
 
-const PANELS: { id: Exclude<PanelId, null>; label: string; icon: string; title: string }[] = [
-  { id: 'butterfly', label: 'Et si…', icon: '🦋', title: 'Éditeur d’interventions : modifier un détail et créer une réalité B' },
-  { id: 'causal', label: 'Causalité', icon: '⛓', title: 'Explorer les causes et conséquences d’un événement' },
-  { id: 'compare', label: 'Comparer', icon: '⇄', title: 'Comparer la réalité A et la réalité B' },
-  { id: 'report', label: 'Rapport', icon: '📜', title: 'Rapport narratif de la journée' },
+const PANEL_DEFS: { id: Exclude<PanelId, null>; icon: string }[] = [
+  { id: 'butterfly', icon: '🦋' },
+  { id: 'causal', icon: '⛓' },
+  { id: 'compare', icon: '⇄' },
+  { id: 'report', icon: '📜' },
 ];
+
+/** Panel buttons in the active language (resolved at render). */
+function panelButtons(): { id: Exclude<PanelId, null>; label: string; icon: string; title: string }[] {
+  return PANEL_DEFS.map((p) => ({ ...p, label: t(`ui.topbar_panel_${p.id}`), title: t(`ui.topbar_panel_${p.id}_title`) }));
+}
 
 /**
  * True when the full top bar does not fit: the secondary controls are then
@@ -55,6 +62,7 @@ function useFitsOrCompact(ref: RefObject<HTMLElement | null>): boolean {
 }
 
 export function TopBar() {
+  useLocale();
   const minute = useMinute();
   const reality = useActiveReality();
   const playing = useSimStore((s) => s.playing);
@@ -74,45 +82,45 @@ export function TopBar() {
 
   return (
     <header className={`topbar ${compact ? 'compact' : ''}`} ref={barRef}>
-      <div className="brand" title="BUTTERFLY — laboratoire de simulation causale">
+      <div className="brand" title={t('ui.topbar_brand_title')}>
         <span className="brand-mark" aria-hidden>
           🦋
         </span>
         <span className="brand-text">
           <span className="brand-name">BUTTERFLY</span>
-          <span className="brand-sub">Twenty Lives. One Day. Infinite Possibilities.</span>
+          <span className="brand-sub">{t('common.tagline')}</span>
         </span>
       </div>
 
-      <div className="clock" title={`Heure simulée — ${reality.def.name}`}>
+      <div className="clock" title={t('ui.topbar_clock_title', { name: reality.def.name })}>
         <span className="clock-time mono">{fmtTime(minute)}</span>
         <span className="clock-meta">
-          <span className="clock-period">{periodOfDay(minute)}</span>
-          <span className="clock-weather" title={`Météo : ${weather.text}`}>
+          <span className="clock-period">{periodLabel(periodKey(minute))}</span>
+          <span className="clock-weather" title={t('ui.topbar_weather_title', { weather: weather.text })}>
             {weather.icon} <span className="clock-weather-text">{weather.text}</span>
           </span>
         </span>
       </div>
 
-      <div className="tb-group playback" role="group" aria-label="Lecture">
-        <button className="icon-btn" onClick={restart} title="Revenir à 06:00">
+      <div className="tb-group playback" role="group" aria-label={t('ui.topbar_playback_group')}>
+        <button className="icon-btn" onClick={restart} title={t('ui.topbar_back_to_start')}>
           ⏮
         </button>
-        <button className={`icon-btn play ${playing ? 'on' : ''}`} onClick={togglePlay} title={playing ? 'Pause (Espace)' : 'Lecture (Espace)'}>
+        <button className={`icon-btn play ${playing ? 'on' : ''}`} onClick={togglePlay} title={playing ? t('ui.topbar_pause_title') : t('ui.topbar_play_title')}>
           {playing ? '⏸' : '▶'}
         </button>
-        <div className="seg speed" role="group" aria-label="Vitesse" title="×1 = temps réel (1 minute simulée = 60 s) · touches + / −">
+        <div className="seg speed" role="group" aria-label={t('ui.topbar_speed_group')} title={t('ui.topbar_speed_hint')}>
           {SPEEDS.map((s) => (
             <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)} title={speedTitle(s)} aria-pressed={speed === s}>
               ×{s}
             </button>
           ))}
         </div>
-        <button className="btn ghost sm full-day" onClick={generateAll} title="Voir la journée entière : aller directement à 24:00" aria-label="Journée complète">
+        <button className="btn ghost sm full-day" onClick={generateAll} title={t('ui.topbar_full_day_title')} aria-label={t('ui.topbar_full_day')}>
           <span className="full-day-icon" aria-hidden>
             ⏭
           </span>
-          <span className="tb-label">Journée complète</span>
+          <span className="tb-label">{t('ui.topbar_full_day')}</span>
         </button>
         <GoTo onGo={seek} />
       </div>
@@ -127,22 +135,22 @@ export function TopBar() {
         </>
       )}
 
-      <div className="seg reality" role="group" aria-label="Réalité affichée">
-        <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title="Réalité A — la journée originale">
-          Réalité A
+      <div className="seg reality" role="group" aria-label={t('ui.topbar_reality_group')}>
+        <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title={t('ui.topbar_reality_a_title')}>
+          {t('ui.reality_a_short')}
         </button>
         <button
           className={`b ${activeId === 'B' ? 'active' : ''}`}
           onClick={() => switchReality('B')}
           disabled={!realityB}
-          title={realityB ? 'Réalité B — la journée modifiée par votre intervention' : 'Pas encore de réalité B : utilisez « Et si… » pour en créer une'}
+          title={realityB ? t('ui.topbar_reality_b_title') : t('ui.topbar_reality_b_missing')}
         >
-          Réalité B
+          {t('ui.reality_b_short')}
         </button>
       </div>
 
-      <nav className="tb-group panels" aria-label="Panneaux">
-        {PANELS.map((p) => {
+      <nav className="tb-group panels" aria-label={t('ui.topbar_panels_group')}>
+        {panelButtons().map((p) => {
           const disabled = p.id === 'compare' && !realityB;
           return (
             <button
@@ -150,7 +158,7 @@ export function TopBar() {
               className={`panel-btn ${panel === p.id ? 'active' : ''} ${p.id === 'butterfly' ? 'hero' : ''}`}
               onClick={() => setPanel(p.id)}
               disabled={disabled}
-              title={disabled ? 'Créez d’abord une réalité B avec « Et si… »' : p.title}
+              title={disabled ? t('ui.topbar_panel_compare_disabled') : p.title}
             >
               <span aria-hidden>{p.icon}</span>
               <span className="panel-btn-label">{p.label}</span>
@@ -170,8 +178,10 @@ export function TopBar() {
         <AiBadge />
       )}
 
-      <button className="btn sm spectator-btn" onClick={() => setUiMode('spectator')} title="Mode spectateur : la ville en plein écran (Tab)">
-        <span aria-hidden>👁</span> Spectateur
+      <LangToggle />
+
+      <button className="btn sm spectator-btn" onClick={() => setUiMode('spectator')} title={t('ui.topbar_spectator_title')}>
+        <span aria-hidden>👁</span> {t('ui.topbar_spectator')}
       </button>
     </header>
   );
@@ -180,9 +190,9 @@ export function TopBar() {
 function AiBadge({ full = false }: { full?: boolean }) {
   const ai = useSimStore((s) => s.ai);
   return (
-    <span className={`ai-badge ${ai.enabled ? 'on' : ''} ${full ? 'full' : ''}`} title={ai.message ?? (ai.checked ? '' : 'Vérification du service IA…')}>
+    <span className={`ai-badge ${ai.enabled ? 'on' : ''} ${full ? 'full' : ''}`} title={ai.message ?? (ai.checked ? '' : t('ui.topbar_ai_checking'))}>
       <span className="ai-dot" aria-hidden />
-      <span className="ai-text">{!ai.checked ? 'Narration IA : …' : ai.enabled ? `Narration IA : activée${ai.model ? ` · ${ai.model}` : ''}` : 'Narration IA : désactivée'}</span>
+      <span className="ai-text">{!ai.checked ? t('ui.topbar_ai_pending') : ai.enabled ? t('ui.topbar_ai_on', { model: ai.model }) : t('ui.topbar_ai_off')}</span>
     </span>
   );
 }
@@ -208,8 +218,8 @@ function MoreMenu({ children }: { children: ReactNode }) {
   }, [open]);
   return (
     <div className="seed more" ref={ref}>
-      <button className={`btn ghost sm ${open ? 'active' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="true" title="Graine, jour, politique de décision, statut IA">
-        ⋯ Plus
+      <button className={`btn ghost sm ${open ? 'active' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="true" title={t('ui.topbar_more_title')}>
+        {t('ui.topbar_more')}
       </button>
       {open && (
         <div className="popover more-pop" role="menu">
@@ -240,9 +250,9 @@ function GoTo({ onGo }: { onGo: (t: number) => void }) {
         e.preventDefault();
         submit();
       }}
-      title="Aller à une heure précise (06:00 – 24:00)"
+      title={t('ui.topbar_goto_title')}
     >
-      <label htmlFor="goto-input">Aller à</label>
+      <label htmlFor="goto-input">{t('ui.topbar_goto_label')}</label>
       <input id="goto-input" className="input mono" value={v} placeholder="HH:MM" onChange={(e) => (setV(e.target.value), setErr(false))} maxLength={5} />
     </form>
   );
@@ -263,19 +273,19 @@ function SeedControl({ seed, hasB, onSet, inline = false }: { seed: number; hasB
   }, [open, inline]);
   const apply = (n: number) => {
     if (!Number.isFinite(n)) return;
-    if (hasB && !window.confirm('Une nouvelle journée effacera la réalité B et ses interventions. Continuer ?')) return;
+    if (hasB && !window.confirm(t('ui.topbar_seed_confirm'))) return;
     onSet(Math.floor(n));
     setOpen(false);
   };
   return (
     <div className="seed" ref={ref}>
-      <button className="btn ghost sm" onClick={() => setOpen(!open)} title="Graine aléatoire de la journée : même graine = même journée" aria-expanded={open}>
-        🎲 Graine <span className="mono">{seed}</span>
+      <button className="btn ghost sm" onClick={() => setOpen(!open)} title={t('ui.topbar_seed_title')} aria-expanded={open}>
+        🎲 {t('ui.topbar_seed_label')} <span className="mono">{seed}</span>
       </button>
       {open && (
         <div className={`popover ${inline ? 'inline' : ''}`}>
-          <div className="popover-title">Nouvelle journée</div>
-          <p className="muted small">La graine détermine tous les aléas. Une même graine produit exactement la même journée.</p>
+          <div className="popover-title">{t('ui.topbar_seed_popover_title')}</div>
+          <p className="muted small">{t('ui.topbar_seed_explain')}</p>
           <form
             className="row gap"
             onSubmit={(e) => {
@@ -283,13 +293,13 @@ function SeedControl({ seed, hasB, onSet, inline = false }: { seed: number; hasB
               apply(Number(v));
             }}
           >
-            <input className="input mono" type="number" value={v} onChange={(e) => setV(e.target.value)} aria-label="Graine" />
-            <button className="btn primary sm" type="submit" title="Générer une nouvelle journée avec cette graine">
-              Nouvelle journée
+            <input className="input mono" type="number" value={v} onChange={(e) => setV(e.target.value)} aria-label={t('ui.topbar_seed_label')} />
+            <button className="btn primary sm" type="submit" title={t('ui.topbar_seed_generate_title')}>
+              {t('ui.topbar_seed_popover_title')}
             </button>
           </form>
-          <button className="link small" onClick={() => apply(Math.floor(Math.random() * 100000))} title="Tirer une graine au hasard">
-            Graine au hasard
+          <button className="link small" onClick={() => apply(Math.floor(Math.random() * 100000))} title={t('ui.topbar_seed_random_title')}>
+            {t('ui.topbar_seed_random')}
           </button>
         </div>
       )}
@@ -305,13 +315,13 @@ function DayControl() {
   const hasB = useSimStore((s) => !!s.realityB);
   const nextDay = useSimStore((s) => s.nextDay);
   const onNext = () => {
-    const from = activeId === 'B' && hasB ? 'la réalité B' : 'la réalité A';
-    if (window.confirm(`Passer au jour ${day + 1} à partir de la fin de ${from} ? Les relations, souvenirs importants et portefeuilles perdus sont conservés ; la réalité B est abandonnée.`)) nextDay();
+    const key = activeId === 'B' && hasB ? 'ui.topbar_next_day_confirm_b' : 'ui.topbar_next_day_confirm_a';
+    if (window.confirm(t(key, { day: day + 1 }))) nextDay();
   };
   return (
-    <div className="seed" title="Les journées s'enchaînent : chaque matin reprend les relations et souvenirs de la veille">
-      <button className="btn ghost sm" onClick={onNext} aria-label="Passer au jour suivant">
-        📅 Jour <span className="mono">{day}</span> · suivant ›
+    <div className="seed" title={t('ui.topbar_day_title')}>
+      <button className="btn ghost sm" onClick={onNext} aria-label={t('ui.topbar_day_next_aria')}>
+        {t('ui.topbar_day_next', { day })}
       </button>
     </div>
   );
@@ -326,11 +336,12 @@ function PolicyControl() {
   const advisor = useSimStore((s) => s.ai.advisor);
   const aiEnabled = !!advisor;
   const setPolicyMode = useSimStore((s) => s.setPolicyMode);
-  const title = `Politique de décision des habitants. « Conseiller » : les choix ouverts (scores proches) sont arbitrés par ${advisor === 'jev' ? 'Jev (TypeSafe, décision typée)' : advisor ? 'le modèle IA' : 'un conseiller simulé déterministe (aucune clé API)'} ; le moteur garde la validation. ${info ?? ''}`;
+  const title = t(advisor === 'jev' ? 'ui.topbar_policy_title_jev' : advisor ? 'ui.topbar_policy_title_ai' : 'ui.topbar_policy_title_mock', { info: info ?? '' });
+  const advisedLabel = t(advisor === 'jev' ? 'ui.topbar_policy_advised_jev' : aiEnabled ? 'ui.topbar_policy_advised_ai' : 'ui.topbar_policy_advised_mock');
   return (
     <div className="seed" title={title}>
-      <button className={`btn ghost sm${advising ? ' busy' : ''}`} onClick={() => void setPolicyMode(mode === 'utility' ? 'advised' : 'utility')} disabled={advising} aria-label="Changer la politique de décision">
-        🧭 {advising ? 'Arbitrage…' : mode === 'utility' ? 'Décision : utilitaire' : `Décision : conseiller${advisor === 'jev' ? ' Jev' : aiEnabled ? ' IA' : ' simulé'}`}
+      <button className={`btn ghost sm${advising ? ' busy' : ''}`} onClick={() => void setPolicyMode(mode === 'utility' ? 'advised' : 'utility')} disabled={advising} aria-label={t('ui.topbar_policy_aria')}>
+        {advising ? t('ui.topbar_policy_busy') : mode === 'utility' ? t('ui.topbar_policy_utility') : advisedLabel}
       </button>
     </div>
   );

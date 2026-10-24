@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { type ThreeEvent, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { LOCATIONS } from '../sim/city';
+import { useLocale } from '../ui/hooks';
 import { useSimStore } from '../store/useSimStore';
 import { env, labelMaterial, makeLabel, sizeLabel } from './shared';
 
@@ -17,7 +18,6 @@ interface Pick {
   box: THREE.Box3;
 }
 
-const NAMES = new Map(LOCATIONS.map((l) => [l.id, l.name]));
 const COLORS = new Map(LOCATIONS.map((l) => [l.id, l.color]));
 const POOL = 4;
 const tmpC = new THREE.Vector3();
@@ -26,6 +26,8 @@ export function PlaceLabels({ picks }: { picks: Pick[] }) {
   const controls = useThree((s) => s.controls) as unknown as { target?: THREE.Vector3 } | null;
   const gl = useThree((s) => s.gl);
   const hovered = useRef<string | null>(null);
+  // Place names are read through the active language: the label textures are rebuilt when it changes.
+  const locale = useLocale();
 
   const { boxes, pickMat, labels, sprites } = useMemo(() => {
     const pickMat = new THREE.MeshBasicMaterial({ visible: false });
@@ -48,7 +50,7 @@ export function PlaceLabels({ picks }: { picks: Pick[] }) {
       return s;
     });
     return { boxes, pickMat, labels, sprites };
-  }, [picks]);
+  }, [picks, locale]);
 
   useEffect(
     () => () => {
@@ -65,7 +67,7 @@ export function PlaceLabels({ picks }: { picks: Pick[] }) {
   const labelFor = (id: string) => {
     let l = labels.get(id);
     if (!l) {
-      const lab = makeLabel({ text: NAMES.get(id) ?? id, dot: COLORS.get(id), fontSize: 28 });
+      const lab = makeLabel({ text: LOCATIONS.find((q) => q.id === id)?.name ?? id, dot: COLORS.get(id), fontSize: 28 });
       l = { mat: labelMaterial(lab), aspect: lab.aspect, tex: lab.texture };
       labels.set(id, l);
     }

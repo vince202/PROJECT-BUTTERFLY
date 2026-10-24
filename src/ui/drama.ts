@@ -5,6 +5,7 @@
  * every fact comes from the recorded event log or the world state.
  */
 
+import { t, tIn } from '../i18n';
 import type { Comparison } from '../sim/compare';
 import { ARC_KIND_LABELS, ARC_STATUS_LABELS, arcDeadline, arcOf, arcSeed, effectiveStakes } from '../sim/drama';
 import type { DayReport } from '../sim/narrative';
@@ -28,7 +29,7 @@ export const PROFILES: Map<AgentId, AgentProfile> = new Map(AGENTS.map((a) => [a
 
 /** « 2e tentative », « 3e tentative » (nothing for a first attempt). */
 export function attemptLabel(attempt: number): string | null {
-  return attempt > 1 ? `${attempt}e tentative` : null;
+  return attempt > 1 ? t('ui.format_attempt', { n: attempt }) : null;
 }
 
 /** 1 to 3 flames for the stakes of an arc (0..1). */
@@ -36,7 +37,10 @@ export function stakesLevel(stakes: number): 1 | 2 | 3 {
   return stakes >= 0.7 ? 3 : stakes >= 0.5 ? 2 : 1;
 }
 
-export const STAKES_WORDS = ['', 'modéré', 'important', 'élevé'] as const;
+/** Word for the stakes level (1 to 3), in the active language. */
+export function stakesWord(level: 1 | 2 | 3): string {
+  return t(`ui.format_stakes_${level}`);
+}
 
 export interface ArcAt {
   arc: ArcState;
@@ -103,7 +107,7 @@ export function morningFacts(report: DayReport, reality: Reality, withSecrets: b
     const parts = [`- ${p.name} (${p.age} ans, ${lowerFirst(p.occupation)}) — « ${a.title} » (${a.kind.toLowerCase()}${a.attempt > 1 ? `, ${a.attempt}e tentative après un échec la veille` : ''}).`];
     parts.push(`Désir : ${a.desire}`);
     parts.push(`Tension : ${a.tension}`);
-    parts.push(`Échéance : ${fmtTime(a.deadline)}. Enjeu : ${STAKES_WORDS[stakesLevel(a.stakes)]}.`);
+    parts.push(`Échéance : ${fmtTime(a.deadline)}. Enjeu : ${tIn('fr', `ui.format_stakes_${stakesLevel(a.stakes)}`)}.`);
     if (withSecrets && a.secret) {
       const knownAtStart = start ? (arcOf(start, s.agentId)?.knownBy ?? []) : [];
       parts.push(`Secret : ${a.secret.replace(/\.$/, '')}${seed.secretAbout ? ` (caché à ${firstName(seed.secretAbout)})` : ''}${knownAtStart.length ? ` — déjà connu de ${knownAtStart.map(firstName).join(', ')}` : ''}.`);
@@ -162,7 +166,7 @@ export function dialogueFacts(e: SimEvent, state: WorldState): string {
     const arc = arcOf(state, id);
     if (arc) {
       const seed = arcSeed(arc.seedId);
-      parts.push(`Histoire du jour : « ${seed.title} » — ${seed.desire} (${ARC_KIND_LABELS[seed.kind].toLowerCase()}, ${ARC_STATUS_LABELS[arc.status]} à cet instant, échéance ${fmtTime(arcDeadline(arc))}, enjeu ${STAKES_WORDS[stakesLevel(effectiveStakes(arc))]}).`);
+      parts.push(`Histoire du jour : « ${seed.title} » — ${seed.desire} (${ARC_KIND_LABELS[seed.kind].toLowerCase()}, ${ARC_STATUS_LABELS[arc.status]} à cet instant, échéance ${fmtTime(arcDeadline(arc))}, enjeu ${tIn('fr', `ui.format_stakes_${stakesLevel(effectiveStakes(arc))}`)}).`);
     }
     lines.push(parts.join(' '));
     if (other) {

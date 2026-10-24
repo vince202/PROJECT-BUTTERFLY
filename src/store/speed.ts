@@ -7,6 +7,8 @@
  * how fast the replay clock moves.
  */
 
+import { t } from '../i18n';
+
 export const SPEEDS = [1, 5, 20, 60] as const;
 export type Speed = (typeof SPEEDS)[number];
 export const DEFAULT_SPEED: Speed = 20;
@@ -35,9 +37,9 @@ export function stepSpeed(speed: Speed, dir: 1 | -1): Speed {
   return SPEEDS[j];
 }
 
-/** French tooltip of a preset. */
+/** Tooltip of a preset, in the active language. */
 export function speedTitle(s: Speed): string {
-  if (s === 1) return '×1 = temps réel : 1 minute simulée dure 60 secondes';
-  if (s === 60) return '×60 = 1 minute simulée par seconde réelle';
-  return `×${s} = ${s} fois le temps réel : 1 minute simulée toutes les ${REAL_SECONDS_PER_SIM_MINUTE / s} secondes`;
+  if (s === 1) return t('ui.speed_x1');
+  if (s === 60) return t('ui.speed_x60');
+  return t('ui.speed_xn', { n: s, secs: REAL_SECONDS_PER_SIM_MINUTE / s });
 }
