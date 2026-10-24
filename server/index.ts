@@ -24,6 +24,8 @@ import { LOCATIONS } from '../src/sim/city';
 import { busDelayFor, newInterventionId, validateIntervention } from '../src/sim/interventions';
 import { fmtTime } from '../src/sim/time';
 import { AnthropicAdvisor } from './advisor';
+import { JevAdvisor } from './jev';
+import type { DecisionAdvisor } from '../src/sim/advisor';
 import type { AdviceRequest } from '../src/sim/advisor';
 import { DAY_END, DAY_START, type ActionType, type Intervention, type SimEvent } from '../src/sim/types';
 
@@ -228,7 +230,20 @@ function toIntervention(r: StructuredInterpretation, ctx: InterpretContext): { i
 // ---------------------------------------------------------------------------
 
 const provider = createProvider();
-const advisor = provider ? new AnthropicAdvisor(MODEL, USE_FALLBACKS) : null;
+
+/**
+ * Decision advisor selection. BUTTERFLY_ADVISOR=jev|anthropic|none forces one;
+ * otherwise Jev is preferred when TYPESAFE_API_KEY is set (fast, typed, cheap),
+ * then the Anthropic provider, else none (the browser falls back to the mock).
+ */
+function createAdvisor(): DecisionAdvisor | null {
+  const forced = process.env.BUTTERFLY_ADVISOR;
+  if (forced === 'none') return null;
+  if (process.env.TYPESAFE_API_KEY && forced !== 'anthropic') return new JevAdvisor({ apiKey: process.env.TYPESAFE_API_KEY, model: process.env.TYPESAFE_MODEL ?? 'jev-latest' });
+  if (provider && forced !== 'jev') return new AnthropicAdvisor(MODEL, USE_FALLBACKS);
+  return null;
+}
+const advisor = createAdvisor();
 const cache = new Map<string, unknown>();
 const cacheKey = (...parts: unknown[]) => createHash('sha1').update(JSON.stringify(parts)).digest('hex');
 
@@ -262,11 +277,19 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {
     if (url.pathname === '/api/ai/status') {
-      return json(res, 200, provider ? { enabled: true, model: provider.model, provider: provider.name, fallbacks: USE_FALLBACKS, message: `Narration IA activée (${provider.model})` } : { enabled: false, message: 'Aucune clé API configurée — narration IA désactivée, repli déterministe local.' });
+      const advisorInfo = advisor ? { advisor: advisor.name, advisorModel: 'model' in advisor ? (advisor as { model: string }).model : undefined } : { advisor: null };
+      return json(res, 200, provider ? { enabled: true, model: provider.model, provider: provider.name, fallbacks: USE_FALLBACKS, message: `Narration IA activée (${provider.model})`, ...advisorInfo } : { enabled: false, message: advisor ? `Narration IA désactivée (aucune clé Anthropic) — conseiller de décision ${advisor.name} actif.` : 'Aucune clé API configurée — narration IA désactivée, repli déterministe local.', ...advisorInfo });
     }
-    if (!provider) return json(res, 503, { ok: false, explanation: 'IA désactivée (aucune clé API).', issues: ['Configurez ANTHROPIC_API_KEY côté serveur.'], text: '' });
     if (req.method !== 'POST') return json(res, 405, { ok: false, explanation: 'Méthode non autorisée', issues: [] });
     const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+    if (url.pathname === '/api/ai/decide') {
+      if (!advisor) return json(res, 503, { ok: false, answers: [], explanation: 'Aucun conseiller de décision configuré (TYPESAFE_API_KEY ou ANTHROPIC_API_KEY).' });
+      const requests = (Array.isArray(body.requests) ? body.requests : []).slice(0, 120) as AdviceRequest[];
+      const key = cacheKey('decide', advisor.name, requests.map((r) => [r.key, r.candidates.map((c) => c.choice)]));
+      if (!cache.has(key)) cache.set(key, { ok: true, answers: await advisor.advise(requests), source: advisor.name });
+      return json(res, 200, cache.get(key));
+    }
+    if (!provider) return json(res, 503, { ok: false, explanation: 'IA désactivée (aucune clé API).', issues: ['Configurez ANTHROPIC_API_KEY côté serveur.'], text: '' });
     if (url.pathname === '/api/ai/interpret') {
       const text = String(body.text ?? '').slice(0, 2000);
       const ctx = (body.context ?? { t: DAY_START }) as InterpretContext;
@@ -276,12 +299,6 @@ const server = http.createServer(async (req, res) => {
         const { intervention, issues } = toIntervention(structured, ctx);
         cache.set(key, { ok: !!intervention, intervention, explanation: structured.explanation, issues, confidence: structured.confidence, source: provider.name });
       }
-      return json(res, 200, cache.get(key));
-    }
-    if (url.pathname === '/api/ai/decide') {
-      const requests = (Array.isArray(body.requests) ? body.requests : []).slice(0, 120) as AdviceRequest[];
-      const key = cacheKey('decide', requests.map((r) => [r.key, r.candidates.map((c) => c.choice)]));
-      if (!cache.has(key)) cache.set(key, { ok: true, answers: advisor ? await advisor.advise(requests) : [], source: provider.name });
       return json(res, 200, cache.get(key));
     }
     if (url.pathname === '/api/ai/narrate') {
@@ -299,5 +316,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`BUTTERFLY AI adapter on http://localhost:${PORT} — ${provider ? `provider ${provider.name}, model ${provider.model}${USE_FALLBACKS ? ', server-side fallbacks on' : ''}` : 'disabled (no API key)'}`);
+  console.log(`BUTTERFLY AI adapter on http://localhost:${PORT} — narration: ${provider ? `${provider.name} (${provider.model}${USE_FALLBACKS ? ', fallbacks on' : ''})` : 'disabled'}; decision advisor: ${advisor ? advisor.name : 'none (browser mock)'}`);
 });

@@ -324,13 +324,14 @@ function PolicyControl() {
   const mode = useSimStore((s) => s.policyMode);
   const advising = useSimStore((s) => s.advising);
   const info = useSimStore((s) => s.advisorInfo);
-  const aiEnabled = useSimStore((s) => s.ai.enabled);
+  const advisor = useSimStore((s) => s.ai.advisor);
+  const aiEnabled = !!advisor;
   const setPolicyMode = useSimStore((s) => s.setPolicyMode);
-  const title = `Politique de décision des habitants. « Conseiller » : les choix ouverts (scores proches) sont arbitrés par ${aiEnabled ? 'le modèle IA' : 'un conseiller simulé déterministe (aucune clé API)'} ; le moteur garde la validation. ${info ?? ''}`;
+  const title = `Politique de décision des habitants. « Conseiller » : les choix ouverts (scores proches) sont arbitrés par ${advisor === 'jev' ? 'Jev (TypeSafe, décision typée)' : advisor ? 'le modèle IA' : 'un conseiller simulé déterministe (aucune clé API)'} ; le moteur garde la validation. ${info ?? ''}`;
   return (
     <div className="seed" title={title}>
       <button className={`btn ghost sm${advising ? ' busy' : ''}`} onClick={() => void setPolicyMode(mode === 'utility' ? 'advised' : 'utility')} disabled={advising} aria-label="Changer la politique de décision">
-        🧭 {advising ? 'Arbitrage…' : mode === 'utility' ? 'Décision : utilitaire' : `Décision : conseiller${aiEnabled ? ' IA' : ' simulé'}`}
+        🧭 {advising ? 'Arbitrage…' : mode === 'utility' ? 'Décision : utilitaire' : `Décision : conseiller${advisor === 'jev' ? ' Jev' : aiEnabled ? ' IA' : ' simulé'}`}
       </button>
     </div>
   );

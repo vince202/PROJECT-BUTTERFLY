@@ -49,9 +49,13 @@ function persist(p: Persisted) {
 
 export interface AiStatus {
   checked: boolean;
+  /** Narration / interpretation model available. */
   enabled: boolean;
   model?: string;
   message?: string;
+  /** Server-side decision advisor ('jev', 'anthropic') when configured. */
+  advisor?: string;
+  advisorModel?: string;
 }
 
 export interface SimStore {
@@ -244,10 +248,11 @@ export const useSimStore = create<SimStore>((set, get) => ({
   },
   refineAdvised: async () => {
     const s = get();
-    const advisor: DecisionAdvisor = s.ai.enabled ? new HttpAdvisor() : new MockAdvisor();
+    const advisor: DecisionAdvisor = s.ai.advisor ? new HttpAdvisor() : new MockAdvisor();
     const online = advisor.name === 'http';
+    const advisorLabel = online ? `Conseiller ${s.ai.advisor === 'jev' ? 'Jev' : 'IA'}` : 'Conseiller simulé (sans clé API)';
     const policy = s.realityA.def.policy instanceof AdvisedPolicy ? s.realityA.def.policy : new AdvisedPolicy();
-    set({ advising: true, advisorInfo: online ? 'Le conseiller IA arbitre les choix ouverts…' : 'Le conseiller simulé arbitre les choix ouverts…' });
+    set({ advising: true, advisorInfo: `${advisorLabel} arbitre les choix ouverts…` });
     try {
       const opts = { policy, maxPasses: online ? 4 : 6, maxRequestsPerPass: online ? 40 : 150 };
       const { policy: _ignoredA, ...defA } = s.realityA.def;
@@ -265,7 +270,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
         // Keep A consistent with the final shared cache.
         realityA = new Reality({ ...defA, policy }).generate();
       }
-      set((st) => ({ realityA, realityB, comparison: realityB ? compareRealities(realityA, realityB) : null, advising: false, advisorInfo: `${online ? 'Conseiller IA' : 'Conseiller simulé (sans clé API)'} : ${applied} décisions arbitrées`, generation: st.generation + 1 }));
+      set((st) => ({ realityA, realityB, comparison: realityB ? compareRealities(realityA, realityB) : null, advising: false, advisorInfo: `${advisorLabel} : ${applied} décisions arbitrées`, generation: st.generation + 1 }));
     } catch (err) {
       set({ advising: false, advisorInfo: `Conseiller indisponible (${err instanceof Error ? err.message : String(err)}) — scores utilitaires conservés` });
     }

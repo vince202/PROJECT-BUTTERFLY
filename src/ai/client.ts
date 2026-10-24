@@ -26,8 +26,8 @@ export async function checkAiStatus(): Promise<AiStatus> {
   try {
     const res = await fetch(`${BASE}/status`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return { checked: true, enabled: false, message: 'Serveur IA indisponible — narration IA désactivée' };
-    const data = (await res.json()) as { enabled: boolean; model?: string; message?: string };
-    return { checked: true, enabled: data.enabled, model: data.model, message: data.message };
+    const data = (await res.json()) as { enabled: boolean; model?: string; message?: string; advisor?: string | null; advisorModel?: string };
+    return { checked: true, enabled: data.enabled, model: data.model, message: data.message, advisor: data.advisor ?? undefined, advisorModel: data.advisorModel };
   } catch {
     return { checked: true, enabled: false, message: 'Serveur IA non démarré — narration IA désactivée' };
   }

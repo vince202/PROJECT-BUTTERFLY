@@ -130,7 +130,10 @@ Chaque maillon est inspectable dans l'explorateur causal, et le tirage aléatoir
 ```bash
 npm run cli:advised -- --seed 51 --advisor mock        # conseiller simulé, sans clé
 npm run cli:advised -- --seed 51 --advisor anthropic   # modèle réel (ANTHROPIC_API_KEY dans .env)
+npm run cli:advised -- --seed 51 --advisor jev         # Jev, TypeSafe System One (TYPESAFE_API_KEY dans .env)
 ```
+
+- **Jev comme conseiller rapide** : Jev (TypeSafe, modèle « System One » de décisions typées) répond à une question à choix fermé par une distribution de probabilités sur les options proposées, en quelques dizaines de millisecondes et avec facturation à l'entrée seulement (≈ 0,04 $ par million de jetons, sortie gratuite). Le serveur (`server/jev.ts`) lui envoie l'état de l'habitant, ses souvenirs récents et les options déjà validées par le moteur ; une réponse qui ne désigne pas une option, ou dont la confiance est trop faible, est ignorée et le choix utilitaire s'applique. Une journée complète coûte de l'ordre d'un à deux centimes. Variables : `TYPESAFE_API_KEY`, `TYPESAFE_MODEL` (`jev-latest` par défaut), `BUTTERFLY_ADVISOR=jev|anthropic|none` pour forcer le conseiller. Le choix du conseiller actif est affiché dans la barre du haut (« Conseiller Jev »).
 
 ## Interventions comprises sans LLM
 
