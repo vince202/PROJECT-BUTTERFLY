@@ -30,6 +30,7 @@ import {
   type Commitment,
   type EventId,
   type EventType,
+  type Gravity,
   type Intervention,
   type LocationId,
   type Minute,
@@ -53,10 +54,37 @@ export interface EmitSpec {
   effects?: StateChange[];
   randomDraws?: RandomDraw[];
   importance?: number;
+  gravity?: Gravity;
   interventionId?: string;
   data?: SimEvent['data'];
   sig?: string;
 }
+
+/** Default gravity per event type (0 anecdote, 1 notable, 2 grave, 3 vital); emit() may override. */
+const GRAVITY: Partial<Record<EventType, Gravity>> = {
+  arc_beat: 1,
+  arc_resolved: 2,
+  revelation: 1,
+  gossip: 1,
+  dilemma: 1,
+  bus_delay: 1,
+  miss_bus: 1,
+  meeting_missed: 2,
+  argument: 2,
+  conversation: 1,
+  shop_closed: 1,
+  found_closed: 1,
+  lose_item: 1,
+  find_item: 1,
+  return_item: 1,
+  weather: 1,
+  late: 1,
+  intervention: 1,
+  invitation: 1,
+  new_commitment: 1,
+  commitment_cancelled: 1,
+  mood_shift: 1,
+};
 
 const IMPORTANCE: Partial<Record<EventType, number>> = {
   arc_beat: 0.55,
@@ -352,6 +380,7 @@ export class Engine {
       effects: spec.effects ?? [],
       randomDraws: spec.randomDraws,
       importance: spec.importance ?? IMPORTANCE[spec.type] ?? 0.2,
+      gravity: spec.gravity ?? GRAVITY[spec.type] ?? 0,
       interventionId: spec.interventionId,
       data: spec.data,
       signature: `${spec.type}|${[...actors].sort().join('+')}|${spec.locationId ?? spec.busId ?? ''}|${spec.sig ?? ''}`,
@@ -2202,6 +2231,7 @@ export class Engine {
           randomDraws: [{ key, value: this.rng.next(key) }],
           data: { arcId: arc.id, about: arc.agentId, reachesTarget },
           importance: reachesTarget ? 0.85 : 0.65,
+          gravity: reachesTarget ? 2 : 1,
           sig: `${arc.id}:${holder.id}>${listener.id}`,
         });
         arc.beats.push(ev.id);
@@ -2281,6 +2311,7 @@ export class Engine {
       mechanism,
       effects,
       importance: outcome === 'twisted' ? 0.95 : 0.8 + 0.15 * stakes,
+      gravity: outcome === 'twisted' || stakes >= 0.7 ? 3 : 2,
       data: { arcId: arc.id, outcome, stakes: Number(stakes.toFixed(2)), attempt: arc.attempt },
       sig: `${arc.id}:${outcome}`,
     });

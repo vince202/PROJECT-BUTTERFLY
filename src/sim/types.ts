@@ -506,6 +506,11 @@ export interface RandomDraw {
   value: number;
 }
 
+/** How much an event matters to a life: 0 anecdote, 1 notable, 2 grave, 3 vital. */
+export type Gravity = 0 | 1 | 2 | 3;
+
+export const GRAVITY_LABELS: Record<Gravity, string> = { 0: 'anecdote', 1: 'notable', 2: 'grave', 3: 'vital' };
+
 export interface SimEvent {
   id: EventId;
   t: Minute;
@@ -525,6 +530,8 @@ export interface SimEvent {
   randomDraws?: RandomDraw[];
   /** 0..1 — used for timeline markers. */
   importance: number;
+  /** Gravity scale for alerts: 0 anecdote, 1 notable, 2 grave, 3 vital. */
+  gravity: Gravity;
   /** Set when the event is the direct product of an intervention. */
   interventionId?: string;
   data?: Record<string, string | number | boolean | string[] | undefined>;

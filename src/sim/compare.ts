@@ -87,6 +87,9 @@ export interface Comparison {
   arcChanges: ArcChange[];
 }
 
+/** Beyond this gap, an event with the same signature is reported as « only A » + « only B » rather than « shifted ». */
+export const MAX_SHIFT: Minute = 120;
+
 const NOISE_TYPES = new Set(['decision', 'bus_depart', 'bus_arrive', 'activity_start', 'activity_end', 'depart', 'arrive', 'wake', 'day_start', 'day_end', 'purchase']);
 
 function groupBySignature(events: SimEvent[]): Map<string, SimEvent[]> {
@@ -117,9 +120,13 @@ export function compareRealities(A: Reality, B: Reality): Comparison {
     for (let i = 0; i < n; i++) {
       const a = la[i];
       const b = lb[i];
-      if (a && b) {
+      if (a && b && Math.abs(b.t - a.t) <= MAX_SHIFT) {
         const dt = b.t - a.t;
         matches.push({ status: dt === 0 && a.label === b.label ? 'same' : 'shifted', a, b, dt, causal: affectedB.has(b.id) ? 'verified' : 'none', signature: sig });
+      } else if (a && b) {
+        // Same signature but hours apart: two different moments of life, not one event that moved.
+        matches.push({ status: 'only_a', a, causal: 'none', signature: sig });
+        matches.push({ status: 'only_b', b, causal: affectedB.has(b.id) ? 'verified' : 'none', signature: sig });
       } else if (a) {
         matches.push({ status: 'only_a', a, causal: 'none', signature: sig });
       } else if (b) {
