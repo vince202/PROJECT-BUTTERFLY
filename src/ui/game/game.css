@@ -324,3 +324,7 @@
   .composer { top: auto; bottom: calc(var(--spec-m) + 110px); left: var(--spec-m); }
   .spec-pill.game { width: 420px; }
 }
+
+/* Confirmation after a gesture */
+.game-notice { margin-top: 6px; padding: 6px 10px; border-radius: 10px; background: rgba(38, 222, 129, 0.14); color: #b9f6d0; font-size: 12px; line-height: 1.35; animation: notice-in 300ms ease-out; }
+@keyframes notice-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }

@@ -324,6 +324,13 @@ function labelFor(action: ActionType): string {
     shop_groceries: 'faire les courses',
     workout: 'faire du sport',
     rest_home: 'rester à la maison',
+    school: 'partir au lycée',
+    work: 'aller travailler',
+    eat_home: 'manger à la maison',
+    eat_cafe: 'manger au café',
+    stroll: 'se promener',
+    visit: 'rejoindre quelqu’un',
+    stay_home: 'rester chez soi',
   };
   return labels[action] ?? action;
 }

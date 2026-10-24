@@ -58,6 +58,7 @@ function ComposerPanel({ game }: { game: GameState }) {
     if (!r.ok) return setRefusal(r.reason ?? 'Geste refusé.');
     setRefusal(null);
     useGameUi.getState().bumpPulse();
+    useGameUi.getState().setNotice(`Geste appliqué : ${iv.description}. La journée se rejoue avec ce changement à partir de ${fmtTime(iv.t)}.`);
     close();
   };
 

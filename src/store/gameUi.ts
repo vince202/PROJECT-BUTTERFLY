@@ -30,6 +30,9 @@ export interface GameUi {
   rewinding: boolean;
   /** Bumps when a gesture is applied (pulse of the « Réalité B » badge). */
   pulse: number;
+  /** Short confirmation shown under the HUD after a gesture (« Geste appliqué : … »). */
+  notice: { text: string; at: number } | null;
+  setNotice: (text: string | null) => void;
   alerts: LiveAlert[];
   /** Hovering the feed holds the alerts. */
   held: boolean;
@@ -53,6 +56,7 @@ export const useGameUi = create<GameUi>((set, get) => ({
   bilanHidden: false,
   rewinding: false,
   pulse: 0,
+  notice: null,
   alerts: [],
   held: false,
   setPickerDismissed: (pickerDismissed) => set({ pickerDismissed }),
@@ -61,6 +65,7 @@ export const useGameUi = create<GameUi>((set, get) => ({
   setBilanHidden: (bilanHidden) => set({ bilanHidden }),
   setRewinding: (rewinding) => set({ rewinding }),
   bumpPulse: () => set((s) => ({ pulse: s.pulse + 1 })),
+  setNotice: (text) => set({ notice: text ? { text, at: Date.now() } : null }),
   setAlerts: (fn) => set((s) => ({ alerts: fn(s.alerts) })),
   setHeld: (held) => set({ held }),
   closeTop: () => {

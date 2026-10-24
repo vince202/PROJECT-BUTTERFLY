@@ -5,7 +5,7 @@
  * day as it repeats (reality A).
  */
 
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { useGameUi } from '../../store/gameUi';
 import { useSimStore } from '../../store/useSimStore';
 import { ARC_STATUS_LABELS, arcOf } from '../../sim/drama';
@@ -35,6 +35,12 @@ function LoopClock({ game }: { game: GameState }) {
   const viewingA = useSimStore((s) => s.activeRealityId === 'A');
   const hasB = useSimStore((s) => !!s.realityB);
   const pulse = useGameUi((s) => s.pulse);
+  const notice = useGameUi((s) => s.notice);
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => useGameUi.getState().setNotice(null), 7000);
+    return () => clearTimeout(id);
+  }, [notice]);
   const weather = weatherLabel(reality.frameAt(Math.min(minute, DAY_END - 1))?.weather);
   return (
     <div className="spec-clock game-clock glass" title={reality.def.name}>
@@ -54,6 +60,11 @@ function LoopClock({ game }: { game: GameState }) {
         <span key={pulse} className={`game-b-badge ${pulse ? 'pulse' : ''}`} title="La journée que vous êtes en train de modifier">
           Réalité B — votre boucle
         </span>
+      )}
+      {notice && (
+        <div className="game-notice" role="status">
+          ✓ {notice.text}
+        </div>
       )}
       {viewingA && hasB && (
         <span className="game-a-badge" title="Vous regardez la journée telle qu’elle se répète, sans vos gestes">

@@ -304,6 +304,8 @@ export const useSimStore = create<SimStore>((set, get) => ({
     const s = get();
     if (!s.game) return { ok: false, reason: 'Aucune partie en cours.' };
     const current = s.realityB?.def.interventions ?? [];
+    // Interventions fire on exact minutes: never let a fractional display time slip through.
+    iv = { ...iv, t: Math.round(iv.t) };
     const check = canApplyGesture(s.game, current, iv, s.time);
     if (!check.ok) return check;
     const base = s.realityB ?? s.realityA;
