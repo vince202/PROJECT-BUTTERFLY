@@ -248,7 +248,9 @@ export function buildCandidates(agent: AgentState, profile: AgentProfile, ctx: D
   if (agent.forcedPlan) {
     const f = agent.forcedPlan;
     const loc = f.locationId ?? defaultLocationFor(f.action, profile, city);
-    const forcedCand = make(b, f.action, loc, defaultDuration(f.action), [{ label: 'Intervention de l’observateur', value: 10 }], { label: f.label, withAgent: f.withAgent });
+    // Forcing « work » or « school » means going to one's shift: bind the matching commitment so that arrival counts.
+    const shift = f.action === 'work' || f.action === 'school' ? agent.commitments.find((c) => (c.status === 'pending' || c.status === 'ongoing') && c.locationId === loc && (f.action === 'school' ? c.kind === 'school' : c.kind === 'work' || c.kind === 'shift')) : undefined;
+    const forcedCand = make(b, f.action, loc, shift ? Math.max(10, shift.end - t) : defaultDuration(f.action), [{ label: 'Intervention de l’observateur', value: 10 }], { label: f.label, withAgent: f.withAgent, commitmentId: shift?.id });
     if (forcedCand.rejected && forcedCand.rejected.startsWith('Pas le temps')) {
       forcedCand.rejected = undefined;
       forcedCand.score = forcedCand.components.reduce((x, y) => x + y.value, 0);

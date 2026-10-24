@@ -337,6 +337,8 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
       }
       case 'encounter':
         return { id, kind, agentA: agentId, agentB, locationId, t: startT, description: `${name} et ${firstName(agentB)} se retrouvent à ${locName(locationId)} à partir de ${fmtTime(startT)}` };
+      case 'lose_item':
+        return { id, kind, agentId, t: startT, item: 'wallet', description: `${name} oublie son portefeuille à ${fmtTime(startT)} (s’il est dans un lieu public)` };
     }
   };
 

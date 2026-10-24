@@ -95,36 +95,43 @@ Résultat obtenu avec la graine par défaut (reproductible avec `npm run cli -- 
 
 **Graine 51** — événement : « Le bus L1-1 arrive à Arrêt Place du Marché » (09:25, Arrêt Place du Marché), retard imposé : 3 minutes.
 
-- 3173 événements identiques, 4 décalés dans le temps, 5 présents seulement dans A, 12 seulement dans B.
-- 18 conséquences causalement vérifiées de l’intervention, touchant 4 habitants.
-- Première conséquence : 09:24 — Échec — Tenir l’horaire : Antoine ne tiendra pas l’horaire : le bus L1-1 a 3 min de retard.
-- Conséquences majeures : 09:24 Échec — Tenir l’horaire : Antoine ne tiendra pas l’horaire : le bus L1-1 a 3 min de retard ; 18:39 Paul trouve un portefeuille oublié à Supermarché Marché Plus : celui de Gérard ; 19:26 Paul dépose le portefeuille de Gérard à son domicile (Gérard est absent) ; 19:37 Noé trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard.
-- Destins modifiés : Antoine — « Tenir l’horaire » : accompli en A, échoué en B.
+- 3179 événements identiques, 6 décalés dans le temps, 8 présents seulement dans A, 13 seulement dans B.
+- 18 conséquences causalement vérifiées de l’intervention, touchant 7 habitants.
+- Première conséquence : 09:28 — Gérard monte dans le bus L1-1 à Arrêt Place du Marché.
+- Conséquences majeures : 19:42 « Gérard rapporte à Martin le secret de Paul : Paul a sculpté un cadeau pour Camille qu’il n’ose pas lui donner. » n’a pas eu lieu ; 20:54 Gérard rapporte à Chloé le secret de Paul : Paul a sculpté un cadeau pour Camille qu’il n’ose pas lui donner..
 
 Conséquences vérifiées :
 
-- 09:24 — Échec — Tenir l’horaire : Antoine ne tiendra pas l’horaire : le bus L1-1 a 3 min de retard *(seulement dans B)*
 - 09:28 — Gérard monte dans le bus L1-1 à Arrêt Place du Marché *(décalé de +3 min)*
 - 09:26 — Antoine et Gérard discutent dans le bus L1-1 *(n’a pas eu lieu dans B)*
 - 09:32 — Gérard descend du bus à Arrêt Supermarché *(décalé de +3 min)*
 - 09:52 — Gérard oublie son portefeuille à Supermarché Marché Plus *(seulement dans B)*
 - 12:15 — Gérard abandonne « Se reposer à la maison » pour « Se détendre au parc » *(n’a pas eu lieu dans B)*
-- 14:42 — Gérard attend Paul (Partie de pétanque) *(décalé de +13 min)*
-- 18:39 — Paul trouve un portefeuille oublié à Supermarché Marché Plus : celui de Gérard *(seulement dans B)*
-- 18:39 — Paul décide de rendre le portefeuille à Gérard *(seulement dans B)*
-- 19:24 — Paul abandonne « Se reposer à la maison » pour « Rendre le portefeuille à Gérard » *(seulement dans B)*
-- 19:26 — Paul dépose le portefeuille de Gérard à son domicile (Gérard est absent) *(seulement dans B)*
-- 19:37 — Noé trouve un portefeuille oublié à Immeuble Haussmann : celui de Gérard *(seulement dans B)*
-- 19:37 — Noé décide de rendre le portefeuille à Gérard *(seulement dans B)*
-- 20:24 — Noé rend son portefeuille à Gérard *(seulement dans B)*
-- 21:30 — Gérard et Paul bavardent joyeusement à Parc des Tilleuls *(n’a pas eu lieu dans B)*
-- 21:39 — Paul va dormir *(décalé de -6 min)*
-- 21:39 — Paul abandonne « Se reposer à la maison » pour « Dormir » *(seulement dans B)*
-- 21:42 — Paul abandonne « Se détendre au parc » pour « Dormir » *(n’a pas eu lieu dans B)*
+- 14:12 — Gérard abandonne « Se détendre au parc » pour « Se reposer à la maison » *(seulement dans B)*
+- 14:38 — Gérard attend Paul (Partie de pétanque) *(décalé de +9 min)*
+- 14:35 — Gérard abandonne « Se reposer à la maison » pour « Partie de pétanque » *(seulement dans B)*
+- 17:05 — Gérard et Martin discutent à Immeuble Haussmann *(décalé de -20 min)*
+- 17:36 — Gérard abandonne « Se reposer à la maison » pour « Se détendre au parc » *(n’a pas eu lieu dans B)*
+- 17:37 — Antoine abandonne « Se reposer à la maison » pour « Se détendre au parc » *(n’a pas eu lieu dans B)*
+- 19:38 — Gérard et Martin discutent à Immeuble Haussmann *(décalé de -4 min)*
+- 19:42 — Gérard rapporte à Martin le secret de Paul : Paul a sculpté un cadeau pour Camille qu’il n’ose pas lui donner. *(n’a pas eu lieu dans B)*
+- 20:54 — Chloé fait la connaissance de Gérard à Parc des Tilleuls *(seulement dans B)*
+- 20:54 — Gérard rapporte à Chloé le secret de Paul : Paul a sculpté un cadeau pour Camille qu’il n’ose pas lui donner. *(seulement dans B)*
+- 20:55 — Antoine et Yasmine discutent à Villa Rosa *(seulement dans B)*
+- 21:35 — Nadia et Thomas discutent à Parc des Tilleuls *(seulement dans B)*
+- 21:37 — Gérard va dormir *(décalé de -6 min)*
 
-Dans la réalité A, Antoine tient l'horaire toute la journée et Gérard bavarde avec lui dans le bus avant de faire ses courses sans incident. Dans la réalité B, le retard est constaté dès 09:24 : l'histoire d'Antoine, « Tenir l'horaire », bascule en échec. Gérard monte trois minutes plus tard, arrive au supermarché dans un autre moment de distraction et oublie son portefeuille à 09:52. Paul le trouve après sa journée de travail, à 18:39, et décide de le rendre : il le dépose chez Gérard à 19:26, mais Gérard est au parc. C'est Noé, son petit-fils, qui le trouve à 19:37 et le lui rend à 20:24. Quatre habitants sont touchés ; les seize autres vivent exactement la même journée. Le panneau « Comparer » et le rapport listent le destin modifié d'Antoine (« Destins modifiés »).
+Dans la réalité A, Gérard bavarde avec Antoine dans le bus avant de faire ses courses sans incident. Dans la réalité B, il monte trois minutes plus tard, arrive au supermarché dans un autre moment de distraction et oublie son portefeuille à 09:52 ; sa journée se réorganise, il croise d'autres personnes, et le secret que Paul lui a confié ne circule plus vers Martin mais vers Chloé, rencontrée au parc à 20:54. Sept habitants sont touchés ; les treize autres vivent exactement la même journée. Depuis que la journée est une chorégraphie verrouillée (voir « Le jeu »), aucun des vingt habitants n'atteint son objectif en A : le panneau « Comparer » et le rapport listent les destins modifiés dès qu'un geste en fait réussir un.
 
 Chaque maillon est inspectable dans l'explorateur causal, et le tirage aléatoire responsable de l'oubli (`lose:gerard:…`) est affiché avec sa valeur : la différence vient bien d'un autre instant, pas d'une autre « chance ».
+
+## Le jeu : une boucle temporelle
+
+BUTTERFLY se joue comme un film de boucle temporelle. **La réalité A est la journée telle qu'elle se répète** : une chorégraphie où, par construction, aucun des vingt habitants n'atteint son objectif. Chaque histoire du jour porte ses **coups du sort** (`fate` dans `src/sim/drama.ts`) : Léa ne retrouve pas son sac et rate le bus, une urgence retient Nadia au cabinet, Julien vient travailler à la bibliothèque de Sophie, Élodie oublie son portefeuille au comptoir… Ces coups du sort sont des événements visibles (« Coup du sort : … », famille Contretemps) qui utilisent les mêmes mécaniques que les interventions, sans observateur. Certains ne frappent que si l'habitant est au bon endroit (chez lui, dans un lieu public) : on peut donc les esquiver.
+
+**La partie** : on choisit un habitant (Léa, « À l'heure au lycée », sert d'entraînement ; les quêtes sont classées de 1 à 5), puis on regarde la journée se dérouler **vers l'avant seulement** dans une réalité B. On dispose d'un petit budget de **gestes** par boucle (deux à quatre interventions) ; on ne peut pas revenir en arrière dans la boucle, mais la frise de la réalité A reste consultable pour planifier. À minuit, la boucle se ferme : issue de l'objectif, destins modifiés chez les autres, gestes utilisés. Le **carnet** garde tous les gestes déjà essayés avec ce personnage, réutilisables en un clic dans la boucle suivante. Les alertes du mode spectacle ne montrent que ce qui compte : événements notables ou graves, marqués « lié à votre quête » quand ils touchent votre personnage, la personne visée, le lieu de l'objectif ou votre histoire (`src/sim/quest.ts`). Le laboratoire (Tab) garde la vue complète.
+
+Modèle de jeu dans `src/sim/game.ts` (cartes de quête, budget, règles des gestes, boucles, carnet), état persistant dans le navigateur, règle du moteur : `tests/drama.test.ts` vérifie qu'aucun arc n'est accompli en A et que le geste du tutoriel fait réussir Léa.
 
 ## Journées enchaînées, conseiller de décision, rencontres de rue
 

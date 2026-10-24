@@ -30,6 +30,7 @@ describe('Quêtes proposées', () => {
     expect(questDifficulty(arcSeed('arc_lea_heure'))).toBe(1);
     expect(questDifficulty(arcSeed('arc_ines_hugo'))).toBe(5); // conversation profonde, enjeu 0,75
     expect(questDifficulty(arcSeed('arc_antoine_horaire'))).toBe(4);
+    expect(questDifficulty(arcSeed('arc_antoine_diner'))).toBe(2);
   });
 });
 
@@ -58,7 +59,7 @@ describe('Boucle de jeu', () => {
     const game = newGame(A, 'antoine');
     const B = forkReality(A, delay, 'B', 'B').generate();
     expect(loopOutcome(B, 'antoine')).toBe('failed');
-    const closed = closeLoop(game, B, ['Antoine — « Tenir l’horaire » : accompli en A, échoué en B']);
+    const closed = closeLoop(game, B, ['Antoine — « Rentrer pour le dîner » : échoué en A, échoué en B']);
     expect(closed.phase).toBe('ended');
     expect(closed.loops).toHaveLength(1);
     expect(closed.loops[0].outcome).toBe('failed');

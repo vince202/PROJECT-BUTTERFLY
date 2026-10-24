@@ -72,7 +72,7 @@ describe('Quête : ce qui compte pour le personnage suivi', () => {
 
   it('questStatus reflète l’arc', () => {
     const s = questStatus(A, 'antoine');
-    expect(s.title).toBe('Tenir l’horaire');
+    expect(s.title).toBe('Rentrer pour le dîner');
     expect(['fulfilled', 'failed', 'twisted']).toContain(s.status);
   });
 });

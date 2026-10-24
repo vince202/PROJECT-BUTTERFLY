@@ -379,6 +379,8 @@ export interface AgentState {
   movedAt?: Minute;
   /** Locations the agent has found closed today (they will not try again). */
   knownClosed?: LocationId[];
+  /** The agent cannot leave or change plans before this minute (delay imposed by an intervention or a coup du sort). */
+  heldUntil?: Minute;
 }
 
 // ---------------------------------------------------------------------------
@@ -489,6 +491,7 @@ export type EventType =
   | 'revelation'
   | 'gossip'
   | 'dilemma'
+  | 'incident'
   | 'day_end';
 
 export interface StateChange {
@@ -611,9 +614,31 @@ export type Intervention =
       locationId: LocationId;
       t: Minute;
       description: string;
+    }
+  | {
+      id: string;
+      kind: 'lose_item';
+      agentId: AgentId;
+      t: Minute;
+      /** Only 'wallet' is modelled today. */
+      item: 'wallet';
+      description: string;
     };
 
 export type InterventionKind = Intervention['kind'];
+
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
+
+/**
+ * A « coup du sort » built into the day: the same mechanics as an intervention,
+ * but part of the world (present in every reality, no observer involved).
+ */
+export type FateSpec = DistributiveOmit<Intervention, 'id'> & {
+  /** 0 anecdote, 1 notable, 2 grave. */
+  gravity?: Gravity;
+  /** The coup du sort only strikes if the inhabitant is at home / in a public place at that minute (a gesture can dodge it). */
+  requires?: 'home' | 'public';
+};
 
 // ---------------------------------------------------------------------------
 // Dramaturgy — daily arcs
@@ -653,6 +678,8 @@ export interface ArcSeed {
   tension: string;
   /** Minute by which the arc must resolve (default: end of day). */
   deadline?: Minute;
+  /** Obstacles built into the day so that, left alone, the arc fails (the player's gestures counter them). */
+  fate?: FateSpec[];
   /** 0..1 — how much the arc weighs on decisions and on the report. */
   stakes: number;
   goal: ArcGoal;
@@ -706,6 +733,10 @@ export interface WorldState {
   arcs: Record<string, ArcState>;
   /** Last public place each agent left, and when (for near-miss beats). */
   lastLeft: Record<AgentId, { locationId: LocationId; t: Minute }>;
+  /** Coups du sort scheduled for the day (built from the arcs' fate). */
+  incidents: Intervention[];
+  /** Root event ids of applied incidents. */
+  incidentEventIds: Record<string, EventId>;
 }
 
 export interface TraceAgent {

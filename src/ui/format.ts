@@ -63,6 +63,7 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   revelation: 'Confidence',
   gossip: 'Rumeur',
   dilemma: 'Dilemme',
+  incident: 'Coup du sort',
   day_end: 'Fin de journée',
 };
 
@@ -88,6 +89,7 @@ export function eventFamily(t: EventType): EventFamily {
     case 'argument':
     case 'found_closed':
     case 'commitment_cancelled':
+    case 'incident':
       return 'trouble';
     case 'bus_depart':
     case 'bus_arrive':
@@ -191,6 +193,7 @@ export const INTERVENTION_KIND_LABELS: Record<InterventionKind, string> = {
   weather: 'Météo',
   cancel_commitment: 'Rendez-vous manqué',
   encounter: 'Rencontre provoquée',
+  lose_item: 'Portefeuille oublié',
 };
 
 export const actionLabel = (a: ActionType): string => ACTION_LABELS[a] ?? a;

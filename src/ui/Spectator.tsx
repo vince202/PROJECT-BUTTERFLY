@@ -9,26 +9,46 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSimStore } from '../store/useSimStore';
+import { useGameUi } from '../store/gameUi';
 import { SPEEDS, speedTitle } from '../store/speed';
+import { questCards } from '../sim/game';
 import { AGENTS } from '../sim/population';
+import { QUEST_LINK_LABELS, questAlerts } from '../sim/quest';
 import { fmtTime, periodOfDay } from '../sim/time';
-import { DAY_END, DAY_LENGTH, DAY_START, type AgentId, type SimEvent } from '../sim/types';
+import { DAY_END, DAY_LENGTH, DAY_START, GRAVITY_LABELS, type AgentId, type Gravity, type SimEvent } from '../sim/types';
 import { arcStatusAt, dramaSubject, isDramaHighlight, truncate } from './drama';
 import { eventFamily, eventTypeLabel, fold, locName, moodColor, moodWord, weatherLabel } from './format';
 import { useActiveReality, useMinute } from './hooks';
 import { usePresence } from './mode';
+import { AlertBubbles, AlertDriver, GameAlertFeed } from './game/Alerts';
+import { GameHud } from './game/GameHud';
+import { GestureComposer } from './game/GestureComposer';
+import { LoopOverlay } from './game/LoopOverlay';
+import { Notebook } from './game/Notebook';
+import { QuestPicker } from './game/QuestPicker';
+import './game/game.css';
 
 const HINT_KEY = 'butterfly:spectator-hint-dismissed';
+const GAME_HINT_KEY = 'butterfly:game-hint-dismissed';
 
 export function SpectatorOverlay({ leaving = false }: { leaving?: boolean }) {
+  const game = useSimStore((s) => s.game);
+  const pickerDismissed = useGameUi((s) => s.pickerDismissed);
+  const picking = !game && !pickerDismissed;
   return (
-    <div className={`spectator-ui ${leaving ? 'leaving' : ''}`}>
-      <SpecClock />
+    <div className={`spectator-ui ${leaving ? 'leaving' : ''} ${game ? 'playing-game' : ''}`}>
+      {game && <AlertDriver agentId={game.agentId} />}
+      {game && <AlertBubbles />}
+      {game ? <GameHud game={game} /> : <SpecClock />}
       <SpecCorner />
       <EventToast />
       <ContextCards />
       <PlaybackPill />
-      <FirstRunHint />
+      {game && <GestureComposer game={game} />}
+      {game && <Notebook game={game} />}
+      {game && <LoopOverlay game={game} />}
+      {picking && <QuestPicker />}
+      {!picking && <FirstRunHint game={!!game} />}
     </div>
   );
 }
@@ -69,10 +89,24 @@ function SpecClock() {
 function SpecCorner() {
   const hasB = useSimStore((s) => !!s.realityB);
   const activeId = useSimStore((s) => s.activeRealityId);
+  const inGame = useSimStore((s) => !!s.game);
+  const pickerDismissed = useGameUi((s) => s.pickerDismissed);
   const { switchReality, setUiMode } = useSimStore.getState();
   return (
     <div className="spec-corner">
-      {hasB && (
+      {!inGame && pickerDismissed && (
+        <button className="spec-round glass" onClick={() => useGameUi.getState().setPickerDismissed(false)} title="Choisir un habitant à suivre et jouer la boucle" aria-label="Jouer">
+          <span aria-hidden>⟲</span>
+          <span className="spec-round-label">Jouer — choisir qui suivre</span>
+        </button>
+      )}
+      {inGame && (
+        <button className="spec-round glass" onClick={() => useGameUi.getState().setNotebookOpen(!useGameUi.getState().notebookOpen)} title="Carnet des gestes (N)" aria-label="Carnet">
+          <span aria-hidden>📓</span>
+          <span className="spec-round-label">Carnet</span>
+        </button>
+      )}
+      {hasB && !inGame && (
         <div className="seg reality spec-reality glass" role="group" aria-label="Réalité affichée">
           <button className={activeId === 'A' ? 'active' : ''} onClick={() => switchReality('A')} title="Réalité A — la journée originale">
             A
@@ -99,14 +133,17 @@ const pos = (t: number) => ((Math.max(DAY_START, Math.min(DAY_END, t)) - DAY_STA
 function PlaybackPill() {
   const playing = useSimStore((s) => s.playing);
   const speed = useSimStore((s) => s.speed);
+  const inGame = useSimStore((s) => !!s.game);
   const { restart, togglePlay, setSpeed } = useSimStore.getState();
   return (
-    <div className="spec-pill glass" role="group" aria-label="Lecture">
+    <div className={`spec-pill glass ${inGame ? 'game' : ''}`} role="group" aria-label="Lecture">
       <Scrub />
       <div className="spec-pill-row">
-        <button className="spec-btn" onClick={restart} title="Revenir à 06:00" aria-label="Revenir à 06:00">
-          ⏮
-        </button>
+        {!inGame && (
+          <button className="spec-btn" onClick={restart} title="Revenir à 06:00" aria-label="Revenir à 06:00">
+            ⏮
+          </button>
+        )}
         <button className={`spec-btn play ${playing ? 'on' : ''}`} onClick={togglePlay} title={playing ? 'Pause (Espace)' : 'Lecture (Espace)'} aria-label={playing ? 'Pause' : 'Lecture'}>
           {playing ? '⏸' : '▶'}
         </button>
@@ -181,6 +218,7 @@ function Scrub() {
           <span className="spec-scrub-fill" style={{ width: `${pos(time)}%` }} />
         </span>
         <span className="spec-scrub-knob" style={{ left: `${pos(time)}%` }} aria-hidden />
+        <ScrubMarkers time={time} />
         {hover !== null && (
           <span className="spec-scrub-tip mono" style={{ left: `${pos(hover)}%` }} aria-hidden>
             {fmtTime(hover)}
@@ -192,6 +230,60 @@ function Scrub() {
   );
 }
 
+/**
+ * Player mode: the day as it repeats (reality A) drawn on the scrub bar — its
+ * grave and vital events and the quest's deadline. Hovering shows the label;
+ * clicking never seeks (no going back inside a loop), it pins the label with
+ * « déjà passé » or « à venir ».
+ */
+function ScrubMarkers({ time }: { time: number }) {
+  const game = useSimStore((s) => s.game);
+  const realityA = useSimStore((s) => s.realityA);
+  const generation = useSimStore((s) => s.generation);
+  const [tip, setTip] = useState<{ key: string; pinned: boolean } | null>(null);
+  const markers = useMemo(() => {
+    if (!game) return [];
+    const out: { key: string; t: number; gravity: Gravity | 'deadline'; label: string; linked: boolean }[] = questAlerts(realityA, game.agentId, { minGravity: 2 }).map((a) => ({
+      key: a.event.id,
+      t: a.event.t,
+      gravity: a.gravity,
+      label: `${eventTypeLabel(a.event.type)} (${GRAVITY_LABELS[a.gravity]}) — ${a.event.label}${a.link !== 'none' ? ` · lié à votre quête : ${QUEST_LINK_LABELS[a.link]}` : ''}`,
+      linked: a.link !== 'none',
+    }));
+    const card = questCards(realityA).find((c) => c.agentId === game.agentId);
+    if (card) out.push({ key: 'deadline', t: card.deadline, gravity: 'deadline', label: `Échéance de la quête — ${card.title}`, linked: true });
+    return out;
+  }, [game?.agentId, realityA, generation]);
+  if (!game || !markers.length) return null;
+  const shown = tip ? markers.find((m) => m.key === tip.key) : undefined;
+  const when = (t: number) => (t <= Math.floor(time) ? 'déjà passé' : 'à venir');
+  return (
+    <>
+      {markers.map((m) => (
+        <span
+          key={m.key}
+          className={`scrub-marker ${m.gravity === 'deadline' ? 'deadline' : `g${m.gravity}`} ${m.linked ? 'linked' : ''} ${m.t <= time ? 'past' : ''}`}
+          style={{ left: `${pos(m.t)}%` }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerEnter={() => setTip((x) => (x?.pinned ? x : { key: m.key, pinned: false }))}
+          onPointerLeave={() => setTip((x) => (x?.pinned ? x : null))}
+          onClick={(e) => {
+            e.stopPropagation();
+            setTip((x) => (x?.key === m.key && x.pinned ? null : { key: m.key, pinned: true }));
+          }}
+          role="button"
+          aria-label={`${fmtTime(m.t)} — ${m.label} (${when(m.t)})`}
+        />
+      ))}
+      {shown && (
+        <span className={`scrub-marker-tip ${tip?.pinned ? 'pinned' : ''}`} style={{ left: `${Math.max(12, Math.min(88, pos(shown.t)))}%` }}>
+          <span className="mono">{fmtTime(shown.t)}</span> {truncate(shown.label, 110)} <span className={`scrub-when ${shown.t <= Math.floor(time) ? 'past' : 'future'}`}>{when(shown.t)}</span>
+        </span>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Bottom-left: context cards (hovered preview + selected inhabitant)
 // ---------------------------------------------------------------------------
@@ -199,11 +291,12 @@ function Scrub() {
 function ContextCards() {
   const selectedId = useSimStore((s) => s.selectedAgentId);
   const hoveredId = useSimStore((s) => s.hoveredAgentId);
+  const inGame = useSimStore((s) => !!s.game);
   const sel = usePresence<AgentId>(selectedId);
   const hov = usePresence<AgentId>(hoveredId && hoveredId !== selectedId ? hoveredId : null, 160);
   return (
     <div className="spec-cards">
-      <DramaFeed />
+      {inGame ? <GameAlertFeed /> : <DramaFeed />}
       {hov.value && hov.value !== sel.value && <AgentContextCard key={`h-${hov.value}`} id={hov.value} leaving={hov.leaving} />}
       {sel.value && <AgentContextCard key={`s-${sel.value}`} id={sel.value} selected leaving={sel.leaving} />}
     </div>
@@ -404,31 +497,38 @@ function EventToast() {
 // First-run hint
 // ---------------------------------------------------------------------------
 
-function readHintDismissed(): boolean {
+function readHintDismissed(key: string): boolean {
   try {
-    return localStorage.getItem(HINT_KEY) === '1';
+    return localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 }
 
-function FirstRunHint() {
+function FirstRunHint({ game }: { game: boolean }) {
+  const key = game ? GAME_HINT_KEY : HINT_KEY;
   const [hidden, setHidden] = useState(true);
-  useEffect(() => setHidden(readHintDismissed()), []);
+  useEffect(() => setHidden(readHintDismissed(key)), [key]);
   if (hidden) return null;
   const dismiss = () => {
     setHidden(true);
     try {
-      localStorage.setItem(HINT_KEY, '1');
+      localStorage.setItem(key, '1');
     } catch {
       /* storage unavailable */
     }
   };
   return (
     <div className="spec-hint glass" role="note">
-      <span>
-        Survolez un habitant · Molette pour zoomer · <kbd>Tab</kbd> pour le laboratoire
-      </span>
+      {game ? (
+        <span>
+          <kbd>Espace</kbd> lecture · <kbd>G</kbd> faire un geste · <kbd>N</kbd> carnet · <kbd>Échap</kbd> fermer · <kbd>Tab</kbd> laboratoire
+        </span>
+      ) : (
+        <span>
+          Survolez un habitant · Molette pour zoomer · <kbd>Tab</kbd> pour le laboratoire
+        </span>
+      )}
       <button className="spec-x" onClick={dismiss} title="Masquer cette aide" aria-label="Masquer cette aide">
         ✕
       </button>

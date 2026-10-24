@@ -9,10 +9,10 @@ const A = runDay(NORMAL_SEED);
 const ctx = { t: 500, events: A.events };
 
 describe('INTERVENTION_TEMPLATES', () => {
-  it('propose huit modèles couvrant les huit types d’intervention', () => {
-    expect(INTERVENTION_TEMPLATES).toHaveLength(8);
-    expect(new Set(INTERVENTION_TEMPLATES.map((t) => t.kind))).toEqual(new Set(['bus_delay', 'stay_home', 'force_action', 'location_hours', 'encounter', 'weather', 'cancel_commitment', 'agent_delay']));
-    expect(new Set(INTERVENTION_TEMPLATES.map((t) => t.id)).size).toBe(8);
+  it('propose neuf modèles couvrant les neuf types d’intervention', () => {
+    expect(INTERVENTION_TEMPLATES).toHaveLength(9);
+    expect(new Set(INTERVENTION_TEMPLATES.map((t) => t.kind))).toEqual(new Set(['bus_delay', 'stay_home', 'force_action', 'location_hours', 'encounter', 'weather', 'cancel_commitment', 'agent_delay', 'lose_item']));
+    expect(new Set(INTERVENTION_TEMPLATES.map((t) => t.id)).size).toBe(9);
   });
 
   it.each(INTERVENTION_TEMPLATES.map((t) => [t.id, t] as const))('l’exemple « %s » est interprété (ok === true) et du bon type', (_id, tpl) => {

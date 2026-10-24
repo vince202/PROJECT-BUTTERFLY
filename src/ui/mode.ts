@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSimStore, type UiMode } from '../store/useSimStore';
+import { useGameUi } from '../store/gameUi';
 import { stepSpeed } from '../store/speed';
 
 /** Duration of the exit animation of the outgoing mode (ms). Must match `--mode-out` in styles.css. */
@@ -86,10 +87,14 @@ export function isTypingTarget(t: EventTarget | null): boolean {
 
 /**
  * Global keyboard shortcuts (both modes):
- * Space = play/pause · Shift+←/→ = ±10 min · + / − = next / previous speed
- * preset (×1 ×5 ×20 ×60) · Tab = switch mode ·
+ * Space = play/pause · Shift+←/→ = ±10 min (forward only inside a loop) ·
+ * + / − = next / previous speed preset (×1 ×5 ×20 ×60) · Tab = switch mode ·
  * Escape = lab: close the panel, then the event · spectator: clear the
  * selection, then (second press) back to the laboratory.
+ * Player mode (spectator with a game): G = « Faire un geste » · N = carnet ·
+ * Escape = close the composer / the carnet / the end-of-loop summary, then the
+ * event, then back to the followed inhabitant (never leaves the game).
+ * On the « Choisir qui suivre » screen, Escape shows the plain city.
  */
 export function useGlobalShortcuts() {
   useEffect(() => {
@@ -102,8 +107,24 @@ export function useGlobalShortcuts() {
       } else if (e.code === 'Space') {
         e.preventDefault();
         s.togglePlay();
+      } else if (s.uiMode === 'spectator' && s.game && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        const ui = useGameUi.getState();
+        if (s.game.phase === 'playing' && !ui.rewinding) ui.setComposerOpen(!ui.composerOpen);
+      } else if (s.uiMode === 'spectator' && s.game && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault();
+        const ui = useGameUi.getState();
+        ui.setNotebookOpen(!ui.notebookOpen);
       } else if (e.key === 'Escape') {
-        if (s.uiMode === 'spectator') {
+        const ui = useGameUi.getState();
+        if (s.uiMode === 'spectator' && s.game) {
+          if (ui.closeTop()) return;
+          if (s.game.phase !== 'playing' && !ui.bilanHidden && !ui.rewinding) ui.setBilanHidden(true);
+          else if (s.selectedEventId) s.selectEvent(null);
+          else if (s.selectedAgentId !== s.game.agentId || s.followAgentId !== s.game.agentId) s.followAgent(s.game.agentId);
+        } else if (s.uiMode === 'spectator' && !s.game && !ui.pickerDismissed) {
+          ui.setPickerDismissed(true);
+        } else if (s.uiMode === 'spectator') {
           if (s.selectedEventId || s.selectedAgentId || s.followAgentId) {
             if (s.selectedEventId) s.selectEvent(null);
             if (s.selectedAgentId || s.followAgentId) s.selectAgent(null);

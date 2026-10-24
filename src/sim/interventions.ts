@@ -200,6 +200,14 @@ export function interpretFrench(text: string, ctx: InterpretContext): InterpretR
     return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.9 };
   }
 
+  // Lost wallet: « Et si Gérard oubliait son portefeuille ? »
+  if (agent && /(oubli|perd|egar)\w*\s+(son|le)?\s*(portefeuille|porte-monnaie)/.test(n)) {
+    const name = AGENTS.find((a) => a.id === agent)!.firstName;
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'lose_item', agentId: agent, t, item: 'wallet', description: `${name} oublie son portefeuille à ${fmtTime(t)}` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.85 };
+  }
+
   // Missed / cancelled meeting
   if (agent && /(rat|manqu|oubli|annul|zapp)\w*\s+(son|sa|le|la|leur)?\s*(rendez|rdv|reunion|dejeuner|diner|interview|partie|seance|cafe entre)/.test(n)) {
     const name = AGENTS.find((a) => a.id === agent)!.firstName;
@@ -301,5 +309,6 @@ export const INTERVENTION_TEMPLATES: { id: string; label: string; example: strin
   { id: 'meet', label: 'Provoquer une rencontre', example: 'Et si Sophie retrouvait son ancien amoureux au parc ?', kind: 'encounter' },
   { id: 'rain', label: 'Changer la météo', example: 'Et si la pluie commençait à 14 h ?', kind: 'weather' },
   { id: 'miss', label: 'Manquer un rendez-vous', example: 'Et si Gérard oubliait son rendez-vous ?', kind: 'cancel_commitment' },
+  { id: 'wallet', label: 'Oublier son portefeuille', example: 'Et si Élodie oubliait son portefeuille à midi ?', kind: 'lose_item' },
   { id: 'late', label: 'Partir plus tard', example: 'Et si Léa partait dix minutes plus tard ?', kind: 'agent_delay' },
 ];

@@ -14,7 +14,7 @@ import { Timetable, TERMINAL_LAYOVER, stopPath } from './bus';
 import { getCity, polylineLength, pointAlong, type City } from './city';
 import { AGENTS, BUS_DRIVERS, COMMITMENT_SEEDS, type CommitmentSeed } from './population';
 import { Rng, daySeed } from './rng';
-import { ARC_STATUS_LABELS, arcDeadline, arcOf, arcSeed, deadlineOutcome, detectDilemma, effectiveStakes, evaluateBeat, gossipChance, initialArcs, nextDayArcs, revealChance, secretsToSpread, type Beat } from './drama';
+import { ARC_STATUS_LABELS, fateOf, arcDeadline, arcOf, arcSeed, deadlineOutcome, detectDilemma, effectiveStakes, evaluateBeat, gossipChance, initialArcs, nextDayArcs, revealChance, secretsToSpread, type Beat } from './drama';
 import { fmtTime } from './time';
 import { initBuses } from './bus';
 import {
@@ -199,6 +199,8 @@ export class Engine {
       }
     }
     fresh.arcs = nextDayArcs(prev.arcs ?? {});
+    fresh.incidents = fateOf(fresh.arcs);
+    fresh.incidentEventIds = {};
     return fresh;
   }
 
@@ -337,6 +339,8 @@ export class Engine {
       interventionEventIds: {},
       arcs: initialArcs(),
       lastLeft: {},
+      incidents: fateOf(initialArcs()),
+      incidentEventIds: {},
     };
   }
 
@@ -450,6 +454,7 @@ export class Engine {
       }
     }
 
+    this.applyIncidents();
     this.applyInterventions();
     this.applyWeather();
     this.updateBuses();
@@ -481,12 +486,43 @@ export class Engine {
       this.state.appliedInterventions.push(iv.id);
       const root = this.emit({ type: 'intervention', actors: 'agentId' in iv ? [iv.agentId] : iv.kind === 'encounter' ? [iv.agentA, iv.agentB] : [], label: `Intervention : ${iv.description}`, interventionId: iv.id, importance: 1, sig: iv.id, locationId: 'locationId' in iv ? iv.locationId : undefined });
       this.state.interventionEventIds[iv.id] = root.id;
+      this.applyEffect(iv, root, iv.id);
+    }
+  }
+
+  /** Coups du sort: the day's built-in obstacles, applied like interventions but without an observer. */
+  private applyIncidents() {
+    const t = this.state.t;
+    for (const iv of this.state.incidents ?? []) {
+      if (iv.t !== t || this.state.incidentEventIds[iv.id]) continue;
+      const fate = iv as Intervention & { gravity?: Gravity; requires?: 'home' | 'public' };
+      const gravity = fate.gravity ?? 1;
+      if (fate.requires && 'agentId' in iv) {
+        const a = this.state.agents[iv.agentId];
+        const home = this.profiles.get(iv.agentId)?.homeId;
+        const atHome = !!a && a.locationId === home;
+        const inPublic = !!a && !!a.locationId && a.locationId !== home && this.city.location(a.locationId).kind !== 'bus_stop';
+        if ((fate.requires === 'home' && !atHome) || (fate.requires === 'public' && !inPublic)) {
+          this.state.incidentEventIds[iv.id] = this.emit({ type: 'incident', actors: [iv.agentId], label: `Coup du sort évité : ${iv.description}`, importance: 0.4, gravity: 0, sig: `${iv.id}:dodged`, data: { incidentId: iv.id, dodged: true } }).id;
+          continue;
+        }
+      }
+      const root = this.emit({ type: 'incident', actors: 'agentId' in iv ? [iv.agentId] : iv.kind === 'encounter' ? [iv.agentA, iv.agentB] : [], label: `Coup du sort : ${iv.description}`, importance: 0.65, gravity, sig: iv.id, locationId: 'locationId' in iv ? iv.locationId : undefined, data: { incidentId: iv.id } });
+      this.state.incidentEventIds[iv.id] = root.id;
+      this.applyEffect(iv, root, undefined);
+    }
+  }
+
+  /** Mechanics shared by interventions and incidents. `tag` marks sub-events as products of an intervention. */
+  private applyEffect(iv: Intervention, root: SimEvent, tag: string | undefined) {
+    const t = this.state.t;
+    {
       switch (iv.kind) {
         case 'bus_delay': {
           const bus = this.state.buses[iv.busId];
           if (!bus) break;
           bus.holdRemaining += iv.minutes;
-          const ev = this.emit({ type: 'bus_delay', actors: bus.driverId ? [bus.driverId] : [], busId: bus.id, locationId: bus.currentStopId ?? undefined, label: `Le bus ${bus.id} est retenu ${iv.minutes} min`, description: iv.description, causes: [root.id], mechanism: 'Immobilisation imposée par l’intervention', interventionId: iv.id, importance: 0.8, data: { minutes: iv.minutes }, sig: `${bus.id}:${t}` });
+          const ev = this.emit({ type: 'bus_delay', actors: bus.driverId ? [bus.driverId] : [], busId: bus.id, locationId: bus.currentStopId ?? undefined, label: `Le bus ${bus.id} est retenu ${iv.minutes} min`, description: iv.description, causes: [root.id], mechanism: 'Immobilisation imposée par l’intervention', interventionId: tag, importance: 0.8, data: { minutes: iv.minutes }, sig: `${bus.id}:${t}` });
           bus.delayEventIds.push(ev.id);
           break;
         }
@@ -498,7 +534,7 @@ export class Engine {
           if (a.locationId === p.homeId) {
             if (a.activity && a.activity.locationId !== p.homeId) a.activity = null;
             if (a.plan && a.plan.locationId !== p.homeId) {
-              this.emit({ type: 'plan_change', actors: [a.id], locationId: a.locationId, label: `${p.firstName} renonce à sortir`, causes: [root.id], interventionId: iv.id, mechanism: 'Intervention : rester à la maison' });
+              this.emit({ type: 'plan_change', actors: [a.id], locationId: a.locationId, label: `${p.firstName} renonce à sortir`, causes: [root.id], interventionId: tag, mechanism: 'Intervention : rester à la maison' });
               a.plan = null;
             }
             this.influence(a, root, 'Doit rester à la maison');
@@ -530,19 +566,21 @@ export class Engine {
           const a = this.state.agents[iv.agentId];
           if (!a) break;
           const p = this.profiles.get(a.id)!;
-          if (a.activity) {
-            a.activity.until += iv.minutes;
-            this.emit({ type: 'plan_change', actors: [a.id], locationId: a.locationId ?? undefined, label: `${p.firstName} s’attarde ${iv.minutes} min`, causes: [root.id], interventionId: iv.id, mechanism: 'Retard imposé par l’intervention' });
-          } else if (a.locationId) {
-            a.plan = null;
-            const ev = this.emit({ type: 'activity_start', actors: [a.id], locationId: a.locationId, label: `${p.firstName} s’attarde ${iv.minutes} min`, causes: [root.id], interventionId: iv.id, sig: 'delay' });
-            a.activity = { action: 'wait', label: `S’attarde (${iv.minutes} min)`, locationId: a.locationId, since: t, until: t + iv.minutes, startEventId: ev.id, interruptible: false };
-          } else if (a.travel && a.travel.stage !== 'riding') {
-            // Pause the walk: shift expected arrival; implemented as a hold on the traveller.
-            a.travel.progress -= iv.minutes * walkSpeed(this.state);
+          if (a.travel && a.travel.stage !== 'riding') {
+            // Pause the walk (or the wait at the stop): the traveller stands still for the whole delay.
+            a.travel.pausedUntil = Math.max(a.travel.pausedUntil ?? 0, t + iv.minutes);
             a.travel.expectedArrival += iv.minutes;
             a.travel.delayEventIds.push(root.id);
-            this.emit({ type: 'plan_change', actors: [a.id], label: `${p.firstName} est retardé de ${iv.minutes} min en chemin`, causes: [root.id], interventionId: iv.id });
+            this.emit({ type: 'plan_change', actors: [a.id], label: `${p.firstName} est retardé de ${iv.minutes} min en chemin`, causes: [root.id], interventionId: tag });
+          } else if (a.activity) {
+            // The agent is held where they are: no leaving, no plan change until the delay has passed.
+            a.heldUntil = Math.max(a.heldUntil ?? 0, t + iv.minutes);
+            this.emit({ type: 'plan_change', actors: [a.id], locationId: a.locationId ?? undefined, label: `${p.firstName} s’attarde ${iv.minutes} min`, causes: [root.id], interventionId: tag, mechanism: tag ? 'Retard imposé par l’intervention' : 'Retard imposé par les circonstances' });
+          } else if (a.locationId) {
+            a.plan = null;
+            a.heldUntil = Math.max(a.heldUntil ?? 0, t + iv.minutes);
+            const ev = this.emit({ type: 'activity_start', actors: [a.id], locationId: a.locationId, label: `${p.firstName} s’attarde ${iv.minutes} min`, causes: [root.id], interventionId: tag, sig: 'delay' });
+            a.activity = { action: 'wait', label: `S’attarde (${iv.minutes} min)`, locationId: a.locationId, since: t, until: t + iv.minutes, startEventId: ev.id, interruptible: false };
           }
           break;
         }
@@ -559,8 +597,8 @@ export class Engine {
         }
         case 'weather': {
           this.state.weatherSchedule = this.state.weatherSchedule.filter((w) => w.t < t);
-          this.state.weatherSchedule.push({ t, condition: iv.condition, interventionId: iv.id });
-          if (iv.until !== undefined) this.state.weatherSchedule.push({ t: iv.until, condition: iv.condition === 'rain' ? 'clear' : 'rain', interventionId: iv.id });
+          this.state.weatherSchedule.push({ t, condition: iv.condition, interventionId: tag });
+          if (iv.until !== undefined) this.state.weatherSchedule.push({ t: iv.until, condition: iv.condition === 'rain' ? 'clear' : 'rain', interventionId: tag });
           break;
         }
         case 'cancel_commitment': {
@@ -572,7 +610,7 @@ export class Engine {
           if (!c) break;
           c.status = 'cancelled';
           const p = this.profiles.get(a.id)!;
-          this.emit({ type: 'commitment_cancelled', actors: [a.id], locationId: c.locationId, label: `${p.firstName} renonce à « ${c.label} »`, causes: [root.id], interventionId: iv.id, mechanism: 'Intervention : l’engagement est abandonné sans prévenir', data: { commitmentId: c.id }, sig: c.id });
+          this.emit({ type: 'commitment_cancelled', actors: [a.id], locationId: c.locationId, label: `${p.firstName} renonce à « ${c.label} »`, causes: [root.id], interventionId: tag, mechanism: 'Intervention : l’engagement est abandonné sans prévenir', data: { commitmentId: c.id }, sig: c.id });
           this.influence(a, root, `Renonce à ${c.label}`);
           if (a.plan?.commitmentId === c.id) {
             if (a.travel && a.travel.stage !== 'riding') this.cancelTravel(a);
@@ -593,6 +631,21 @@ export class Engine {
             if (a.activity) this.endActivity(a, root.id, 'interrompu par l’intervention');
             else if (!a.travel) this.decide(a, root.id);
           }
+          break;
+        }
+        case 'lose_item': {
+          const a = this.state.agents[iv.agentId];
+          if (!a || !a.inventory.includes('wallet')) break;
+          const loc = a.locationId;
+          const def = loc ? this.city.location(loc) : null;
+          if (!loc || !def || def.kind === 'home' || def.kind === 'bus_stop') {
+            this.emit({ type: 'plan_change', actors: [a.id], label: `${this.name(a.id)} garde son portefeuille sur lui : il n’était pas dans un lieu public`, causes: [root.id], interventionId: tag, importance: 0.2, sig: 'keep_wallet' });
+            break;
+          }
+          a.inventory = a.inventory.filter((i) => i !== 'wallet');
+          const lose = this.emit({ type: 'lose_item', actors: [a.id], locationId: loc, label: `${this.name(a.id)} oublie son portefeuille à ${def.name}`, causes: [root.id], mechanism: 'Moment de distraction', interventionId: tag, effects: [{ kind: 'inventory', agentId: a.id, value: 'wallet', delta: -1 }], sig: loc });
+          this.state.locations[loc].items.push({ item: 'wallet', ownerId: a.id, eventId: lose.id });
+          this.addWalletErrand(a, lose.id);
           break;
         }
       }
@@ -861,6 +914,22 @@ export class Engine {
       this.advanceTravel(a);
       return;
     }
+    if (a.heldUntil !== undefined && t < a.heldUntil) {
+      // Held in place: the current activity continues (or turns into waiting) and nothing interrupts it.
+      if (a.activity) {
+        this.applyActivityEffects(a);
+        if (t >= a.activity.until && a.activity.action !== 'wait') {
+          const prev = a.activity;
+          this.endActivityQuietly(a, prev);
+        }
+      }
+      if (!a.activity && a.locationId) {
+        const ev = this.emit({ type: 'activity_start', actors: [a.id], locationId: a.locationId, label: `${p.firstName} s’attarde encore`, sig: 'delay:hold', importance: 0.05 });
+        a.activity = { action: 'wait', label: 'S’attarde', locationId: a.locationId, since: t, until: a.heldUntil, startEventId: ev.id, interruptible: false };
+      }
+      return;
+    }
+    if (a.heldUntil !== undefined && t >= a.heldUntil) a.heldUntil = undefined;
     if (a.activity) {
       this.applyActivityEffects(a);
       if (t >= a.activity.until) {
@@ -1544,6 +1613,22 @@ export class Engine {
     this.emit({ type: 'meeting_missed', actors: [a.id, ...c.with], locationId: c.locationId, label: `« ${c.label} » n’a pas lieu : ${reason}`, causes: [cause], data: { commitmentId: c.id }, sig: c.id, importance: 0.6 });
   }
 
+  /** End the current activity while the agent is held: records the end, no new decision. */
+  private endActivityQuietly(a: AgentState, act: NonNullable<AgentState['activity']>) {
+    const t = this.state.t;
+    a.recent[act.action] = t;
+    const c = act.commitmentId ? a.commitments.find((x) => x.id === act.commitmentId) : undefined;
+    if (c && (c.kind === 'work' || c.kind === 'school' || c.kind === 'shift') && t >= c.end) {
+      c.status = 'done';
+      a.objectivesDone += 1;
+      this.emit({ type: 'work_end', actors: [a.id], locationId: act.locationId, label: `${this.name(a.id)} termine sa journée`, causes: [act.startEventId], sig: c.id });
+    } else {
+      this.emit({ type: 'activity_end', actors: [a.id], locationId: act.locationId, label: `${this.name(a.id)} termine : ${act.label}`, causes: [act.startEventId], sig: act.action, importance: 0.08 });
+    }
+    a.activity = null;
+    a.plan = null;
+  }
+
   private endActivity(a: AgentState, cause: EventId | null, reason: string) {
     const act = a.activity!;
     const t = this.state.t;
@@ -1695,6 +1780,12 @@ export class Engine {
     const seen = new Set<string>();
     for (const a of Object.values(this.state.agents)) {
       for (const c of a.commitments) {
+        // A solo errand whose window closed without being done is missed (cause: the last decision or hold).
+        if (c.kind === 'errand' && c.status === 'pending' && t > c.end && !(a.activity?.commitmentId === c.id)) {
+          const cause = a.lastDecision?.eventId ?? a.lastArrivalEventId ?? 'e0';
+          this.failCommitment(a, c.id, cause, `${this.name(a.id)} n’a pas trouvé le temps`);
+          continue;
+        }
         if (c.kind !== 'meeting' && c.kind !== 'appointment') continue;
         if (seen.has(c.id)) continue;
         seen.add(c.id);
@@ -1987,7 +2078,8 @@ export class Engine {
     b.lastChat[a.id] = t;
 
     const busyKinds = new Set(['work', 'school', 'commitment', 'drive_bus', 'morning_routine']);
-    const bothFree = !(a.activity && busyKinds.has(a.activity.action)) && !(b.activity && busyKinds.has(b.activity.action));
+    const busy = (x: AgentState) => (!!x.activity && busyKinds.has(x.activity.action)) || (x.heldUntil !== undefined && t < x.heldUntil);
+    const bothFree = !busy(a) && !busy(b);
     let type: EventType = 'encounter';
     let label = `${pa.firstName} et ${pb.firstName} discutent ${where}`;
     let mechanism = how === 'visit' ? `${pa.firstName} est venu retrouver ${pb.firstName}` : 'Présents au même endroit au même moment (graine aléatoire)';
@@ -2352,6 +2444,8 @@ export class Engine {
       }
       for (const a of Object.values(this.state.agents)) {
         if (a.locationId !== ls.id || !a.activity || a.asleep) continue;
+        // Someone held here (an urgent case at the clinic, a delivery…) stays after closing time.
+        if (a.heldUntil !== undefined && t < a.heldUntil) continue;
         const c = a.activity.commitmentId ? a.commitments.find((x) => x.id === a.activity!.commitmentId) : undefined;
         if (c && (c.kind === 'work' || c.kind === 'shift' || c.kind === 'school')) {
           if (c.end > t) {

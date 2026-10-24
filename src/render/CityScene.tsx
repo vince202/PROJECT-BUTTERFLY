@@ -11,6 +11,7 @@ import type { JSX } from 'react';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Agents } from './Agents';
+import { BubbleProjector } from './Bubbles';
 import { Buses } from './Buses';
 import { CameraRig, INITIAL_CAMERA } from './CameraRig';
 import { Lighting } from './Lighting';
@@ -43,6 +44,7 @@ export function CityScene(): JSX.Element {
         <Agents />
         <Rain />
         <CameraRig />
+        <BubbleProjector />
       </Canvas>
       <div className="city-scene__vignette" aria-hidden="true" />
     </div>
