@@ -14,7 +14,7 @@ import { busDelayFor, validateIntervention } from '../sim/interventions';
 import { fmtTime } from '../sim/time';
 import type { AgentId, AgentState, Candidate, SimEvent, TraitName, WorldState } from '../sim/types';
 import type { Reality } from '../sim/reality';
-import { AgentChip, AiButton, Badge, Bar, Empty, EventRow, FamilyDot, KV, NarrationBox, Section, SignedBar } from './common';
+import { AgentChip, AiButton, Badge, Bar, Empty, EventRow, KV, NarrationBox, Section, SignedBar } from './common';
 import { ARC_STATUS_TONE, DIALOGUE_TYPES, PROFILES, STAKES_WORDS, attemptLabel, dialogueFacts, stakesLevel } from './drama';
 import {
   COMMITMENT_STATUS,
