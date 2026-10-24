@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { CURB_H } from './layout';
 import { makeBillboards, waterMaterial } from './materials';
 import { agentWorld, damp, env, seeded } from './shared';
-import { PARK } from './town';
+import { PARK } from './townBuilder';
 
 const DUCKS = 6;
 const PIGEONS = 16;

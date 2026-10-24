@@ -9,6 +9,10 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  optimizeDeps: {
+    // Only the app entry: helper pages under scripts/ must not be scanned.
+    entries: ['index.html'],
+  },
   server: {
     port: 5173,
     proxy: {

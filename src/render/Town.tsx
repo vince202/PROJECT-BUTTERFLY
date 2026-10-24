@@ -21,7 +21,7 @@ import { LampGlow } from './Streets';
 import { focusBoxes } from './focus';
 import { PlaceLabels } from './PlaceLabels';
 import { Life } from './Life';
-import { buildCafeBlockLots, buildOtherLots, buildPark, canalDressing, countryside, fillBlock, gardenBlock, newTownOut, parkChairs, parkNorthEdge } from './town';
+import { buildCafeBlockLots, buildOtherLots, buildPark, canalDressing, countryside, fillBlock, gardenBlock, newTownOut, parkChairs, parkNorthEdge } from './townBuilder';
 
 /** Locations built with the detailed café-block builder. */
 export const TOWN_LOTS = new Set(['cafe', 'bakery', 'florist']);
