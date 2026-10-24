@@ -14,7 +14,9 @@
     "server": "tsx --env-file-if-exists=.env server/index.ts",
     "cli": "tsx scripts/cli.ts",
     "cli:advised": "tsx --env-file-if-exists=.env scripts/llm-day.ts",
-    "brain:learn": "tsx --env-file-if-exists=.env scripts/brain-learn.ts"
+    "brain:learn": "tsx --env-file-if-exists=.env scripts/brain-learn.ts",
+    "i18n:check": "tsx scripts/i18n-check.ts",
+    "i18n:translate": "tsx --env-file-if-exists=.env scripts/i18n-translate.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.2.0",
