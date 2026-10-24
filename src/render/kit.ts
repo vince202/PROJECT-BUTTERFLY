@@ -18,8 +18,8 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { StaticBatch, hipRoofGeometry, mansardGeometry } from './batch';
-import { type Surface, surfaceMaterial } from './materials';
+import { ChunkedBatch, StaticBatch, hipRoofGeometry, mansardGeometry } from './batch';
+import { type Surface, surfaceMaterial, litWindowMaterial } from './materials';
 import { shade } from './shared';
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ export function calm(color: string, k = 0.45): string {
 // Batches
 // ---------------------------------------------------------------------------
 
-export type BatchKey = Surface | 'metal' | 'glow' | 'bulb' | 'glass' | 'clothSoft';
+export type BatchKey = Surface | 'metal' | 'glow' | 'bulb' | 'glass' | 'clothSoft' | 'winLit';
 
 let bulbMaterial: THREE.MeshBasicMaterial | null = null;
 /** Shared emissive material of every lamp bulb (colour animated by the lighting rig). */
@@ -86,6 +86,8 @@ export function materialFor(key: BatchKey): THREE.Material {
       return surfaceMaterial('plain', { roughness: 0.45, metalness: 0.35 });
     case 'glass':
       return surfaceMaterial('plain', { roughness: 0.15, metalness: 0.2 });
+    case 'winLit':
+      return litWindowMaterial();
     case 'glow':
       return glowMat();
     case 'bulb':
@@ -114,10 +116,15 @@ const SHADOWLESS = new Set<BatchKey>(['glow', 'bulb', 'cobble', 'paving', 'aspha
 
 export class Batches {
   private map = new Map<BatchKey, StaticBatch>();
+  /**
+   * @param litKey group of the lit-window material used for imported window panes
+   * @param chunk optional spatial chunking (merged meshes per region, frustum-culled)
+   */
+  constructor(public litKey = 'homes', private chunk?: (x: number, z: number) => string) {}
   get(k: BatchKey): StaticBatch {
     let b = this.map.get(k);
     if (!b) {
-      b = new StaticBatch();
+      b = this.chunk ? new ChunkedBatch(this.chunk) : new StaticBatch();
       this.map.set(k, b);
     }
     return b;
@@ -136,7 +143,7 @@ export class Batches {
   wall(s: 'plaster' | 'brick' | 'stone'): StaticBatch { return this.get(s); }
   /** Gravel deck of a flat roof. */
   gravel_deck(x: number, y: number, z: number, sx: number, sz: number, frame: THREE.Matrix4): void {
-    this.get('gravel').box(x, y, z, sx, 0.12, sz, '#a39d92', 0, frame);
+    this.get('gravel').box(x, y, z, sx, 0.12, sz, '#77726a', 0, frame);
   }
   /** Small glazed transom above a door. */
   glass_transom(u: number, v: number, w: number, frame: THREE.Matrix4): void {
@@ -147,14 +154,16 @@ export class Batches {
   build(opts: { shadows?: boolean } = {}): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
     for (const [k, b] of this.map) {
-      const g = b.build();
-      if (!g) continue;
-      const m = new THREE.Mesh(g, materialFor(k));
-      const cast = opts.shadows !== false && !SHADOWLESS.has(k);
-      m.castShadow = cast;
-      m.receiveShadow = k !== 'glow' && k !== 'bulb';
-      m.name = `batch:${k}`;
-      out.push(m);
+      const geos = b instanceof ChunkedBatch ? b.buildChunks() : [b.build()];
+      for (const g of geos) {
+        if (!g) continue;
+        const m = new THREE.Mesh(g, k === 'winLit' ? litWindowMaterial(this.litKey) : materialFor(k));
+        const cast = opts.shadows !== false && !SHADOWLESS.has(k);
+        m.castShadow = cast;
+        m.receiveShadow = k !== 'glow' && k !== 'bulb';
+        m.name = `batch:${k}`;
+        out.push(m);
+      }
     }
     return out;
   }
@@ -190,7 +199,9 @@ export const WINDOW_STYLES: Record<WindowStyle, StyleDef> = {
 function boxAt(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
   const g = new THREE.BoxGeometry(w, h, d);
   g.translate(x, y, z);
-  return g.toNonIndexed();
+  const n = g.toNonIndexed();
+  g.dispose();
+  return n;
 }
 
 /** Frame geometry of a window style, local: centre at origin, wall plane z = 0, facing +z. */
@@ -247,8 +258,7 @@ function shutterGeometry(st: StyleDef): THREE.BufferGeometry {
   for (const s of [-1, 1]) {
     const u = s * (st.w / 2 + 0.16 + pw / 2);
     parts.push(boxAt(pw, st.h, 0.08, u, 0, 0.06));
-    const n = Math.round(st.h / 0.45);
-    for (let i = 1; i < n; i++) parts.push(boxAt(pw - 0.1, 0.05, 0.05, u, -st.h / 2 + (st.h / n) * i, 0.12));
+    for (const f of [0.33, 0.66]) parts.push(boxAt(pw - 0.1, 0.06, 0.05, u, -st.h / 2 + st.h * f, 0.12));
   }
   return mergeGeometries(parts, false)!;
 }
@@ -270,6 +280,8 @@ function glassGeometry(kind: 'rect' | 'arch' | 'round'): THREE.BufferGeometry {
 }
 
 interface WinInstance {
+  /** Glass only (calm outer districts): no frame, no shutters. */
+  bare: boolean;
   style: WindowStyle;
   matrix: THREE.Matrix4;
   trim: THREE.Color;
@@ -287,6 +299,8 @@ export interface WindowOwner {
 export class WindowSet {
   list: WinInstance[] = [];
   owners: WindowOwner[] = [];
+  /** When true, windows added are glass only (set by the house builder for calm massing). */
+  bare = false;
   private ownerIdx = new Map<string, number>();
 
   owner(id: string, kind: string): number {
@@ -301,7 +315,7 @@ export class WindowSet {
 
   add(style: WindowStyle, frame: THREE.Matrix4, u: number, v: number, owner: number, seed: number, trim: string, shutter: string | null): void {
     const m = new THREE.Matrix4().makeTranslation(u, v, 0).premultiply(frame);
-    this.list.push({ style, matrix: m, trim: new THREE.Color(trim), shutter: shutter && WINDOW_STYLES[style].shutters ? new THREE.Color(shutter) : null, owner, seed });
+    this.list.push({ bare: this.bare, style, matrix: m, trim: new THREE.Color(trim), shutter: shutter && WINDOW_STYLES[style].shutters ? new THREE.Color(shutter) : null, owner, seed });
   }
 
   /** Instanced meshes: frames per style, glass per shape, shutters per style. */
@@ -314,6 +328,7 @@ export class WindowSet {
     const shutterMat = surfaceMaterial('wood', { roughness: 0.75 });
     const byStyle = new Map<WindowStyle, WinInstance[]>();
     for (const w of this.list) {
+      if (w.bare) continue;
       if (!byStyle.has(w.style)) byStyle.set(w.style, []);
       byStyle.get(w.style)!.push(w);
     }
@@ -348,6 +363,7 @@ export class WindowSet {
       const items = this.list.filter((w) => WINDOW_STYLES[w.style].glass === kind);
       if (!items.length) continue;
       const gm = new THREE.InstancedMesh(glassGeometry(kind), glassMaterial(), items.length);
+      gm.name = `glass:${kind}`;
       const own = new Int32Array(items.length);
       const seeds = new Float32Array(items.length);
       const black = new THREE.Color(0, 0, 0);
@@ -395,10 +411,10 @@ export function glassMaterial(): THREE.MeshStandardMaterial {
   // Diagonal sheen + sky reflection by day.
   float sheen = smoothstep(0.35, 0.5, fract(vGUv.x * 0.7 + vGUv.y * 0.9)) * 0.12;
   totalEmissiveRadiance += uSky * (0.16 + 0.4 * fres + sheen);
-  #ifdef USE_INSTANCING_COLOR
+  #ifdef USE_COLOR
   // Lit interior: warm, brighter at the bottom, a soft curtain edge on the sides.
   float curtain = smoothstep(0.0, 0.18, vGUv.x) * smoothstep(1.0, 0.82, vGUv.x);
-  totalEmissiveRadiance += vColor * (0.65 + 0.45 * (1.0 - vGUv.y)) * mix(0.55, 1.0, curtain);
+  totalEmissiveRadiance += vColor.rgb * (0.65 + 0.45 * (1.0 - vGUv.y)) * mix(0.55, 1.0, curtain);
   #endif
 }`,
       );
@@ -422,6 +438,9 @@ export interface SignStyle {
   /** Transparent background (painted lettering). */
   clear?: boolean;
 }
+
+/** Sign materials (their glow follows the night, see Lighting). */
+export const SIGN_MATERIALS = new Set<THREE.MeshStandardMaterial>();
 
 const ATLAS_W = 2048;
 const ATLAS_H = 2048;
@@ -541,6 +560,7 @@ export class SignAtlas {
     tex.anisotropy = 8;
     tex.generateMipmaps = true;
     const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: 0.05, roughness: 0.7, transparent: true, alphaTest: 0.3 });
+    SIGN_MATERIALS.add(mat);
     const mesh = new THREE.Mesh(g, mat);
     mesh.name = 'signs';
     mesh.receiveShadow = true;
@@ -655,6 +675,8 @@ export interface HouseResult {
  */
 export function house(ctx: Ctx, frame: THREE.Matrix4, s: HouseSpec): HouseResult {
   const { b, win, rnd } = ctx;
+  const prevBare = win.bare;
+  win.bare = s.detail === 0;
   const W = s.width;
   const D = s.depth;
   const gH = s.groundH ?? (s.shop ? 5.4 : 4.8);
@@ -800,6 +822,16 @@ export function house(ctx: Ctx, frame: THREE.Matrix4, s: HouseSpec): HouseResult
     }
     b.trim.box(0, H + 1.0, zc, W + 0.3, 0.22, Dj + 0.3, trim, 0, frame);
     top = H + 1.2;
+    // Rooftop technical boxes and skylights on large flat roofs.
+    if (W * Dj > 300) {
+      const n = Math.min(6, Math.floor((W * Dj) / 250));
+      for (let i = 0; i < n; i++) {
+        const ux = (rnd() - 0.5) * (W - 6);
+        const uz = zc + (rnd() - 0.5) * (Dj - 6);
+        b.metal.box(ux, H, uz, 2.6 + rnd() * 2, 1.4 + rnd(), 2 + rnd() * 1.5, '#a9adb1', 0, frame);
+      }
+      if (W > 40) for (let i = 0; i < 3; i++) b.get('glass').box(-W / 4 + (i * W) / 4, H, zc, 4, 0.5, Dj * 0.6, '#7d95a8', 0, frame);
+    }
   }
 
   // Chimneys
@@ -828,6 +860,8 @@ export function house(ctx: Ctx, frame: THREE.Matrix4, s: HouseSpec): HouseResult
     if (f.side === 'right' && s.hide?.right) continue;
     if (f.side === 'back' && s.hide?.back) continue;
     const isFront = f.side === 'front';
+    // Frames and shutters only on hero fronts; glass only elsewhere (cheap).
+    win.bare = detail < 2 || !isFront;
     const spacing = st.w + (style === 'office' ? 0.9 : 1.9);
     const ncol = Math.max(1, Math.floor((f.length - 1.2) / spacing));
     // Upper floors
@@ -837,7 +871,7 @@ export function house(ctx: Ctx, frame: THREE.Matrix4, s: HouseSpec): HouseResult
         const u = -f.length / 2 + (f.length / ncol) * (i + 0.5);
         win.add(style, fu.frame, u, v, s.owner, rnd(), trim, shutter);
         if (detail === 2 && s.flowerBoxes && isFront && (i + k) % 2 === 0 && k < 2) flowerBox(ctx, fu.frame, u, v - st.h / 2 - 0.2, st.w);
-        if (isFront && detail >= 1 && s.balcony === 'juliet' && style === 'tall' && (i + k) % 2 === 1) juliet(ctx, fu.frame, u, v - st.h / 2, st.w);
+        if (isFront && detail === 2 && s.balcony === 'juliet' && style === 'tall' && (i + k) % 2 === 1) juliet(ctx, fu.frame, u, v - st.h / 2, st.w);
       }
       if (isFront && s.balcony === 'continuous' && (k === 0 || k === s.floors - 1) && detail >= 1) {
         const v0 = gH + k * fH;
@@ -864,6 +898,7 @@ export function house(ctx: Ctx, frame: THREE.Matrix4, s: HouseSpec): HouseResult
     // Ivy climbing a front corner
     if (s.ivy && detail === 2 && isFront) ivy(ctx, f.frame, (rnd() < 0.5 ? -1 : 1) * (f.length / 2 - 0.8), Math.min(H - 1, 4 + rnd() * 6), rnd);
   }
+  win.bare = prevBare;
   return { eaves: H, top };
 }
 
@@ -904,7 +939,7 @@ export function railing(ctx: Ctx, frame: THREE.Matrix4, u: number, v: number, w:
   const { b } = ctx;
   b.metal.box(u, v + h - 0.06, w, len, 0.1, 0.1, PAL.iron, 0, frame);
   b.metal.box(u, v + 0.1, w, len, 0.06, 0.06, PAL.iron, 0, frame);
-  const n = Math.max(2, Math.round(len / 0.45));
+  const n = Math.max(2, Math.round(len / 0.65));
   for (let i = 0; i <= n; i++) b.metal.box(u - len / 2 + (len / n) * i, v, w, 0.05, h, 0.05, PAL.iron, 0, frame);
 }
 
@@ -950,7 +985,7 @@ export function door(ctx: Ctx, frame: THREE.Matrix4, u: number, color: string, a
     b.wood.box(u, 0.1, 0.1, w, h, 0.14, color, 0, frame);
     if (detail >= 1) b.glass_transom(u, h + 0.45, w, frame);
   }
-  b.metal.shape('sphere', u + w * 0.3, 1.8, 0.24, 0.16, 0.16, 0.16, '#c9a24a', undefined, frame);
+  b.metal.box(u + w * 0.3, 1.72, 0.24, 0.14, 0.14, 0.14, '#c9a24a', 0, frame);
   if (detail >= 1) {
     const lp = new THREE.Vector3(u + w / 2 + 0.7, 3.4, 0.45).applyMatrix4(frame);
     b.metal.box(u + w / 2 + 0.7, 3.2, 0.25, 0.12, 0.12, 0.5, PAL.iron, 0, frame);

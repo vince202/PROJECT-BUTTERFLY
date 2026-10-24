@@ -7,11 +7,27 @@
  * scene, and animates the sun, hemisphere light, sky colour, fog and stars.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { Environment } from '@react-three/drei';
 import * as THREE from 'three';
 import { useSimStore } from '../store/useSimStore';
 import { CITY_CENTER, activeRealityOf, damp, env, seeded } from './shared';
+import { U } from './materials';
+import { SIGN_MATERIALS, U_SKY } from './kit';
+
+/** Warm night lights of the café block (no shadows). */
+const NIGHT_LIGHTS: [number, number, number, number][] = [
+  [300, 5.5, 146, 1],
+  [300, 4, 128, 0.6],
+  [146, 4.5, 180, 0.8],
+  [420, 5, 146, 0.8],
+  [432, 4, 113, 0.5],
+  [360, 4.5, 256, 0.55],
+  [240, 4.5, 128, 0.45],
+  [360, 4.5, 128, 0.45],
+];
+const tmpTarget = new THREE.Vector3();
 
 interface Key {
   t: number; // minutes
@@ -82,6 +98,9 @@ export function Lighting() {
   const sun = useRef<THREE.DirectionalLight>(null);
   const hemi = useRef<THREE.HemisphereLight>(null);
   const stars = useRef<THREE.Points>(null);
+  const nightLights = useRef<(THREE.PointLight | null)[]>([]);
+  const lastTime = useRef(-1000);
+  const controls = useThree((s) => s.controls) as unknown as { target?: THREE.Vector3 } | null;
 
   // Persistent objects animated every frame.
   const state = useMemo(
@@ -158,7 +177,10 @@ export function Lighting() {
     // Weather target from the current trace frame.
     const frame = activeRealityOf(s).frameAt(Math.floor(t));
     const rainTarget = frame?.weather === 'rain' ? 1 : 0;
-    state.rain += (rainTarget - state.rain) * damp(1.5, Math.min(dt, 0.1));
+    // Smooth weather changes, but snap after a seek (big jump of the clock).
+    if (Math.abs(t - lastTime.current) > 3) state.rain = rainTarget;
+    else state.rain += (rainTarget - state.rain) * damp(1.5, Math.min(dt, 0.1));
+    lastTime.current = t;
     env.rain = state.rain;
     const rain = state.rain;
 
@@ -189,15 +211,31 @@ export function Lighting() {
     if (fog) {
       fog.color.copy(state.fog);
       const d = env.camDistance;
-      fog.near = d * (1.05 - rain * 0.4);
-      fog.far = d * (3.2 - rain * 1.4);
+      fog.near = Math.max(260, d * 1.6) * (1 - rain * 0.35);
+      fog.far = Math.max(1100, d * 5.2) * (1 - rain * 0.4);
     }
 
     const elev = lerp(a.elev, b.elev, f);
     sunDirection(t, elev, night, state.dir);
     if (sun.current) {
       const l = sun.current;
-      l.position.copy(CITY_CENTER).addScaledVector(state.dir, 800);
+      // Tight shadow frustum around what the camera looks at (snapped to texels to avoid shimmering).
+      const extent = THREE.MathUtils.clamp(env.camDistance * 0.85, 45, SHADOW_EXTENT);
+      const cam = l.shadow.camera as THREE.OrthographicCamera;
+      if (Math.abs(cam.right - extent) > extent * 0.04) {
+        cam.left = -extent;
+        cam.right = extent;
+        cam.top = extent;
+        cam.bottom = -extent;
+        cam.updateProjectionMatrix();
+      }
+      const texel = (extent * 2) / 2048;
+      tmpTarget.copy(controls?.target ?? CITY_CENTER);
+      tmpTarget.x = Math.round(tmpTarget.x / texel) * texel;
+      tmpTarget.z = Math.round(tmpTarget.z / texel) * texel;
+      tmpTarget.y = 0;
+      l.target.position.copy(tmpTarget);
+      l.position.copy(tmpTarget).addScaledVector(state.dir, 800);
       state.sunColor.copy(ca.sun).lerp(cb.sun, f).lerp(RAIN_SUN, rain * 0.6);
       l.color.copy(state.sunColor);
       l.intensity = lerp(a.sunI, b.sunI, f) * (1 - rain * 0.6);
@@ -206,9 +244,25 @@ export function Lighting() {
       const h = hemi.current;
       h.color.copy(ca.hemiSky).lerp(cb.hemiSky, f);
       h.groundColor.copy(ca.hemiGround).lerp(cb.hemiGround, f);
-      h.intensity = lerp(a.hemiI, b.hemiI, f) * (1 - rain * 0.15);
+      h.intensity = lerp(a.hemiI, b.hemiI, f) * (1 - rain * 0.15) * 0.72 + night * 0.22;
     }
 
+    // Shared uniforms: sky reflection in glass and water, haze colour, time.
+    U.uTime.value = performance.now() / 1000;
+    U.uNight.value = night;
+    U.uSky.value.copy(state.sky).multiplyScalar(1 - night * 0.85);
+    U_SKY.value.copy(state.sky).multiplyScalar(0.75 * (1 - night * 0.9));
+    U.uHazeColor.value.copy(state.fog);
+    U.uHazeK.value = THREE.MathUtils.smoothstep(env.camDistance, 60, 260);
+    // Image-based light for the materials: lower at golden hour so the warm sun reads, faint at night.
+    const golden = THREE.MathUtils.smoothstep(t, 1020, 1110) * (1 - THREE.MathUtils.smoothstep(t, 1170, 1200)) + (1 - THREE.MathUtils.smoothstep(t, 400, 450));
+    scene.environmentIntensity = THREE.MathUtils.lerp(0.34 - golden * 0.14, 0.035, night) * (1 - rain * 0.3);
+    for (const m of SIGN_MATERIALS) m.emissiveIntensity = 0.04 + THREE.MathUtils.smoothstep(night, 0.2, 0.7) * 0.55;
+    const on = THREE.MathUtils.smoothstep(night, 0.15, 0.6);
+    nightLights.current.forEach((pl, i) => {
+      if (!pl) return;
+      pl.intensity = on * 45 * NIGHT_LIGHTS[i][3];
+    });
     starMat.opacity = Math.max(0, night - 0.3) * (1 - rain) * 1.2;
     starMat.visible = starMat.opacity > 0.01;
 
@@ -220,6 +274,22 @@ export function Lighting() {
   return (
     <>
       <hemisphereLight ref={hemi} args={['#cfe3f5', '#7d7058', 0.9]} />
+      <Suspense fallback={null}>
+        <Environment files="/models/hdri/dusseldorf_bridge_1k.hdr" background={false} environmentIntensity={0.5} />
+      </Suspense>
+      {NIGHT_LIGHTS.map(([x, y, z], i) => (
+        <pointLight
+          key={i}
+          ref={(el) => {
+            nightLights.current[i] = el;
+          }}
+          position={[x, y, z]}
+          color="#ffbf73"
+          intensity={0}
+          distance={38}
+          decay={1.8}
+        />
+      ))}
       <directionalLight
         ref={sun}
         castShadow

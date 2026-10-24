@@ -202,7 +202,7 @@ export function damp(lambda: number, dt: number): number {
 }
 
 /** World positions of agents, written by <Agents/> every frame and read by the camera rig. */
-export const agentWorld = new Map<string, { pos: THREE.Vector3; visible: boolean }>();
+export const agentWorld = new Map<string, { pos: THREE.Vector3; visible: boolean; /** Displayed height (m). */ h?: number }>();
 
 // ---------------------------------------------------------------------------
 // Deterministic pseudo-randomness

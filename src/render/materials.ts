@@ -62,7 +62,7 @@ const SURFACE_ID: Record<Surface, number> = {
 };
 
 /** GLSL helpers shared by the patterns. */
-const NOISE = /* glsl */ `
+const NOISE_BASE = /* glsl */ `
 float bf_hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
@@ -74,6 +74,8 @@ float bf_noise(vec2 p) {
   vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(bf_hash12(i), bf_hash12(i + vec2(1.0, 0.0)), u.x), mix(bf_hash12(i + vec2(0.0, 1.0)), bf_hash12(i + vec2(1.0, 1.0)), u.x), u.y);
 }
+`;
+const NOISE = NOISE_BASE + /* glsl */ `
 float bf_haze(vec3 wp) {
   vec2 d = (wp.xz - uHeroC) / uHeroR;
   return smoothstep(0.95, 1.85, length(d)) * uHazeK;
@@ -161,6 +163,17 @@ const PATTERN = /* glsl */ `
   float n2 = bf_noise(wp.xz * 0.21);
   c *= 0.84 + 0.22 * n1 + 0.1 * n2;
   c = mix(c, c * vec3(1.12, 1.06, 0.72), smoothstep(0.55, 0.9, bf_noise(wp.xz * 0.012 + 7.0)) * 0.5);
+  // Countryside patchwork of fields around the town.
+  if (wp.x < -30.0 || wp.x > 750.0 || wp.z < -30.0 || wp.z > 525.0) {
+    vec2 fq = vec2(wp.x * 0.94 + wp.z * 0.34, wp.z * 0.94 - wp.x * 0.34) / vec2(95.0, 70.0);
+    vec2 fc = floor(fq);
+    float fh = bf_hash12(fc);
+    vec3 crop = fh < 0.25 ? vec3(1.32, 1.12, 0.55) : fh < 0.45 ? vec3(0.78, 0.92, 0.7) : fh < 0.6 ? vec3(1.15, 0.86, 0.6) : vec3(1.0);
+    vec2 ff = fract(fq);
+    float hedge = 1.0 - smoothstep(0.0, 0.025, min(min(ff.x, 1.0 - ff.x), min(ff.y, 1.0 - ff.y)));
+    c = mix(c * crop, c * vec3(0.62, 0.75, 0.5), hedge * 0.9);
+    if (fh < 0.25) c *= 0.93 + 0.07 * sin(fq.x * 160.0);
+  }
 #elif BF_SURFACE == 9
   // Gravel / sand paths.
   float aa = clamp(1.0 - px * 3.0, 0.0, 1.0);
@@ -261,7 +274,7 @@ ${
   float wetK = uWet * ${wet.toFixed(3)} * (normalize(vBfNrm).y > 0.6 ? 1.0 : 0.45);
   // Puddles: patches that get darker and mirror-like.
   float pud = smoothstep(0.62, 0.78, bf_noise(vBfPos.xz * 0.09 + 3.0)) * wetK;
-  diffuseColor.rgb *= 1.0 - wetK * 0.38 - pud * 0.25;
+  diffuseColor.rgb *= 1.0 - wetK * 0.45 - pud * 0.3;
   roughnessFactor = mix(roughnessFactor, 0.18, clamp(wetK * 0.75 + pud, 0.0, 1.0));
 }`
     : ''
@@ -274,8 +287,8 @@ ${
             ? `{
   float hz = bf_haze(vBfPos);
   float g = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
-  vec3 calm = mix(vec3(g), gl_FragColor.rgb, 0.45);
-  calm = mix(calm, uHazeColor, 0.42);
+  vec3 calm = mix(vec3(g), gl_FragColor.rgb, 0.55);
+  calm = mix(calm, uHazeColor, 0.24);
   gl_FragColor.rgb = mix(gl_FragColor.rgb, calm, hz);
 }`
             : ''
@@ -443,7 +456,7 @@ export function makeBillboards(specs: BillboardSpec[], mode: BillboardMode, tint
 
 /** Animated water: ripples in the normal, sky reflection with fresnel. */
 export function waterMaterial(color = '#4f8fa8'): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.92 });
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.14, metalness: 0.05, transparent: true, opacity: 0.94, envMapIntensity: 0.45 });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, U);
     shader.vertexShader = shader.vertexShader
@@ -457,7 +470,7 @@ uniform float uTime;
 uniform vec3 uSky;
 uniform float uNight;
 varying vec3 vWp;
-${NOISE.replace(/bf_haze[\s\S]*$/, '')}`,
+${NOISE_BASE}`,
       )
       .replace(
         '#include <normal_fragment_maps>',
@@ -467,7 +480,7 @@ ${NOISE.replace(/bf_haze[\s\S]*$/, '')}`,
   float t = uTime * 0.6;
   float nx = bf_noise(q + vec2(t, 0.3 * t)) - bf_noise(q + vec2(0.13, 0.0) + vec2(t, 0.3 * t));
   float nz = bf_noise(q * 1.3 + vec2(-0.4 * t, t)) - bf_noise(q * 1.3 + vec2(0.0, 0.13) + vec2(-0.4 * t, t));
-  normal = normalize(normal + (viewMatrix * vec4(nx * 1.6, 0.0, nz * 1.6, 0.0)).xyz);
+  normal = normalize(normal + (viewMatrix * vec4(nx * 0.45, 0.0, nz * 0.45, 0.0)).xyz);
 }`,
       )
       .replace(
@@ -475,10 +488,62 @@ ${NOISE.replace(/bf_haze[\s\S]*$/, '')}`,
         `#include <emissivemap_fragment>
 {
   float fres = pow(1.0 - clamp(abs(dot(normalize(vViewPosition), normal)), 0.0, 1.0), 3.0);
-  totalEmissiveRadiance += uSky * (0.18 + 0.55 * fres) * (1.0 - uNight * 0.75);
+  totalEmissiveRadiance += uSky * (0.04 + 0.4 * fres) * (1.0 - uNight * 0.75);
 }`,
       );
   };
   mat.customProgramCacheKey = () => 'bf-water';
   return mat;
+}
+
+// ---------------------------------------------------------------------------
+// Imported window panes: lit at night cell by cell
+// ---------------------------------------------------------------------------
+
+const litUniforms = new Map<string, { value: number }>();
+/** Share of lit windows (0..1) of a group of imported window panes (written each frame). */
+export function litUniform(key = 'homes'): { value: number } {
+  let u = litUniforms.get(key);
+  if (!u) {
+    u = { value: 0 };
+    litUniforms.set(key, u);
+  }
+  return u;
+}
+
+const litMats = new Map<string, THREE.MeshStandardMaterial>();
+/**
+ * Material for the window panes of imported models (vertex coloured dark
+ * glass). At night a deterministic subset of 2.5 m world cells emits warm
+ * light, so windows switch on house by house without per-window data. Each
+ * key (a location, or "homes") has its own share of lit windows.
+ */
+export function litWindowMaterial(key = 'homes'): THREE.MeshStandardMaterial {
+  const hit = litMats.get(key);
+  if (hit) return hit;
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.1, flatShading: true });
+  patchSurface(m, 'plain');
+  const base = m.onBeforeCompile;
+  const uLit = litUniform(key);
+  m.onBeforeCompile = (shader, r) => {
+    base.call(m, shader, r);
+    shader.uniforms.uLit = uLit;
+    shader.uniforms.uSky = U.uSky;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uLit;\nuniform vec3 uSky;')
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+{
+  vec3 cell = floor(vBfPos / 2.5);
+  float h = bf_hash12(cell.xz + cell.y * 17.31);
+  float on = step(h, uLit);
+  vec3 warm = mix(vec3(1.0, 0.72, 0.38), vec3(1.0, 0.84, 0.55), bf_hash12(cell.zx + 3.1));
+  totalEmissiveRadiance += warm * on * 1.25 + uSky * 0.12;
+}`,
+      );
+  };
+  m.customProgramCacheKey = () => 'bf-litwin';
+  litMats.set(key, m);
+  return m;
 }

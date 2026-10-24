@@ -45,6 +45,7 @@ export const MODELS = {
   bushSmall: 'kenney/nature/plant_bushDetailed',
   flowerRed: 'kenney/nature/flower_redA',
   flowerYellow: 'kenney/nature/flower_yellowA',
+  bridge: 'kenney/nature/bridge_stoneRound',
 } as const;
 
 export type ModelName = keyof typeof MODELS;
@@ -67,11 +68,13 @@ export interface Proto {
 
 /** Batch (surface) used for an imported material. */
 function keyFor(material: string): BatchKey {
-  if (/window|glass/i.test(material)) return 'winLit';
+  if (/^light/i.test(material)) return 'bulb';
+  if (/^glass/i.test(material)) return 'glass';
+  if (/window/i.test(material)) return 'winLit';
   if (/plaster|beige/i.test(material)) return 'plaster';
   if (/roof/i.test(material)) return 'roof';
   if (/leaf|leaves|bush|plant|grass/i.test(material)) return 'foliage';
-  if (/metal|pole|bell|green|light/i.test(material) && !/wood/i.test(material)) return 'metal';
+  if (/metal|pole|bell|^green/i.test(material) && !/wood|stone/i.test(material)) return 'metal';
   return 'plain';
 }
 
@@ -160,12 +163,14 @@ export function placeModel(b: Batches, proto: Proto, m: THREE.Matrix4, o: PlaceO
 }
 
 /** Placement matrix: model scaled by `s`, rotated by `rotY`, its base centre at (x, y, z). */
-export function modelMatrix(proto: Proto, x: number, y: number, z: number, rotY: number, s: number, out = new THREE.Matrix4()): THREE.Matrix4 {
+export function modelMatrix(proto: { box: THREE.Box3 }, x: number, y: number, z: number, rotY: number, s: number, out = new THREE.Matrix4()): THREE.Matrix4 {
   const cx = (proto.box.min.x + proto.box.max.x) / 2;
   const cz = (proto.box.min.z + proto.box.max.z) / 2;
-  tmpM.makeTranslation(-cx, -proto.box.min.y, -cz);
-  out.makeScale(s, s, s).multiply(tmpM);
-  return out.premultiply(new THREE.Matrix4().makeRotationY(rotY)).setPosition(new THREE.Vector3(x, y, z).add(new THREE.Vector3(0, 0, 0).setFromMatrixPosition(out)));
+  out.makeTranslation(-cx, -proto.box.min.y, -cz);
+  out.premultiply(tmpM.makeScale(s, s, s));
+  out.premultiply(tmpM.makeRotationY(rotY));
+  out.premultiply(tmpM.makeTranslation(x, y, z));
+  return out;
 }
 
 /** Scale that makes the model `h` metres tall. */
@@ -209,4 +214,96 @@ export function instancedModel(proto: Proto, items: InstanceSpec[], o: { castSha
     out.push(mesh);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Textured props (Quaternius Fantasy Props MegaKit: base colour atlases)
+// ---------------------------------------------------------------------------
+
+export const PROPS = {
+  chair: 'quaternius/props/Chair_1',
+  stool: 'quaternius/props/Stool',
+  tableLarge: 'quaternius/props/Table_Large',
+  bench: 'quaternius/props/Bench',
+  barrelApples: 'quaternius/props/Barrel_Apples',
+  crateApple: 'quaternius/props/FarmCrate_Apple',
+  crateCarrot: 'quaternius/props/FarmCrate_Carrot',
+  crateEmpty: 'quaternius/props/FarmCrate_Empty',
+  crateWood: 'quaternius/props/Crate_Wooden',
+  stall: 'quaternius/props/Stall_Empty',
+  stallCart: 'quaternius/props/Stall_Cart_Empty',
+  lantern: 'quaternius/props/Lantern_Wall',
+  pot: 'quaternius/props/Pot_1',
+} as const;
+export type PropName = keyof typeof PROPS;
+const PROP_URLS = (Object.keys(PROPS) as PropName[]).map((n) => `/models/${PROPS[n]}.glb`);
+
+export interface TexturedProto {
+  name: PropName;
+  meshes: { geometry: THREE.BufferGeometry; material: THREE.MeshStandardMaterial }[];
+  box: THREE.Box3;
+  size: THREE.Vector3;
+}
+
+const texCache = new Map<PropName, TexturedProto>();
+
+export function useTexturedProps(): Record<PropName, TexturedProto> {
+  const gltfs = useGLTF(PROP_URLS) as unknown as { scene: THREE.Object3D }[];
+  const names = Object.keys(PROPS) as PropName[];
+  const out = {} as Record<PropName, TexturedProto>;
+  names.forEach((n, i) => {
+    let p = texCache.get(n);
+    if (!p) {
+      const scene = gltfs[i].scene;
+      scene.updateMatrixWorld(true);
+      const meshes: TexturedProto['meshes'] = [];
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const src = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshStandardMaterial;
+        const material = new THREE.MeshStandardMaterial({ map: src.map ?? null, color: src.map ? '#ffffff' : src.color, roughness: 0.85, metalness: 0 });
+        if (material.map) material.map.colorSpace = THREE.SRGBColorSpace;
+        const g = m.geometry.clone().applyMatrix4(m.matrixWorld);
+        meshes.push({ geometry: g, material });
+      });
+      const box = new THREE.Box3().setFromObject(scene);
+      p = { name: n, meshes, box, size: box.getSize(new THREE.Vector3()) };
+      texCache.set(n, p);
+    }
+    out[n] = p;
+  });
+  return out;
+}
+
+/** Instanced textured prop (one InstancedMesh per sub-mesh). */
+export function instancedTextured(proto: TexturedProto, items: InstanceSpec[], castShadow = true): THREE.InstancedMesh[] {
+  if (!items.length) return [];
+  const mats = items.map((it) => modelMatrix(proto, it.x, it.y ?? 0, it.z, it.rotY ?? 0, it.scale));
+  return proto.meshes.map(({ geometry, material }) => {
+    const mesh = new THREE.InstancedMesh(geometry, material, items.length);
+    mats.forEach((m, i) => mesh.setMatrixAt(i, m));
+    mesh.castShadow = castShadow;
+    mesh.receiveShadow = true;
+    mesh.computeBoundingSphere();
+    mesh.name = `tex:${proto.name}`;
+    return mesh;
+  });
+}
+
+/**
+ * Highest point of a prototype's chimney-like stone parts in model space
+ * (used to emit smoke from imported houses), or null.
+ */
+export function chimneyTop(proto: Proto): THREE.Vector3 | null {
+  let best: THREE.Vector3 | null = null;
+  const v = new THREE.Vector3();
+  for (const p of proto.parts) {
+    if (!/stone/i.test(p.material)) continue;
+    const pos = p.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      if (v.y > proto.box.min.y + proto.size.y * 0.7 && (!best || v.y > best.y)) best = v.clone();
+    }
+  }
+  return best;
 }

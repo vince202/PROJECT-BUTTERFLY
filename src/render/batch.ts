@@ -17,15 +17,15 @@ const UNIT = {
   cyl16: new THREE.CylinderGeometry(0.5, 0.5, 1, 16).toNonIndexed(),
   cone6: new THREE.ConeGeometry(0.5, 1, 6).toNonIndexed(),
   cone4: new THREE.ConeGeometry(0.5, 1, 4).toNonIndexed(),
-  ico: new THREE.IcosahedronGeometry(0.5, 0).toNonIndexed(),
-  ico1: new THREE.IcosahedronGeometry(0.5, 1).toNonIndexed(),
+  ico: new THREE.IcosahedronGeometry(0.5, 0),
+  ico1: new THREE.IcosahedronGeometry(0.5, 1),
   prism: makePrism(),
   torus: new THREE.TorusGeometry(0.5, 0.18, 6, 14).toNonIndexed(),
   plane: new THREE.PlaneGeometry(1, 1).toNonIndexed(),
   cone8: new THREE.ConeGeometry(0.5, 1, 8).toNonIndexed(),
   cone12: new THREE.ConeGeometry(0.5, 1, 12).toNonIndexed(),
-  sphere: new THREE.IcosahedronGeometry(0.5, 1).toNonIndexed(),
-  dodeca: new THREE.DodecahedronGeometry(0.5, 0).toNonIndexed(),
+  sphere: new THREE.IcosahedronGeometry(0.5, 1),
+  dodeca: new THREE.DodecahedronGeometry(0.5, 0),
   cyl12: new THREE.CylinderGeometry(0.5, 0.5, 1, 12).toNonIndexed(),
   cyl6: new THREE.CylinderGeometry(0.5, 0.5, 1, 6).toNonIndexed(),
   /** Half cylinder (barrel vault), axis along z, flat side down, radius 0.5, length 1. */
@@ -298,4 +298,39 @@ export function facadesOf(x: number, z: number, sx: number, sz: number): Facade[
     frame.setPosition(cx, 0, cz);
     return { nx, nz, cx, cz, length, frame };
   });
+}
+
+/**
+ * A StaticBatch that routes every primitive to a spatial chunk (by the world
+ * position of its transform), so that the merged meshes can be frustum-culled
+ * (main and shadow cameras) when the camera is close to the ground.
+ */
+export class ChunkedBatch extends StaticBatch {
+  readonly chunks = new Map<string, StaticBatch>();
+  constructor(private chunkOf: (x: number, z: number) => string) {
+    super();
+  }
+  override add(geo: THREE.BufferGeometry, matrix: THREE.Matrix4, color: THREE.ColorRepresentation): void {
+    const key = this.chunkOf(matrix.elements[12], matrix.elements[14]);
+    let b = this.chunks.get(key);
+    if (!b) {
+      b = new StaticBatch();
+      this.chunks.set(key, b);
+    }
+    b.add(geo, matrix, color);
+  }
+  override get size(): number {
+    let n = 0;
+    for (const b of this.chunks.values()) n += b.size;
+    return n;
+  }
+  /** Build every chunk (the inherited build() of the router itself is empty). */
+  buildChunks(): THREE.BufferGeometry[] {
+    const out: THREE.BufferGeometry[] = [];
+    for (const b of this.chunks.values()) {
+      const g = b.build();
+      if (g) out.push(g);
+    }
+    return out;
+  }
 }

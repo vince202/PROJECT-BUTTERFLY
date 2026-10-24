@@ -180,7 +180,7 @@ export function detailAt(x: number, z: number): 0 | 1 | 2 {
 }
 
 /** Spots where people wait at a bus stop are pushed this far onto the sidewalk (render only). */
-export const STOP_PUSH = 5;
+export const STOP_PUSH = 3.5;
 
 /** Is (x, z) on the asphalt of a street (not a footpath)? */
 export function onRoad(x: number, z: number): boolean {

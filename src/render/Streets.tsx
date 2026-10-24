@@ -1,363 +1,90 @@
 /**
- * Ground, street network, sidewalks, markings, zebra crossings, street lamps
- * and bus stops. All static geometry is merged into a few vertex-coloured
- * batches built once.
+ * Ground of the town: countryside, asphalt streets following the simulation
+ * graph (centrelines never move), cobbled shared space on the café / market
+ * street, raised blocks with rounded curbs and paved sidewalks, gardens,
+ * zebra crossings, footpaths through the school and the park, forecourts of
+ * every location, plus the street furniture (lamp posts with night halos, bus
+ * shelters). Static geometry is merged per surface material.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CITY_HEIGHT, CITY_WIDTH, LOCATIONS, STREET_SPACING, getCity } from '../sim/city';
 import type { LocationDef } from '../sim/types';
-import { StaticBatch, batchMaterial } from './batch';
-import { BASE_MARGIN, LAYER, ROAD_HALF, SIDEWALK, env, hashString, radialTexture } from './shared';
+import { type StaticBatch, roundedSlabGeometry } from './batch';
+import { Batches, PAL, SignAtlas, bulbMat } from './kit';
+import { CURB_H, EDGE, HERO_STOPS, ROAD, SIDEWALK_W, blocks, cobbled, lotFrames, localRect } from './layout';
+import { U, makeBillboards, waterMaterial } from './materials';
+import { instancedModel, useProtos } from './models';
+import { env, radialTexture } from './shared';
 
-const COLORS = {
-  baseTop: '#b9d18e',
-  baseSide: '#7a5c41',
-  baseSideDark: '#5e4632',
-  block: '#bcd394',
-  lot: '#e8dcc0',
-  asphalt: '#4b4f57',
-  asphaltPatch: '#53575f',
-  sidewalk: '#d8d0bf',
-  curb: '#bdb4a3',
-  marking: '#f2efe6',
-  path: '#e6d6ae',
-  yard: '#d9cdb4',
-  lampPole: '#33363d',
-  stopPole: '#5a5f68',
-  stopSign: '#f1c40f',
-  shelterRoof: '#3d4450',
-  shelterGlass: '#a9c7d6',
-  bench: '#8a5a3b',
+const C = {
+  asphalt: '#5b5e64',
+  cobble: '#a39a8c',
+  paving: '#c2b8a6',
+  curb: '#b3aa9a',
+  grass: '#8fb466',
+  country: '#9cbc6c',
+  marking: '#efe9dc',
+  forecourt: '#d8cdb8',
+  path: '#d9c9a3',
 };
 
-/** Footprints that streets may cross (rendered as footpaths instead of roads). */
-function footprintAt(x0: number, z0: number, x1: number, z1: number): LocationDef | null {
-  for (const l of LOCATIONS) {
-    if (l.kind === 'bus_stop') continue;
-    const lx0 = l.pos.x - l.size.x / 2;
-    const lx1 = l.pos.x + l.size.x / 2;
-    const lz0 = l.pos.y - l.size.y / 2;
-    const lz1 = l.pos.y + l.size.y / 2;
-    const ox = Math.min(x1, lx1) - Math.max(x0, lx0);
-    const oz = Math.min(z1, lz1) - Math.max(z0, lz0);
-    if (ox > 1.5 && oz > 1.5) return l;
-  }
-  return null;
-}
+// ---------------------------------------------------------------------------
+// Lamps (positions shared with the park)
+// ---------------------------------------------------------------------------
 
-export interface StreetEdge {
-  ax: number;
-  az: number;
-  bx: number;
-  bz: number;
-  horizontal: boolean;
-  /** Location crossed by this segment (it becomes a footpath), if any. */
-  crosses: LocationDef | null;
-}
-
-/** Street segments with their classification (road or footpath). Computed once. */
-let edgeCache: StreetEdge[] | null = null;
-export function streetEdges(): StreetEdge[] {
-  if (edgeCache) return edgeCache;
-  const city = getCity();
-  edgeCache = city.edges.map((e) => {
-    const a = city.nodePos(e.a);
-    const b = city.nodePos(e.b);
-    const ax = Math.min(a.x, b.x);
-    const bx = Math.max(a.x, b.x);
-    const az = Math.min(a.y, b.y);
-    const bz = Math.max(a.y, b.y);
-    const horizontal = a.y === b.y;
-    const crosses = horizontal ? footprintAt(ax, az - 2, bx, bz + 2) : footprintAt(ax - 2, az, bx + 2, bz);
-    return { ax, az, bx, bz, horizontal, crosses };
-  });
-  return edgeCache;
-}
-
-/** Lamp placement (shared with the park which adds its own). */
 export interface LampDef {
   x: number;
   z: number;
-  /** Arm direction (unit vector in XZ) pointing over the street. */
+  /** Direction the lamp head faces (unit vector in XZ), towards the street. */
   dx: number;
   dz: number;
 }
 
+/** Lamp posts at the corners of intersections and mid-block, on the curb side of the sidewalk. */
 export function streetLamps(): LampDef[] {
   const lamps: LampDef[] = [];
   const stops = LOCATIONS.filter((l) => l.kind === 'bus_stop');
-  const nearStop = (x: number, z: number) => stops.some((s) => Math.hypot(s.pos.x - x, s.pos.y - z) < 14);
-  const off = ROAD_HALF + SIDEWALK / 2;
-  // One lamp at a corner of every intersection.
+  const nearStop = (x: number, z: number) => stops.some((s) => Math.hypot(s.pos.x + 4 - x, s.pos.y - z) < 15);
+  const off = ROAD + 0.7;
+  const corner = ROAD + 3.2;
   for (let x = 0; x <= CITY_WIDTH; x += STREET_SPACING) {
     for (let z = 0; z <= CITY_HEIGHT; z += STREET_SPACING) {
-      const h = hashString(`lamp${x}_${z}`);
-      let sx = h & 1 ? 1 : -1;
-      let sz = h & 2 ? 1 : -1;
-      // Keep lamps inside the city on the border.
-      if (x === 0) sx = 1;
-      if (x === CITY_WIDTH) sx = -1;
-      if (z === 0) sz = 1;
-      if (z === CITY_HEIGHT) sz = -1;
-      const lx = x + sx * off;
-      const lz = z + sz * off;
-      if (nearStop(lx, lz)) continue;
-      lamps.push({ x: lx, z: lz, dx: -sx * 0.707, dz: -sz * 0.707 });
+      for (const [sx, sz] of [[1, 1], [-1, -1]] as const) {
+        const ex = x === 0 ? 1 : x === CITY_WIDTH ? -1 : sx;
+        const ez = z === 0 ? 1 : z === CITY_HEIGHT ? -1 : sz;
+        const lx = x + ex * corner;
+        const lz = z + ez * corner;
+        if (nearStop(lx, lz)) continue;
+        if ((x + z) % 240 === 0 && sx < 0) continue;
+        lamps.push({ x: lx, z: lz, dx: -ex * 0.7, dz: -ez * 0.7 });
+      }
     }
   }
-  // Mid-block lamps along horizontal streets.
   for (let z = 0; z <= CITY_HEIGHT; z += STREET_SPACING) {
     for (let x = 60; x < CITY_WIDTH; x += STREET_SPACING) {
-      const s = z === 0 ? 1 : z === CITY_HEIGHT ? -1 : hashString(`mid${x}_${z}`) & 1 ? 1 : -1;
-      const lx = x + 22;
-      const lz = z + s * off;
-      if (nearStop(lx, lz) || footprintAt(lx - 8, z - 8, lx + 8, z + 8)) continue;
-      lamps.push({ x: lx, z: lz, dx: 0, dz: -s });
+      for (const s of z === 0 ? [1] : z === CITY_HEIGHT ? [-1] : [-1, 1]) {
+        const lx = x + 14 * s;
+        const lz = z + s * off;
+        if (nearStop(lx, lz)) continue;
+        lamps.push({ x: lx, z: lz, dx: 0, dz: -s });
+      }
+    }
+  }
+  for (let x = 0; x <= CITY_WIDTH; x += STREET_SPACING) {
+    for (let z = 60; z < CITY_HEIGHT; z += STREET_SPACING) {
+      if (x === 360 && (z === 60 || z === 300)) continue;
+      const s = x === 0 ? 1 : x === CITY_WIDTH ? -1 : (x / STREET_SPACING) % 2 ? 1 : -1;
+      lamps.push({ x: x + s * off, z: z - 16, dx: -s, dz: 0 });
     }
   }
   return lamps;
 }
 
-/** Lamp posts go into the solid batch; returns bulb positions for the glow batch. */
-export function addLamp(batch: StaticBatch, l: LampDef, bulbs: THREE.Vector3[]): void {
-  const H = 9;
-  batch.cyl(l.x, 0, l.z, 0.45, 0.8, COLORS.lampPole);
-  batch.cyl(l.x, 0, l.z, 0.22, H, COLORS.lampPole);
-  // Arm
-  const armLen = 2.4;
-  const ax = l.x + l.dx * armLen * 0.5;
-  const az = l.z + l.dz * armLen * 0.5;
-  batch.box(ax, H - 0.3, az, Math.abs(l.dx) * armLen + 0.25, 0.25, Math.abs(l.dz) * armLen + 0.25, COLORS.lampPole);
-  const bx = l.x + l.dx * armLen;
-  const bz = l.z + l.dz * armLen;
-  batch.shape('cone4', bx, H - 0.1, bz, 1.6, 0.8, 1.6, COLORS.lampPole, { y: Math.PI / 4 });
-  bulbs.push(new THREE.Vector3(bx, H - 0.75, bz));
-}
-
-/** A bus stop: pole with a yellow sign and a small glass shelter with a bench. */
-function addBusStop(batch: StaticBatch, stop: LocationDef): void {
-  const city = getCity();
-  const node = city.nodePos(stop.node);
-  // Stops sit on horizontal streets; side = which sidewalk.
-  const side = Math.sign(stop.pos.y - node.y) || -1;
-  const poleZ = node.y + side * (ROAD_HALF + 1.2);
-  const px = stop.pos.x + 6;
-  batch.cyl(px, 0, poleZ, 0.18, 6.5, COLORS.stopPole);
-  batch.box(px, 5.0, poleZ, 0.25, 1.8, 1.8, COLORS.stopSign);
-  batch.box(px, 5.55, poleZ, 0.3, 0.45, 1.9, '#2d3e50');
-  // Shelter behind the sidewalk
-  const sz = node.y + side * (ROAD_HALF + SIDEWALK + 2.6);
-  const sx = stop.pos.x - 1;
-  const w = 9;
-  const d = 3.6;
-  const backZ = sz + side * (d / 2 - 0.15);
-  batch.box(sx, LAYER.sidewalk, sz, w + 1, 0.15, d + 0.6, COLORS.sidewalk);
-  batch.box(sx, 0, backZ, w, 4.6, 0.25, COLORS.shelterGlass);
-  batch.box(sx - w / 2, 0, sz, 0.3, 4.8, d, COLORS.shelterRoof);
-  batch.box(sx + w / 2, 0, sz, 0.3, 4.8, d, COLORS.shelterRoof);
-  batch.box(sx, 4.8, sz, w + 0.8, 0.35, d + 0.6, COLORS.shelterRoof);
-  batch.box(sx, 4.6, sz - side * (d / 2 + 0.2), w + 0.8, 0.5, 0.15, COLORS.stopSign);
-  // Bench
-  batch.box(sx, 1.3, backZ - side * 1.0, w * 0.7, 0.3, 1.2, COLORS.bench);
-  batch.box(sx - w * 0.3, 0, backZ - side * 1.0, 0.25, 1.3, 1.0, COLORS.lampPole);
-  batch.box(sx + w * 0.3, 0, backZ - side * 1.0, 0.25, 1.3, 1.0, COLORS.lampPole);
-}
-
-/** Zebra crossing across a horizontal (or vertical) street centred at (x, z). */
-function addZebra(batch: StaticBatch, x: number, z: number, horizontalStreet: boolean): void {
-  const stripes = 6;
-  const pitch = (ROAD_HALF * 2 - 1.2) / stripes;
-  for (let i = 0; i < stripes; i++) {
-    const o = -ROAD_HALF + 0.6 + pitch * (i + 0.5);
-    if (horizontalStreet) batch.box(x, LAYER.road, z + o, 5, 0.08, pitch * 0.55, COLORS.marking);
-    else batch.box(x + o, LAYER.road, z, pitch * 0.55, 0.08, 5, COLORS.marking);
-  }
-}
-
-export function Streets() {
-  const built = useMemo(() => {
-    const ground = new StaticBatch();
-    const solid = new StaticBatch();
-    const bulbs: THREE.Vector3[] = [];
-    const edges = streetEdges();
-
-    // --- Diorama base -----------------------------------------------------
-    const W = CITY_WIDTH + BASE_MARGIN * 2;
-    const H = CITY_HEIGHT + BASE_MARGIN * 2;
-    const cx = CITY_WIDTH / 2;
-    const cz = CITY_HEIGHT / 2;
-    ground.box(cx, -14, cz, W, 14, H, COLORS.baseSide);
-    ground.box(cx, -18, cz, W - 6, 4, H - 6, COLORS.baseSideDark);
-    ground.box(cx, -0.6, cz, W, 0.6, H, COLORS.baseTop);
-
-    // --- City blocks --------------------------------------------------------
-    const inset = ROAD_HALF + SIDEWALK;
-    for (let x = 0; x < CITY_WIDTH; x += STREET_SPACING) {
-      for (let z = 0; z < CITY_HEIGHT; z += STREET_SPACING) {
-        ground.box(x + STREET_SPACING / 2, -0.1, z + STREET_SPACING / 2, STREET_SPACING - inset * 2, LAYER.block + 0.1, STREET_SPACING - inset * 2, COLORS.block);
-      }
-    }
-    // Paved lots under buildings + a path from the door to the sidewalk.
-    const city = getCity();
-    for (const l of LOCATIONS) {
-      if (l.kind === 'park' || l.kind === 'bus_stop') continue;
-      ground.box(l.pos.x, -0.1, l.pos.y, l.size.x + 10, LAYER.lot + 0.1, l.size.y + 10, COLORS.lot);
-      const door = city.doorPos(l.id);
-      const dx = door.x - l.pos.x;
-      const dz = door.y - l.pos.y;
-      if (Math.abs(dx) / l.size.x > Math.abs(dz) / l.size.y) {
-        const x0 = l.pos.x + Math.sign(dx) * l.size.x / 2;
-        const x1 = door.x - Math.sign(dx) * inset;
-        ground.box((x0 + x1) / 2, -0.1, door.y, Math.abs(x1 - x0), LAYER.lot + 0.1, 8, COLORS.lot);
-      } else {
-        const z0 = l.pos.y + Math.sign(dz) * l.size.y / 2;
-        const z1 = door.y - Math.sign(dz) * inset;
-        ground.box(door.x, -0.1, (z0 + z1) / 2, 8, LAYER.lot + 0.1, Math.abs(z1 - z0), COLORS.lot);
-      }
-    }
-
-    // --- Streets --------------------------------------------------------------
-    // Road presence per node and direction (to trim sidewalks at crossings).
-    const roadDir = new Set<string>();
-    for (const e of edges) {
-      if (e.crosses) continue;
-      if (e.horizontal) {
-        roadDir.add(`${e.ax},${e.az},+x`);
-        roadDir.add(`${e.bx},${e.bz},-x`);
-      } else {
-        roadDir.add(`${e.ax},${e.az},+z`);
-        roadDir.add(`${e.bx},${e.bz},-z`);
-      }
-    }
-    const has = (x: number, z: number, d: string) => roadDir.has(`${x},${z},${d}`);
-    const corner = ROAD_HALF + SIDEWALK / 2;
-
-    for (const e of edges) {
-      if (e.crosses) {
-        // Footpath through the park / school yard.
-        const color = e.crosses.kind === 'park' ? COLORS.path : COLORS.yard;
-        if (e.horizontal) ground.box((e.ax + e.bx) / 2, -0.1, e.az, e.bx - e.ax + 6, LAYER.parkPath + 0.1, 7, color);
-        else ground.box(e.ax, -0.1, (e.az + e.bz) / 2, 7, LAYER.parkPath + 0.1, e.bz - e.az + 6, color);
-        continue;
-      }
-      const len = e.horizontal ? e.bx - e.ax : e.bz - e.az;
-      const mx = (e.ax + e.bx) / 2;
-      const mz = (e.az + e.bz) / 2;
-      // Asphalt (extended over intersections)
-      if (e.horizontal) ground.box(mx, -0.1, mz, len + ROAD_HALF * 2, LAYER.road + 0.1, ROAD_HALF * 2, COLORS.asphalt);
-      else ground.box(mx, -0.1, mz, ROAD_HALF * 2, LAYER.road + 0.1, len + ROAD_HALF * 2, COLORS.asphalt);
-
-      // Sidewalk strips on both sides, trimmed where a cross street joins.
-      for (const s of [-1, 1]) {
-        const perp = e.horizontal ? (s > 0 ? '+z' : '-z') : s > 0 ? '+x' : '-x';
-        const along0 = e.horizontal ? '-x' : '-z';
-        const along1 = e.horizontal ? '+x' : '+z';
-        let t0 = 0;
-        let t1 = 0;
-        if (has(e.ax, e.az, perp)) t0 = corner + SIDEWALK / 2;
-        else if (!has(e.ax, e.az, along0)) t0 = -(corner + SIDEWALK / 2);
-        if (has(e.bx, e.bz, perp)) t1 = corner + SIDEWALK / 2;
-        else if (!has(e.bx, e.bz, along1)) t1 = -(corner + SIDEWALK / 2);
-        const l = len - t0 - t1;
-        if (l <= 0) continue;
-        const c = (t0 - t1) / 2;
-        if (e.horizontal) {
-          ground.box(mx + c, -0.1, mz + s * corner, l, LAYER.sidewalk + 0.1, SIDEWALK, COLORS.sidewalk);
-          ground.box(mx + c, -0.1, mz + s * (ROAD_HALF + 0.2), l, LAYER.sidewalk + 0.12, 0.4, COLORS.curb);
-        } else {
-          ground.box(mx + s * corner, -0.1, mz + c, SIDEWALK, LAYER.sidewalk + 0.1, l, COLORS.sidewalk);
-          ground.box(mx + s * (ROAD_HALF + 0.2), -0.1, mz + c, 0.4, LAYER.sidewalk + 0.12, l, COLORS.curb);
-        }
-      }
-
-      // Dashed centre line, skipping the intersection areas.
-      const dashes = 5;
-      for (let i = 0; i < dashes; i++) {
-        const t = -len / 2 + 12 + ((len - 24) / (dashes - 1)) * i;
-        if (e.horizontal) ground.box(mx + t, -0.1, mz, 3.2, LAYER.marking + 0.1, 0.35, COLORS.marking);
-        else ground.box(mx, -0.1, mz + t, 0.35, LAYER.marking + 0.1, 3.2, COLORS.marking);
-      }
-    }
-
-    // Sidewalk corner squares at intersections.
-    for (let x = 0; x <= CITY_WIDTH; x += STREET_SPACING) {
-      for (let z = 0; z <= CITY_HEIGHT; z += STREET_SPACING) {
-        for (const sx of [-1, 1]) {
-          for (const sz of [-1, 1]) {
-            ground.box(x + sx * corner, -0.1, z + sz * corner, SIDEWALK, LAYER.sidewalk + 0.1, SIDEWALK, COLORS.sidewalk);
-          }
-        }
-      }
-    }
-
-    // --- Zebra crossings near bus stops and the school ----------------------------
-    const zebras = new Map<string, [number, number, boolean]>();
-    for (const l of LOCATIONS) {
-      if (l.kind !== 'bus_stop') continue;
-      const n = city.nodePos(l.node);
-      zebras.set(`${n.x - 16},${n.y}`, [n.x - 16, n.y, true]);
-    }
-    const school = LOCATIONS.find((l) => l.kind === 'school');
-    if (school) {
-      const n = city.nodePos(school.node);
-      zebras.set(`${n.x - 18},${n.y}`, [n.x - 18, n.y, true]);
-      zebras.set(`${n.x + 18},${n.y}`, [n.x + 18, n.y, true]);
-      zebras.set(`${n.x},${n.y + 18}`, [n.x, n.y + 18, false]);
-    }
-    for (const [x, z, h] of zebras.values()) addZebra(ground, x, z, h);
-
-    // --- Lamps and bus stops -----------------------------------------------------
-    const lamps = streetLamps();
-    for (const l of lamps) addLamp(solid, l, bulbs);
-    for (const l of LOCATIONS) if (l.kind === 'bus_stop') addBusStop(solid, l);
-
-    return { ground: ground.build(), solid: solid.build(), bulbs };
-  }, []);
-
-  const groundMat = useMemo(() => batchMaterial({ roughness: 0.95 }), []);
-  const solidMat = useMemo(() => batchMaterial(), []);
-
-  useEffect(
-    () => () => {
-      built.ground?.dispose();
-      built.solid?.dispose();
-      groundMat.dispose();
-      solidMat.dispose();
-    },
-    [built, groundMat, solidMat],
-  );
-
-  // Streets get slightly glossier when it rains.
-  useFrame(() => {
-    groundMat.roughness = 0.95 - env.rain * 0.35;
-  });
-
-  return (
-    <group>
-      {built.ground && <mesh geometry={built.ground} material={groundMat} receiveShadow />}
-      {built.solid && <mesh geometry={built.solid} material={solidMat} castShadow receiveShadow />}
-      <LampGlow bulbs={built.bulbs} />
-    </group>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Night lighting: emissive bulbs, ground light pools and a few real lights.
-// ---------------------------------------------------------------------------
-
-/** Positions of the few real point lights (at most 4 for performance). */
-const POINT_LIGHTS: [number, number][] = [
-  [300, 128],
-  [548, 248],
-  [360, 300],
-  [652, 368],
-];
-
 const BULB_DAY = new THREE.Color('#d9d4c4');
-const BULB_NIGHT = new THREE.Color('#ffd27a').multiplyScalar(1.8);
+const BULB_NIGHT = new THREE.Color('#ffd27a').multiplyScalar(2.2);
 
 /** How much lamps are switched on for a given night factor (smooth ramp at dusk / dawn). */
 export function lampsOn(night: number): number {
@@ -369,82 +96,56 @@ export function bulbColor(out: THREE.Color, night: number): THREE.Color {
   return out.copy(BULB_DAY).lerp(BULB_NIGHT, lampsOn(night));
 }
 
-export function LampGlow({ bulbs, withLights = true }: { bulbs: THREE.Vector3[]; withLights?: boolean }) {
-  const lights = useRef<(THREE.PointLight | null)[]>([]);
-
-  const { bulbGeo, poolGeo } = useMemo(() => {
-    const b = new StaticBatch();
-    for (const p of bulbs) b.shape('ico1', p.x, p.y, p.z, 1.1, 1.1, 1.1, '#ffffff');
-    // Light pools: flat quads with a radial texture, merged.
-    const quads: THREE.BufferGeometry[] = [];
-    for (const p of bulbs) {
-      const q = new THREE.PlaneGeometry(22, 22);
-      q.rotateX(-Math.PI / 2);
-      q.translate(p.x, LAYER.sidewalk + 0.12, p.z);
-      quads.push(q);
+/** Additive halos + warm ground pools at the given bulbs; fades in at dusk. */
+export function LampGlow({ bulbs, pool = true, size = 5 }: { bulbs: THREE.Vector3[]; withLights?: boolean; pool?: boolean; size?: number }) {
+  const { halo, poolMesh } = useMemo(() => {
+    const halo = makeBillboards(bulbs.map((p, i) => ({ x: p.x, y: p.y, z: p.z, size, phase: (i * 0.37) % 1, color: '#ffd9a0' })), 'halo', '#ffcf86');
+    let poolMesh: THREE.Mesh | null = null;
+    if (pool && bulbs.length) {
+      const quads = bulbs.map((p) => {
+        const q = new THREE.PlaneGeometry(14, 14);
+        q.rotateX(-Math.PI / 2);
+        q.translate(p.x, CURB_H + 0.05, p.z);
+        return q;
+      });
+      const g = mergeQuads(quads);
+      poolMesh = new THREE.Mesh(
+        g,
+        new THREE.MeshBasicMaterial({ map: radialTexture(), color: '#ffc879', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4 }),
+      );
+      poolMesh.renderOrder = 1;
     }
-    const pools = quads.length ? mergeQuads(quads) : null;
-    return { bulbGeo: b.build(), poolGeo: pools };
-  }, [bulbs]);
-
-  const bulbMat = useMemo(() => new THREE.MeshBasicMaterial({ color: BULB_DAY.clone(), toneMapped: false }), []);
-  const poolMat = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        map: radialTexture(),
-        color: '#ffcf80',
-        transparent: true,
-        opacity: 0,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        toneMapped: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-      }),
-    [],
-  );
-
+    return { halo, poolMesh };
+  }, [bulbs, pool, size]);
   useEffect(
     () => () => {
-      bulbGeo?.dispose();
-      poolGeo?.dispose();
-      bulbMat.dispose();
-      poolMat.dispose();
+      halo.geometry.dispose();
+      (halo.material as THREE.Material).dispose();
+      poolMesh?.geometry.dispose();
+      (poolMesh?.material as THREE.Material | undefined)?.dispose();
     },
-    [bulbGeo, poolGeo, bulbMat, poolMat],
+    [halo, poolMesh],
   );
-
   useFrame(() => {
     const on = lampsOn(env.night);
-    bulbColor(bulbMat.color, env.night);
-    poolMat.opacity = on * 0.55;
-    poolMat.visible = on > 0.01;
-    for (const l of lights.current) if (l) l.intensity = on * 420;
+    const hm = halo.material as THREE.ShaderMaterial;
+    hm.uniforms.uOpacity.value = on * 0.85;
+    halo.visible = on > 0.01;
+    if (poolMesh) {
+      (poolMesh.material as THREE.MeshBasicMaterial).opacity = on * 0.5;
+      poolMesh.visible = on > 0.01;
+    }
   });
-
   return (
     <group>
-      {bulbGeo && <mesh geometry={bulbGeo} material={bulbMat} />}
-      {poolGeo && <mesh geometry={poolGeo} material={poolMat} renderOrder={1} />}
-      {withLights && POINT_LIGHTS.map(([x, z], i) => (
-        <pointLight
-          key={i}
-          ref={(el) => {
-            lights.current[i] = el;
-          }}
-          position={[x, 10, z]}
-          color="#ffc978"
-          intensity={0}
-          distance={90}
-          decay={2}
-        />
-      ))}
+      <primitive object={halo} />
+      {poolMesh && <primitive object={poolMesh} />}
     </group>
   );
 }
 
-/** Merge plain quads keeping their uvs (StaticBatch drops uvs). */
-function mergeQuads(quads: THREE.BufferGeometry[]): THREE.BufferGeometry {
+/** Merge plain quads keeping their uvs. */
+export function mergeQuads(quads: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const total = quads.reduce((n, q) => n + q.attributes.position.count, 0);
   const pos = new Float32Array(total * 3);
   const uv = new Float32Array(total * 2);
@@ -465,3 +166,229 @@ function mergeQuads(quads: THREE.BufferGeometry[]): THREE.BufferGeometry {
   g.computeBoundingSphere();
   return g;
 }
+
+// ---------------------------------------------------------------------------
+// Ground
+// ---------------------------------------------------------------------------
+
+/** Zebra crossing on the arm of an intersection, at the pedestrian line (8.5 m from the node). */
+function zebra(b: StaticBatch, x: number, z: number, alongX: boolean): void {
+  const stripes = 7;
+  const pitch = (ROAD * 2 - 1) / stripes;
+  for (let i = 0; i < stripes; i++) {
+    const o = -ROAD + 0.5 + pitch * (i + 0.5);
+    if (alongX) b.box(x, 0.02, z + o, 3.6, 0.04, pitch * 0.55, C.marking);
+    else b.box(x + o, 0.02, z, pitch * 0.55, 0.04, 3.6, C.marking);
+  }
+}
+
+function buildGround(): THREE.Mesh[] {
+  const b = new Batches();
+  const W = CITY_WIDTH;
+  const H = CITY_HEIGHT;
+  // Countryside
+  // (split around the canal)
+  b.get('grass').box(W / 2, -0.5, (496 - 2600) / 2, 5200, 0.42, 2600 + 496, C.country);
+  b.get('grass').box(W / 2, -0.5, (512 + 2600) / 2, 5200, 0.42, 2600 - 512, C.country);
+  // Outer sidewalk ring around the town
+  const ring = ROAD + SIDEWALK_W + 3;
+  const ringParts: [number, number, number, number][] = [
+    [-ring, -ring, W + ring, -ROAD],
+    [-ring, H + ROAD, W + ring, H + ring],
+    [-ring, -ROAD, -ROAD, H + ROAD],
+    [W + ROAD, -ROAD, W + ring, H + ROAD],
+  ];
+  for (const [x0, z0, x1, z1] of ringParts) {
+    b.stone.box((x0 + x1) / 2, 0, (z0 + z1) / 2, x1 - x0, CURB_H - 0.03, z1 - z0, C.curb);
+    b.get('paving').box((x0 + x1) / 2, 0, (z0 + z1) / 2, x1 - x0 - 0.6, CURB_H, z1 - z0 - 0.6, C.paving);
+  }
+  // The canal along the south edge: quay walls, towpath, water (separate mesh).
+  {
+    const z0 = 497;
+    const z1 = 511;
+    const lvl = -1.1;
+    b.stone.box(W / 2, -2.4, (z0 + z1) / 2, 5200, 1.3, z1 - z0, '#6f7a74');
+    for (const zz of [z0, z1]) b.stone.box(W / 2, -2.4, zz, 5200, 2.4 + CURB_H, 1.2, C.curb);
+    b.get('paving').box(W / 2, -0.1, z0 - 1.5, 5200, 0.1 + CURB_H, 3.6, '#bdb3a0');
+    b.get('gravel').box(W / 2, -0.1, z1 + 2.5, 5200, 0.12, 4, C.path);
+    void lvl;
+  }
+  // Asphalt and cobbles (streets are long strips; footpath segments are skipped)
+  for (let z = 0; z <= H; z += STREET_SPACING) {
+    // Horizontal streets: split at x = 240 / 480 for the cobbled part on z = 120.
+    const x0 = -ROAD;
+    const x1 = W + ROAD;
+    if (z === 120) {
+      b.get('asphalt').box((x0 + 233) / 2, -0.1, z, 233 - x0, 0.1, ROAD * 2, C.asphalt);
+      b.get('asphalt').box((487 + x1) / 2, -0.1, z, x1 - 487, 0.1, ROAD * 2, C.asphalt);
+      b.get('cobble').box(360, -0.1, z, 254, 0.13, ROAD * 2, C.cobble);
+      // Gutters of the shared space
+      for (const s of [-1, 1]) b.stone.box(360, -0.1, z + s * (ROAD - 0.5), 254, 0.14, 0.9, C.curb);
+    } else b.get('asphalt').box((x0 + x1) / 2, -0.1, z, x1 - x0, 0.1, ROAD * 2, C.asphalt);
+  }
+  for (let x = 0; x <= W; x += STREET_SPACING) {
+    const segs: [number, number][] = x === 360 ? [[120 - ROAD, 240 + ROAD]] : [[-ROAD, H + ROAD]];
+    for (const [z0, z1] of segs) b.get('asphalt').box(x, -0.105, (z0 + z1) / 2, ROAD * 2, 0.1, z1 - z0, C.asphalt);
+  }
+  // Centre dashes on asphalt (not on the cobbles, not across intersections)
+  const mark = b.get('plain');
+  for (let z = 0; z <= H; z += STREET_SPACING) {
+    for (let x = 0; x < W; x += STREET_SPACING) {
+      if (cobbled(x + 60, z)) continue;
+      for (let i = 0; i < 6; i++) mark.box(x + 18 + i * 16.8, 0.0, z, 3.2, 0.03, 0.25, C.marking);
+    }
+  }
+  for (let x = 0; x <= W; x += STREET_SPACING) {
+    for (let z = 0; z < H; z += STREET_SPACING) {
+      if (x === 360 && (z === 0 || z === 240)) continue;
+      for (let i = 0; i < 6; i++) mark.box(x, 0.0, z + 18 + i * 16.8, 0.25, 0.03, 3.2, C.marking);
+    }
+  }
+  // Blocks: curb + paved sidewalk + gardens inside
+  for (const blk of blocks()) {
+    const x0 = blk.x0 + ROAD;
+    const z0 = blk.z0 + ROAD;
+    const x1 = blk.x1 - ROAD;
+    const z1 = blk.z1 - ROAD;
+    b.stone.geo(roundedSlabGeometry(x0, z0, x1, z1, 4.5, CURB_H - 0.02, CURB_H - 0.02), 0, 0, 0, C.curb);
+    b.get('paving').geo(roundedSlabGeometry(x0 + 0.35, z0 + 0.35, x1 - 0.35, z1 - 0.35, 4.2, 0.1, CURB_H), 0, 0, 0, C.paving);
+    const inner = blk.inner;
+    const lawn = blk.kind === 'park' ? '#86b860' : C.grass;
+    b.get('grass').geo(roundedSlabGeometry(inner.x0, inner.z0, inner.x1, inner.z1, 2, 0.1, CURB_H + 0.02), 0, 0, 0, lawn);
+  }
+  // Footpaths of x = 360 through the school yard and the park.
+  b.get('gravel').box(360, CURB_H, 60, 6, 0.04, 120 - 2 * EDGE + 1, C.path);
+  b.get('gravel').box(360, CURB_H, 300, 6, 0.04, 120 - 2 * EDGE + 1, C.path);
+  // Zebra crossings at every intersection of the central streets (asphalt only).
+  for (let x = 120; x <= 480; x += STREET_SPACING) {
+    for (let z = 0; z <= 360; z += STREET_SPACING) {
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const ax = x + dx * 8.6;
+        const az = z + dz * 8.6;
+        if (dx !== 0 && cobbled(ax, z)) continue;
+        if (dz !== 0 && cobbled(x, az)) continue;
+        if (dz !== 0 && (az < -1 || az > CITY_HEIGHT + 1)) continue;
+        if (x === 360 && dz !== 0 && (z + dz * 30 < 120 || z + dz * 30 > 240)) continue;
+        zebra(mark, ax, az, dx !== 0);
+      }
+    }
+  }
+  // Forecourts of the locations not handled by a detailed block builder.
+  for (const f of lotFrames().values()) {
+    if (f.loc.kind === 'park' || f.loc.kind === 'school' || DETAILED_LOTS.has(f.loc.id)) continue;
+    const front = Math.min(f.stand.w0 - 5, f.depth / 2);
+    const r = localRect(f, -f.width / 2 + 4, front - 2, f.width / 2 - 4, f.streetW + 0.2);
+    b.get('paving').box((r.x0 + r.x1) / 2, CURB_H, (r.z0 + r.z1) / 2, r.x1 - r.x0, 0.05, r.z1 - r.z0, C.forecourt);
+  }
+  const meshes = b.build({ shadows: false });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(5200, 13.2), waterMaterial('#2f6a80'));
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(W / 2, -1.1, 504);
+  water.receiveShadow = true;
+  water.name = 'canal-water';
+  meshes.push(water);
+  return meshes;
+}
+
+/** Lots whose ground, buildings and props are built by a detailed block builder. */
+export const DETAILED_LOTS = new Set(['cafe', 'bakery', 'florist', 'supermarket']);
+
+// ---------------------------------------------------------------------------
+// Bus shelters
+// ---------------------------------------------------------------------------
+
+function buildShelters(b: Batches, signs: SignAtlas): void {
+  const city = getCity();
+  for (const stop of LOCATIONS.filter((l) => l.kind === 'bus_stop')) shelter(b, signs, stop, city.nodePos(stop.node));
+}
+
+function shelter(b: Batches, signs: SignAtlas, stop: LocationDef, node: { x: number; y: number }): void {
+  const side = Math.sign(stop.pos.y - node.y) || -1;
+  // Shelter at the back of the sidewalk, facing the street; waiting people stand in front of it.
+  const z = node.y + side * (EDGE + 1.6);
+  const x = stop.pos.x + 2;
+  const frame = new THREE.Matrix4().makeRotationY(side < 0 ? Math.PI : 0).setPosition(x, CURB_H, z);
+  const w = 6;
+  const d = 2.2;
+  const glass = b.get('glass');
+  b.get('paving').box(0, 0, 0.6, w + 3, 0.04, d + 3.4, '#bdb5a5', 0, frame);
+  glass.box(0, 0.2, d / 2 - 0.08, w, 2.4, 0.06, '#9fb8c6', 0, frame);
+  for (const u of [-w / 2, w / 2]) glass.box(u, 0.2, 0, 0.06, 2.4, d - 0.2, '#9fb8c6', 0, frame);
+  for (const [u, ww] of [[-w / 2, d / 2], [w / 2, d / 2], [-w / 2, -d / 2], [w / 2, -d / 2]]) b.metal.box(u, 0, ww, 0.12, 2.75, 0.12, '#2f4a3e', 0, frame);
+  b.metal.box(0, 2.75, 0, w + 0.5, 0.18, d + 0.4, '#2f4a3e', 0, frame);
+  b.trim.box(0, 2.6, -d / 2 - 0.1, w + 0.5, 0.3, 0.06, '#f39c12', 0, frame);
+  b.wood.box(0, 0.5, d / 2 - 0.45, w - 1, 0.08, 0.45, PAL.wood, 0, frame);
+  for (const u of [-(w - 1.6) / 2, (w - 1.6) / 2]) b.metal.box(u, 0, d / 2 - 0.45, 0.08, 0.5, 0.4, PAL.iron, 0, frame);
+  // Stop pole with the line sign
+  const pu = -w / 2 - 1.2;
+  b.metal.cyl(pu, 0, -d / 2 + 0.2, 0.06, 3.3, '#2f4a3e', false, frame);
+  b.trim.box(pu, 2.55, -d / 2 + 0.2, 0.8, 0.8, 0.08, '#f39c12', 0, frame);
+  signs.quad(new THREE.Matrix4().makeTranslation(0, 0, 0).premultiply(frame), pu, 2.95, -d / 2 + 0.26, 0.78, 0.3, 'Ligne 1', { bg: '#f39c12', fg: '#1d2b3a', font: 'sans' });
+  signs.quad(new THREE.Matrix4().makeRotationY(Math.PI).premultiply(new THREE.Matrix4().makeTranslation(0, 0, 0).premultiply(frame)), -pu, 2.95, d / 2 - 0.14, 0.78, 0.3, 'Ligne 1', { bg: '#f39c12', fg: '#1d2b3a', font: 'sans' });
+  signs.quad(frame, 0, 2.6, -d / 2 - 0.15, w * 0.8, 0.26, stop.name.replace('Arrêt ', ''), { bg: '#2f4a3e', fg: '#fbf3dd', font: 'sans' });
+  if (HERO_STOPS.has(stop.id)) {
+    // Timetable panel
+    b.trim.box(w / 2 - 0.2, 0.9, 0, 0.1, 1.3, 0.8, '#f4efe4', 0, frame);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Components
+// ---------------------------------------------------------------------------
+
+export function Streets() {
+  const ground = useMemo(buildGround, []);
+  useEffect(() => () => ground.forEach((m) => m.geometry.dispose()), [ground]);
+  useFrame(() => {
+    U.uWet.value = env.rain;
+  });
+  return (
+    <group>
+      {ground.map((m) => (
+        <primitive key={m.name} object={m} />
+      ))}
+      <Suspense fallback={null}>
+        <StreetFurniture />
+      </Suspense>
+    </group>
+  );
+}
+
+/** Lamp posts (instanced Quaternius street lights), bus shelters and night halos. */
+function StreetFurniture() {
+  const protos = useProtos();
+  const built = useMemo(() => {
+    const lamps = streetLamps();
+    const lampProto = protos.lamp;
+    const s = 4.6 / lampProto.size.y;
+    // Detailed Quaternius lamps in the café block, a light procedural lantern post elsewhere.
+    const detailed = (l: LampDef) => l.x > 113 && l.x < 487 && l.z > 113 && l.z < 262;
+    const items = lamps.filter(detailed).map((l) => ({ x: l.x, z: l.z, y: CURB_H, rotY: Math.atan2(l.dx, l.dz), scale: s }));
+    const meshes = instancedModel(lampProto, items);
+    const bulbs = lamps.filter(detailed).map((l) => new THREE.Vector3(l.x, CURB_H + 4.2, l.z));
+    const b = new Batches();
+    for (const l of lamps.filter((q) => !detailed(q))) {
+      b.metal.cyl(l.x, CURB_H, l.z, 0.16, 0.5, '#1f3b24');
+      b.metal.cyl(l.x, CURB_H, l.z, 0.07, 4.1, '#1f3b24');
+      b.metal.shape('cone4', l.x, CURB_H + 4.35, l.z, 0.55, 0.45, 0.55, '#1f3b24', { y: Math.PI / 4 });
+      b.bulb.shape('cyl6', l.x, CURB_H + 4.0, l.z, 0.34, 0.5, 0.34, '#ffffff');
+      bulbs.push(new THREE.Vector3(l.x, CURB_H + 4.0, l.z));
+    }
+    const signs = new SignAtlas();
+    buildShelters(b, signs);
+    const sm = signs.build();
+    return { meshes: [...meshes, ...b.build(), ...(sm ? [sm] : [])], bulbs };
+  }, [protos]);
+  useFrame(() => {
+    bulbColor(bulbMat().color, env.night);
+  });
+  return (
+    <group>
+      {built.meshes.map((m, i) => (
+        <primitive key={i} object={m} />
+      ))}
+      <LampGlow bulbs={built.bulbs} />
+    </group>
+  );
+}
+

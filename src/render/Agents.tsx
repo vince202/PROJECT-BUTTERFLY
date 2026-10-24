@@ -1,37 +1,46 @@
 /**
- * The twenty inhabitants, rendered as little "meeples".
+ * The twenty inhabitants.
  *
- * Meshes are created imperatively once (shared geometries, per-agent
- * materials) and animated from a single useFrame: interpolated positions
- * from the trace, heading, sidewalk offset while walking, a small walk cycle,
- * sleep dimming, hover / selection feedback and name labels. Nothing here
- * triggers React re-renders while the clock runs.
+ * Near the camera each inhabitant is an animated Quaternius character
+ * (characters.ts: Idle / Walk / SitDown / Victory / PickUp, clothes tinted
+ * with the profile colour); far away, or while the models load, a cheap
+ * procedural figure that grows with distance so people stay readable on the
+ * overview. Positions are always the interpolated trace positions; on top of
+ * them the view adds: right-hand sidewalk offset while walking, facing the
+ * partner during a conversation (with a speech bubble), sitting on the seats
+ * placed at the standing spots (café terrace...), waiting on the sidewalk at
+ * bus stops, sleep dimming with "z z z".
  *
- * Mood (trace `mood`, -1..1, interpolated between frames) is shown by:
- *  - a soft coloured ring at the feet (one InstancedMesh for everybody,
- *    per-instance colour and alpha), blue-violet -> grey -> gold;
- *  - a tiny canvas pictogram above the head for strong moods (sun / cloud);
- *  - posture: a slight slump when low, a bouncier walk when happy.
+ * Mood (trace `mood`, -1..1, interpolated) is shown by a coloured ring at the
+ * feet, a pictogram for strong moods and the posture of the far figure.
+ * Names only appear for the hovered / selected / followed inhabitant.
+ * Nothing here triggers React re-renders while the clock runs.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type ThreeEvent, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { LOCATIONS } from '../sim/city';
+import { LOCATIONS, getCity } from '../sim/city';
 import { AGENTS } from '../sim/population';
 import type { AgentProfile } from '../sim/types';
 import { useSimStore } from '../store/useSimStore';
 import { MOOD_HIGH, MOOD_LOW, type StreetSample, activeRealityOf, agentMood, agentWorld, angleDelta, damp, env, hashString, labelMaterial, makeLabel, moodColor, radialTexture, sampleFrames, sizeLabel, streetLerp } from './shared';
+import { CURB_H, STOP_PUSH, onRoad } from './layout';
+import { seatAt } from './seats';
+import { type CharacterRig, type ClipName, CharacterCast, playClip } from './characters';
+import { conversationsAt, pickupsAt, speechTextures, type TalkKind } from './social';
 
-/** Overall meeple scale (meeples are deliberately oversized for readability). */
-const AGENT_SCALE = 0.95;
-/** Below this camera distance every name is shown. */
-const ALL_NAMES_DISTANCE = 380;
-/** Lateral offset applied while walking so that people use the sidewalks (metres). */
+/** Far figure scale at close range (about 1.8 m tall). */
+const AGENT_SCALE = 0.24;
+/** Native height of the far figure (units, before AGENT_SCALE). */
+const MEEPLE_UNITS = 7.5;
+/** Distance up to which the animated character is shown instead of the far figure. */
+const LOD_DISTANCE = 150;
+/** Lateral offset applied while walking so that people use the right-hand sidewalk (metres). */
 const SIDEWALK_OFFSET = 8.5;
+/** Below this camera distance the mood glyphs are a little bigger. */
+const ALL_NAMES_DISTANCE = 380;
 
-/** Locations whose interior hides the people inside (everything but the park and bus stops). */
-const INDOOR = new Set(LOCATIONS.filter((l) => l.kind !== 'park' && l.kind !== 'bus_stop').map((l) => l.id));
 
 /** |mood| above which the pictogram appears (with a little hysteresis below). */
 const GLYPH_ON = 0.45;
@@ -39,7 +48,7 @@ const GLYPH_OFF = 0.41;
 /** On-screen height of the mood pictogram (CSS px). */
 const GLYPH_PX = 17;
 /** Height of the mood ring above the ground (just above sidewalks, below selection rings). */
-const MOOD_RING_Y = 0.64;
+const MOOD_RING_Y = 0.36;
 /** Ring alpha while awake / asleep. */
 const RING_ALPHA = 0.95;
 const RING_ALPHA_ASLEEP = 0.3;
@@ -169,6 +178,7 @@ const smooth01 = (v: number) => {
 
 interface Meeple {
   id: string;
+  profile: AgentProfile;
   root: THREE.Group;
   inner: THREE.Group;
   legL: THREE.Mesh;
@@ -183,8 +193,15 @@ interface Meeple {
   labelAspect: number;
   zz: THREE.Sprite;
   glyph: THREE.Sprite;
+  bubble: THREE.Sprite;
+  bubbleKind: TalkKind | null;
   mats: { body: THREE.MeshStandardMaterial; skin: THREE.MeshStandardMaterial; legs: THREE.MeshStandardMaterial; hair: THREE.MeshStandardMaterial };
   bodyColor: THREE.Color;
+  rig: CharacterRig | null;
+  /** Part meshes of the far figure (never drawn: they drive the instanced crowd). */
+  parts: THREE.Mesh[];
+  /** Umbrella opened by walkers in the rain. */
+  umbrella: THREE.Group;
   // Animation state
   heading: number;
   phase: number;
@@ -192,16 +209,24 @@ interface Meeple {
   hoverK: number;
   offset: THREE.Vector3;
   last: THREE.Vector3;
+  groundY: number;
   asleep: boolean;
+  dimmed: boolean;
   initialised: boolean;
-  /** Displayed mood (interpolated from the trace, lightly smoothed). */
   mood: number;
-  /** 0..1 pictogram pop-in. */
   glyphK: number;
   glyphKind: 'joy' | 'low' | null;
+  /** Next time (s) a joyful idle may play its little victory gesture. */
+  nextFidget: number;
+  /** One-shot clip currently playing (victory, pickup...), if any. */
+  oneShot: ClipName | null;
+  /** Head turn for idle "look around". */
+  look: number;
 }
 
 const noRaycast = () => {};
+const UMBRELLA_CANOPY = new THREE.ConeGeometry(0.78, 0.38, 8, 1, true);
+const UMBRELLA_POLE = new THREE.CylinderGeometry(0.02, 0.02, 0.9, 4);
 
 function makeMeeple(p: AgentProfile, geo: ReturnType<typeof makeGeometries>, eyeMat: THREE.Material, hitMat: THREE.Material, zzMat: THREE.SpriteMaterial): Meeple {
   const h = hashString(p.id);
@@ -212,24 +237,23 @@ function makeMeeple(p: AgentProfile, geo: ReturnType<typeof makeGeometries>, eye
     legs: new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color).multiplyScalar(0.35).lerp(new THREE.Color('#2d3440'), 0.6), roughness: 0.7 }),
     hair: new THREE.MeshStandardMaterial({ color: p.age >= 62 ? '#d8d6d0' : HAIR[(h >>> 3) % HAIR.length], roughness: 0.8 }),
   };
-
   const root = new THREE.Group();
   root.name = `agent:${p.id}`;
   const inner = new THREE.Group();
   inner.scale.setScalar(AGENT_SCALE);
   root.add(inner);
-
   const mk = (g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number) => {
     const mesh = new THREE.Mesh(g, m);
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.raycast = noRaycast;
+    mesh.visible = false;
     inner.add(mesh);
     return mesh;
   };
   const legL = mk(geo.leg, mats.legs, -0.5, 2.2, 0);
   const legR = mk(geo.leg, mats.legs, 0.5, 2.2, 0);
-  mk(geo.body, mats.body, 0, 3.8, 0);
+  const torso = mk(geo.body, mats.body, 0, 3.8, 0);
   const armL = mk(geo.arm, mats.body, -1.3, 5.0, 0);
   const armR = mk(geo.arm, mats.body, 1.3, 5.0, 0);
   armL.rotation.z = -0.12;
@@ -240,7 +264,6 @@ function makeMeeple(p: AgentProfile, geo: ReturnType<typeof makeGeometries>, eye
   const eyes = [mk(geo.eye, eyeMat, -0.34, 6.7, 0.84), mk(geo.eye, eyeMat, 0.34, 6.7, 0.84)];
   for (const e of eyes) e.castShadow = false;
 
-  // Invisible, generous pick target.
   const hit = new THREE.Mesh(geo.hit, hitMat);
   hit.userData.agentId = p.id;
   root.add(hit);
@@ -248,61 +271,58 @@ function makeMeeple(p: AgentProfile, geo: ReturnType<typeof makeGeometries>, eye
   const lab = makeLabel({ text: p.firstName, dot: p.color, fontSize: 30 });
   const label = new THREE.Sprite(labelMaterial(lab, false));
   label.center.set(0.5, 0);
-  label.position.y = 7.4;
   label.renderOrder = 10;
   label.visible = false;
+  label.raycast = noRaycast;
   root.add(label);
 
   const zz = new THREE.Sprite(zzMat);
   zz.center.set(0, 0);
-  zz.position.set(1.0, 6.4, 0);
   zz.visible = false;
   zz.renderOrder = 9;
+  zz.raycast = noRaycast;
   root.add(zz);
 
-  // Mood pictogram (material assigned when a strong mood shows up).
   const glyph = new THREE.Sprite();
   glyph.center.set(0.5, 0);
-  glyph.position.set(0, 7.4, 0);
   glyph.visible = false;
   glyph.renderOrder = 11;
   glyph.raycast = noRaycast;
   root.add(glyph);
 
+  const bubble = new THREE.Sprite();
+  bubble.center.set(0.3, 0);
+  bubble.visible = false;
+  bubble.renderOrder = 12;
+  bubble.raycast = noRaycast;
+  root.add(bubble);
+
+  const umbrella = new THREE.Group();
+  const uMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color).lerp(new THREE.Color('#2d3440'), 0.25), roughness: 0.6, side: THREE.DoubleSide });
+  const canopy = new THREE.Mesh(UMBRELLA_CANOPY, uMat);
+  canopy.position.y = 2.05;
+  canopy.castShadow = true;
+  const pole = new THREE.Mesh(UMBRELLA_POLE, eyeMat);
+  pole.position.set(0, 1.62, 0);
+  for (const o of [canopy, pole]) o.raycast = noRaycast;
+  umbrella.add(canopy, pole);
+  umbrella.position.set(0.12, 0, 0.12);
+  umbrella.visible = false;
+  root.add(umbrella);
+
   return {
-    id: p.id,
-    root,
-    inner,
-    legL,
-    legR,
-    armL,
-    armR,
-    eyes,
-    head,
-    hair,
-    hit,
-    label,
-    labelAspect: lab.aspect,
-    zz,
-    glyph,
-    mats,
-    bodyColor,
-    heading: 0,
-    phase: 0,
-    moveK: 0,
-    hoverK: 0,
-    offset: new THREE.Vector3(),
-    last: new THREE.Vector3(),
-    asleep: false,
-    initialised: false,
-    mood: 0,
-    glyphK: 0,
-    glyphKind: null,
+    id: p.id, profile: p, root, umbrella, inner, legL, legR, armL, armR, eyes, head, hair, hit, label, labelAspect: lab.aspect, zz, glyph, bubble, bubbleKind: null, mats, bodyColor, rig: null,
+    parts: [legL, legR, torso, armL, armR, head, hair, eyes[0], eyes[1]],
+    heading: 0, phase: 0, moveK: 0, hoverK: 0, offset: new THREE.Vector3(), last: new THREE.Vector3(), groundY: CURB_H, asleep: false, dimmed: false, initialised: false, mood: 0, glyphK: 0, glyphKind: null,
+    nextFidget: 8 + (h % 20), oneShot: null, look: 0,
   };
 }
 
 function setDimmed(m: Meeple, dim: boolean) {
-  for (const mat of Object.values(m.mats)) {
+  m.dimmed = dim;
+  const all: THREE.Material[] = [...Object.values(m.mats)];
+  if (m.rig) all.push(m.rig.material);
+  for (const mat of all) {
     mat.transparent = dim;
     mat.opacity = dim ? 0.32 : 1;
     mat.depthWrite = !dim;
@@ -320,24 +340,33 @@ const tmpEmissive = new THREE.Color();
 const tmpMood = new THREE.Color();
 const tmpMatrix = new THREE.Matrix4();
 const HIDDEN_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
+const tmpCam = new THREE.Vector3();
+const tmpCrowd = new THREE.Color();
+
+/** Bus stop id -> push direction (z) for waiting people. */
+const STOP_SIDE = new Map<string, number>();
+{
+  const city = getCity();
+  for (const l of LOCATIONS) if (l.kind === 'bus_stop') STOP_SIDE.set(l.id, Math.sign(l.pos.y - city.nodePos(l.node).y) || -1);
+}
 
 export function Agents() {
   const gl = useThree((s) => s.gl);
+  const camera = useThree((s) => s.camera);
   const selectAgent = useSimStore((s) => s.selectAgent);
   const hoverAgent = useSimStore((s) => s.hoverAgent);
 
-  const { meeples, ring, glyphMats, dispose } = useMemo(() => {
+  const { meeples, ring, shadow, glyphMats, bubbleMats, dispose, crowd } = useMemo(() => {
     const geo = makeGeometries();
     const eyeMat = new THREE.MeshBasicMaterial({ color: '#1d1a17' });
     const hitMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true, opacity: 0 });
     const zzLabel = makeLabel({ text: 'z z z', fontSize: 26, background: 'rgba(40,52,90,0.78)', color: '#e8ecff', bold: true });
     const zzMat = labelMaterial(zzLabel);
     const meeples = AGENTS.map((p) => makeMeeple(p, geo, eyeMat, hitMat, zzMat));
-    const zzAspect = zzLabel.aspect;
-    for (const m of meeples) m.zz.userData.aspect = zzAspect;
+    for (const m of meeples) m.zz.userData.aspect = zzLabel.aspect;
 
-    // Mood rings: a single instanced draw call for everybody.
-    const ringGeo = new THREE.PlaneGeometry(6.4, 6.4);
+    // Mood rings: one instanced draw call for everybody.
+    const ringGeo = new THREE.PlaneGeometry(1, 1);
     ringGeo.rotateX(-Math.PI / 2);
     ringGeo.setAttribute('aAlpha', new THREE.InstancedBufferAttribute(new Float32Array(meeples.length).fill(RING_ALPHA), 1));
     const ringTex = makeMoodRingTexture();
@@ -346,28 +375,43 @@ export function Agents() {
     ring.name = 'agent-mood-rings';
     ring.frustumCulled = false;
     ring.raycast = noRaycast;
-    ring.renderOrder = 1;
+    ring.renderOrder = 2;
+    // Soft contact shadows.
+    const shadowGeo = new THREE.PlaneGeometry(1, 1);
+    shadowGeo.rotateX(-Math.PI / 2);
+    const shadowMat = new THREE.MeshBasicMaterial({ map: radialTexture(), color: '#000000', transparent: true, opacity: 0.38, depthWrite: false });
+    const shadow = new THREE.InstancedMesh(shadowGeo, shadowMat, meeples.length);
+    shadow.name = 'agent-contact-shadows';
+    shadow.frustumCulled = false;
+    shadow.raycast = noRaycast;
+    shadow.renderOrder = 1;
     for (let i = 0; i < meeples.length; i++) {
       ring.setMatrixAt(i, HIDDEN_MATRIX);
       ring.setColorAt(i, moodColor(0, tmpMood));
+      shadow.setMatrixAt(i, HIDDEN_MATRIX);
     }
     ring.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     ring.instanceColor!.setUsage(THREE.DynamicDrawUsage);
+    shadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
-    // Pictograms: two shared sprite materials.
     const glyphTex = { joy: makeGlyphTexture('joy'), low: makeGlyphTexture('low') };
-    const glyphMat = (map: THREE.Texture) => new THREE.SpriteMaterial({ map, sizeAttenuation: false, transparent: true, depthWrite: false, toneMapped: false, fog: false });
-    const glyphMats = { joy: glyphMat(glyphTex.joy), low: glyphMat(glyphTex.low) };
+    const spriteMat = (map: THREE.Texture) => new THREE.SpriteMaterial({ map, sizeAttenuation: false, transparent: true, depthWrite: false, toneMapped: false, fog: false });
+    const glyphMats = { joy: spriteMat(glyphTex.joy), low: spriteMat(glyphTex.low) };
+    const st = speechTextures();
+    const bubbleMats = { talk: spriteMat(st.talk), argue: spriteMat(st.argue), meet: spriteMat(st.meet) };
 
     const dispose = () => {
       ringGeo.dispose();
       ringTex.dispose();
       ringMat.dispose();
       ring.dispose();
+      shadowGeo.dispose();
+      shadowMat.dispose();
+      shadow.dispose();
       glyphTex.joy.dispose();
       glyphTex.low.dispose();
-      glyphMats.joy.dispose();
-      glyphMats.low.dispose();
+      Object.values(glyphMats).forEach((m) => m.dispose());
+      Object.values(bubbleMats).forEach((m) => m.dispose());
       Object.values(geo).forEach((g) => g.dispose());
       eyeMat.dispose();
       hitMat.dispose();
@@ -379,12 +423,30 @@ export function Agents() {
         m.label.material.dispose();
       }
     };
-    return { meeples, ring, glyphMats, dispose };
+    // Far figures: one instanced mesh per body part for the whole crowd (9 draw calls).
+    const partMat = new THREE.MeshStandardMaterial({ roughness: 0.6 });
+    const crowd = meeples[0].parts.map((part, pi) => {
+      const im = new THREE.InstancedMesh(part.geometry, pi >= 7 ? eyeMat : partMat, meeples.length);
+      im.name = `crowd:${pi}`;
+      im.castShadow = pi < 7;
+      im.frustumCulled = false;
+      im.raycast = noRaycast;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      for (let i = 0; i < meeples.length; i++) {
+        im.setMatrixAt(i, HIDDEN_MATRIX);
+        im.setColorAt(i, (meeples[i].parts[pi].material as THREE.MeshStandardMaterial).color ?? new THREE.Color('#1d1a17'));
+      }
+      return im;
+    });
+    const disposeAll = () => {
+      dispose();
+      partMat.dispose();
+      for (const im of crowd) im.dispose();
+    };
+    return { meeples, ring, shadow, glyphMats, bubbleMats, dispose: disposeAll, crowd };
   }, []);
 
   useEffect(() => dispose, [dispose]);
-
-  // Restore the cursor if the scene unmounts while hovering.
   useEffect(
     () => () => {
       gl.domElement.style.cursor = '';
@@ -392,13 +454,33 @@ export function Agents() {
     [gl],
   );
 
+  // Attach the animated characters once loaded.
+  const onRigs = useCallback(
+    (rigs: Map<string, CharacterRig>) => {
+      for (const m of meeples) {
+        const rig = rigs.get(m.id) ?? null;
+        m.rig = rig;
+        if (rig) {
+          m.root.add(rig.group);
+          rig.group.visible = false;
+          if (m.dimmed) setDimmed(m, true);
+        }
+      }
+    },
+    [meeples],
+  );
+
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.1);
     const s = useSimStore.getState();
-    const pair = sampleFrames(activeRealityOf(s), s.time);
-    const showAll = env.camDistance < ALL_NAMES_DISTANCE;
+    const reality = activeRealityOf(s);
+    const pair = sampleFrames(reality, s.time);
     const t = performance.now() / 1000;
     const ringAlpha = ring.geometry.getAttribute('aAlpha') as THREE.InstancedBufferAttribute;
+    const talks = conversationsAt(reality, s.time);
+    const pickups = pickupsAt(reality, s.time);
+    camera.getWorldPosition(tmpCam);
+    const spectator = s.uiMode === 'spectator';
 
     for (let i = 0; i < meeples.length; i++) {
       const m = meeples[i];
@@ -408,6 +490,8 @@ export function Agents() {
         m.root.visible = false;
         m.hit.raycast = noRaycast;
         ring.setMatrixAt(i, HIDDEN_MATRIX);
+        shadow.setMatrixAt(i, HIDDEN_MATRIX);
+        for (const im of crowd) im.setMatrixAt(i, HIDDEN_MATRIX);
         agentWorld.set(m.id, { pos: m.root.position, visible: false });
         continue;
       }
@@ -416,7 +500,6 @@ export function Agents() {
       let z: number;
       const jump = Math.hypot(a1.x - a0.x, a1.y - a0.y);
       if (jump > 250) {
-        // Teleport (should not happen within one minute): snap.
         x = k < 0.5 ? a0.x : a1.x;
         z = k < 0.5 ? a0.y : a1.y;
       } else {
@@ -427,106 +510,195 @@ export function Agents() {
       const riding = k < 0.5 ? a0.riding : a1.riding;
       const asleep = a0.asleep;
       const travelling = (a0.loc === '' || a1.loc === '') && !riding;
-
-      // Movement direction from the trace (stable even when paused).
       const moving = jump > 2 && jump <= 250 && !riding;
+      const loc = a0.loc;
+      const seat = !moving && loc ? seatAt(loc, x, z) : null;
+      const talk = !moving && !asleep ? talks?.get(m.id) : undefined;
+
+      // Heading: along the movement, towards a conversation partner, or the seat's direction.
       if (moving) {
         const target = Math.atan2(sample.dx, sample.dy);
         m.heading += angleDelta(m.heading, target) * damp(10, dt);
+      } else if (seat) {
+        m.heading += angleDelta(m.heading, seat.heading) * damp(6, dt);
+      } else if (talk) {
+        const other = agentWorld.get(talk.partner);
+        if (other && other.visible) {
+          const dx = other.pos.x - m.root.position.x;
+          const dz = other.pos.z - m.root.position.z;
+          if (dx * dx + dz * dz > 0.04) m.heading += angleDelta(m.heading, Math.atan2(dx, dz)) * damp(5, dt);
+        }
       }
-      // Right-hand sidewalk offset while walking along streets.
-      if (moving && travelling) {
-        tmpTarget.set(-sample.dy * SIDEWALK_OFFSET, 0, sample.dx * SIDEWALK_OFFSET);
-      } else tmpTarget.set(0, 0, 0);
+      // Right-hand sidewalk offset while walking; waiting people stand on the sidewalk at stops.
+      if (moving && travelling) tmpTarget.set(-sample.dy * SIDEWALK_OFFSET, 0, sample.dx * SIDEWALK_OFFSET);
+      else if (!moving && loc && STOP_SIDE.has(loc)) tmpTarget.set(0, 0, STOP_SIDE.get(loc)! * STOP_PUSH);
+      else tmpTarget.set(0, 0, 0);
       if (!m.initialised) m.offset.copy(tmpTarget);
       else m.offset.lerp(tmpTarget, damp(4, dt));
-
-      m.root.position.set(x + m.offset.x, 0, z + m.offset.z);
+      const px = x + m.offset.x;
+      const pz = z + m.offset.z;
+      const gy = onRoad(px, pz) ? 0.02 : CURB_H;
+      m.groundY = m.initialised ? m.groundY + (gy - m.groundY) * damp(12, dt) : gy;
+      m.root.position.set(px, m.groundY, pz);
       m.root.rotation.y = m.heading;
 
-      // Mood, interpolated between frames like positions (and smoothed against jumps).
+      // Mood (interpolated between frames, smoothed against jumps).
       const moodTarget = a0.mood + (a1.mood - a0.mood) * k;
       if (!m.initialised) m.mood = moodTarget;
       else m.mood += (moodTarget - m.mood) * damp(6, dt);
       const mood = m.mood;
       agentMood.set(m.id, mood);
-      const slump = smooth01((-mood - 0.4) / 0.4); // 0 at -0.4, 1 at -0.8
-      const joy = smooth01((mood - 0.4) / 0.4); // 0 at +0.4, 1 at +0.8
+      const slump = smooth01((-mood - 0.4) / 0.4);
+      const joy = smooth01((mood - 0.4) / 0.4);
 
-      // Walk cycle driven by the distance actually covered on screen (capped).
+      // Displayed speed (m/s) for the walk cycle.
       const moved = m.initialised ? m.last.distanceTo(m.root.position) : 0;
       m.last.copy(m.root.position);
       m.initialised = true;
       m.moveK += ((moving ? 1 : 0) - m.moveK) * damp(8, dt);
-      m.phase += Math.min(moved, dt * 16) * 0.9;
-      const swing = Math.sin(m.phase) * 0.65 * m.moveK * (1 + joy * 0.15 - slump * 0.25);
-      m.legL.rotation.x = swing;
-      m.legR.rotation.x = -swing;
-      m.armL.rotation.x = -swing * 0.8;
-      m.armR.rotation.x = swing * 0.8;
-      m.inner.position.y = Math.abs(Math.sin(m.phase)) * 0.35 * m.moveK * (1 + joy * 0.8 - slump * 0.3);
+      const speed = dt > 0 ? moved / dt : 0;
 
-      // Posture: low mood leans forward a few degrees, drops the head and lets the arms hang.
-      m.inner.rotation.x = slump * 0.07;
-      m.head.position.y = 6.55 - slump * 0.22;
-      m.hair.position.y = 6.62 - slump * 0.22;
-      m.hair.rotation.x = -0.35 + slump * 0.22;
-      for (const e of m.eyes) {
-        e.position.y = 6.7 - slump * 0.4;
-        e.position.z = 0.84 + slump * 0.05;
-      }
-      m.armL.rotation.z = -0.12 + slump * 0.08;
-      m.armR.rotation.z = 0.12 - slump * 0.08;
+      // Level of detail: animated character near the camera, growing figure far away.
+      const dist = tmpCam.distanceTo(m.root.position);
+      const near = !!m.rig && dist < LOD_DISTANCE;
+      const hovered = s.hoveredAgentId === m.id;
+      const selected = s.selectedAgentId === m.id;
+      const followed = s.followAgentId === m.id;
+      m.hoverK += ((hovered || selected ? 1 : 0) - m.hoverK) * damp(10, dt);
+      const grow = 1 + m.hoverK * 0.12;
+      const farGrow = Math.max(1.45, dist / 103);
+      const nearGrow = 1 + 0.5 * THREE.MathUtils.smoothstep(dist, 40, LOD_DISTANCE);
+      const height = (near ? 1.75 * nearGrow : MEEPLE_UNITS * AGENT_SCALE * farGrow) * grow;
 
-      // Visibility, sleep and hover / selection feedback.
       const visible = !riding;
       m.root.visible = visible;
       m.hit.raycast = visible ? THREE.Mesh.prototype.raycast : noRaycast;
+      m.hit.scale.setScalar(Math.max(height, 2.2) / 9.5 * 1.15);
       if (asleep !== m.asleep) {
         m.asleep = asleep;
         setDimmed(m, asleep);
       }
+
+      m.inner.visible = !near;
+      if (m.rig) {
+        const rig = m.rig;
+        rig.group.visible = near;
+        if (near) {
+          rig.group.scale.setScalar(rig.baseScale * nearGrow * grow);
+          // Animation state machine.
+          let want: ClipName = 'idle';
+          let ts = 1;
+          if (moving) {
+            want = 'walk';
+            ts = THREE.MathUtils.clamp(speed / 1.5, 0.9, 2.4);
+            m.oneShot = null;
+          } else if (seat) {
+            want = 'sit';
+            m.oneShot = null;
+          } else if (pickups?.has(m.id) && m.oneShot !== 'pickup' && rig.current !== 'pickup') {
+            m.oneShot = 'pickup';
+          } else if (!asleep && joy > 0.3 && !talk && t > m.nextFidget && !m.oneShot) {
+            m.oneShot = 'victory';
+            m.nextFidget = t + 18 + (hashString(m.id) % 15);
+          }
+          if (!moving && !seat && m.oneShot) {
+            const act = rig.actions[m.oneShot];
+            if (act && rig.current === m.oneShot && !act.isRunning()) m.oneShot = null;
+            else want = m.oneShot;
+          }
+          playClip(rig, want, want === 'sit' ? 0.35 : 0.25, ts);
+          rig.mixer.update(dt);
+          // Seated people sit slightly higher (chair seat) — the clip sits at ground level.
+          // The sitting clip lowers the hips onto a seat behind the root: move back onto the chair.
+          const sitting = want === 'sit' && !!seat;
+          rig.group.position.y = sitting ? seat!.height - 0.41 : 0;
+          rig.group.position.z = sitting ? -0.32 : 0;
+          tmpEmissive.copy(m.bodyColor).multiplyScalar(m.hoverK * 0.35);
+          rig.material.emissive.copy(tmpEmissive);
+        }
+      }
+      if (!near) {
+        // Far figure: procedural walk cycle and posture.
+        m.phase += Math.min(moved, dt * 16) * 0.9 / farGrow;
+        const swing = Math.sin(m.phase) * 0.65 * m.moveK * (1 + joy * 0.15 - slump * 0.25);
+        m.legL.rotation.x = swing;
+        m.legR.rotation.x = -swing;
+        m.armL.rotation.x = -swing * 0.8;
+        m.armR.rotation.x = swing * 0.8;
+        m.inner.position.y = Math.abs(Math.sin(m.phase)) * 0.35 * m.moveK * AGENT_SCALE * farGrow * (1 + joy * 0.8 - slump * 0.3);
+        m.inner.rotation.x = slump * 0.07;
+        m.head.position.y = 6.55 - slump * 0.22;
+        m.hair.position.y = 6.62 - slump * 0.22;
+        m.hair.rotation.x = -0.35 + slump * 0.22;
+        for (const e of m.eyes) {
+          e.position.y = 6.7 - slump * 0.4;
+          e.position.z = 0.84 + slump * 0.05;
+        }
+        m.armL.rotation.z = -0.12 + slump * 0.08;
+        m.armR.rotation.z = 0.12 - slump * 0.08;
+        const sc = AGENT_SCALE * farGrow * grow;
+        m.inner.scale.set(sc, sc * (1 - slump * 0.04), sc);
+        tmpEmissive.copy(m.bodyColor).multiplyScalar(m.hoverK * 0.45);
+        m.mats.body.emissive.copy(tmpEmissive);
+      }
+
+      // Umbrellas in the rain (walkers and people waiting at stops).
+      const wantUmbrella = visible && env.rain > 0.35 && !asleep && !seat && (moving || (!!loc && STOP_SIDE.has(loc)) || loc === 'park');
+      m.umbrella.visible = wantUmbrella;
+      if (wantUmbrella) m.umbrella.scale.setScalar(height / 1.75);
+
+      // Sleep bubble
       m.zz.visible = asleep && visible;
       if (m.zz.visible) {
         sizeLabel(m.zz, m.zz.userData.aspect as number, 15);
-        m.zz.position.y = 6.6 + Math.sin(t * 1.5 + m.phase) * 0.4;
+        m.zz.position.set(0.25 * height, height * 0.95 + Math.sin(t * 1.5 + i) * 0.06 * height, 0);
       }
 
-      const hovered = s.hoveredAgentId === m.id;
-      const selected = s.selectedAgentId === m.id;
-      m.hoverK += ((hovered || selected ? 1 : 0) - m.hoverK) * damp(10, dt);
-      const grow = 1 + m.hoverK * 0.14;
-      m.inner.scale.set(AGENT_SCALE * grow, AGENT_SCALE * grow * (1 - slump * 0.04), AGENT_SCALE * grow);
-      tmpEmissive.copy(m.bodyColor).multiplyScalar(m.hoverK * 0.45);
-      m.mats.body.emissive.copy(tmpEmissive);
-
-      // When zoomed in, show everybody's name, except people hidden inside a building.
-      const indoors = a0.loc !== '' && INDOOR.has(a0.loc);
-      const showLabel = visible && (hovered || selected || (showAll && !indoors));
+      // Name: only for the hovered, selected or followed inhabitant.
+      const showLabel = visible && (hovered || selected || followed) && !(spectator && !hovered && !followed);
       m.label.visible = showLabel;
       if (showLabel) {
-        sizeLabel(m.label, m.labelAspect, selected || hovered ? 22 : 18);
+        sizeLabel(m.label, m.labelAspect, selected || hovered ? 21 : 18);
+        m.label.position.y = height * 1.08 + 0.2;
         (m.label.material as THREE.SpriteMaterial).opacity = asleep ? 0.6 : 1;
       }
 
-      // Mood ring at the feet (hidden on the bus, dim while asleep).
+      // Speech bubble for the conversation leader.
+      const wantBubble = visible && !!talk && talk.leader && dist < 420;
+      if (wantBubble && m.bubbleKind !== talk!.kind) {
+        m.bubbleKind = talk!.kind;
+        m.bubble.material = bubbleMats[talk!.kind];
+      }
+      m.bubble.visible = wantBubble;
+      if (wantBubble) {
+        const px2 = dist < 120 ? 30 : 24;
+        sizeLabel(m.bubble, 128 / 112, px2);
+        const lift = showLabel ? 24 : 4;
+        m.bubble.center.set(0.3, -(lift + Math.sin(t * 3 + i) * 1.5) / px2);
+        m.bubble.position.set(0, height * 1.02, 0);
+      }
+
+      // Mood ring and contact shadow at the feet.
+      const footR = near ? 1.25 * nearGrow : 1.35 * farGrow;
       if (visible) {
-        tmpMatrix.makeScale(grow, 1, grow).setPosition(m.root.position.x, MOOD_RING_Y, m.root.position.z);
+        tmpMatrix.makeScale(footR * 2 * grow, 1, footR * 2 * grow).setPosition(m.root.position.x, m.groundY + MOOD_RING_Y - CURB_H + 0.06, m.root.position.z);
         ring.setMatrixAt(i, tmpMatrix);
         ring.setColorAt(i, moodColor(mood, tmpMood));
         ringAlpha.setX(i, asleep ? RING_ALPHA_ASLEEP : RING_ALPHA);
-      } else ring.setMatrixAt(i, HIDDEN_MATRIX);
+        tmpMatrix.makeScale(footR * 1.5, 1, footR * 1.5).setPosition(m.root.position.x, m.groundY + 0.04, m.root.position.z);
+        shadow.setMatrixAt(i, asleep ? HIDDEN_MATRIX : tmpMatrix);
+      } else {
+        ring.setMatrixAt(i, HIDDEN_MATRIX);
+        shadow.setMatrixAt(i, HIDDEN_MATRIX);
+      }
 
-      // Pictogram for strong moods (not while asleep: the "z z z" bubble is there).
+      // Mood pictogram (not while asleep).
       const strength = Math.abs(mood);
       const kind = mood >= 0 ? 'joy' : 'low';
-      const wantGlyph = visible && !asleep && (strength >= GLYPH_ON || (strength >= GLYPH_OFF && m.glyphKind === kind && m.glyphK > 0.5));
-      if (wantGlyph && m.glyphKind !== kind) {
-        // Switch only once the previous glyph has shrunk away (or none was shown).
-        if (m.glyphK < 0.05) {
-          m.glyphKind = kind;
-          m.glyph.material = glyphMats[kind];
-        }
+      const wantGlyph = visible && !asleep && !wantBubble && (strength >= GLYPH_ON || (strength >= GLYPH_OFF && m.glyphKind === kind && m.glyphK > 0.5));
+      if (wantGlyph && m.glyphKind !== kind && m.glyphK < 0.05) {
+        m.glyphKind = kind;
+        m.glyph.material = glyphMats[kind];
       }
       const glyphTarget = wantGlyph && m.glyphKind === kind ? 1 : 0;
       m.glyphK += (glyphTarget - m.glyphK) * damp(7, dt);
@@ -534,17 +706,31 @@ export function Agents() {
       if (m.glyph.visible) {
         const px = (env.camDistance < ALL_NAMES_DISTANCE ? GLYPH_PX : GLYPH_PX - 2) * m.glyphK;
         sizeLabel(m.glyph, 1, px);
-        // Sit just above the name label when it is shown, otherwise right above the head.
-        const lift = showLabel ? (selected || hovered ? 22 : 18) + 3 : 2;
+        const lift = showLabel ? (selected || hovered ? 21 : 18) + 3 : 2;
         const bob = Math.sin(t * 2 + i * 1.7) * 1.2;
         m.glyph.center.y = -(lift + bob) / Math.max(px, 1e-3);
+        m.glyph.position.y = height * 1.05;
       }
 
-      agentWorld.set(m.id, { pos: m.root.position, visible });
+      // Feed the instanced crowd with the far figure's part transforms.
+      if (visible && !near) {
+        m.root.updateMatrixWorld(true);
+        for (let pi = 0; pi < crowd.length; pi++) {
+          crowd[pi].setMatrixAt(i, m.parts[pi].matrixWorld);
+          const base = (m.parts[pi].material as THREE.MeshStandardMaterial).color;
+          if (base && pi < 7) crowd[pi].setColorAt(i, tmpCrowd.copy(base).multiplyScalar(asleep ? 0.45 : 1).lerp(m.bodyColor, pi === 2 ? m.hoverK * 0.3 : 0));
+        }
+      } else for (const im of crowd) im.setMatrixAt(i, HIDDEN_MATRIX);
+      agentWorld.set(m.id, { pos: m.root.position, visible, h: height });
+    }
+    for (const im of crowd) {
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
     }
     ring.instanceMatrix.needsUpdate = true;
     if (ring.instanceColor) ring.instanceColor.needsUpdate = true;
     ringAlpha.needsUpdate = true;
+    shadow.instanceMatrix.needsUpdate = true;
   });
 
   const onOver = (e: ThreeEvent<PointerEvent>) => {
@@ -572,6 +758,13 @@ export function Agents() {
         <primitive key={m.id} object={m.root} onPointerOver={onOver} onPointerOut={onOut} onClick={onClick} />
       ))}
       <primitive object={ring} />
+      <primitive object={shadow} />
+      {crowd.map((im) => (
+        <primitive key={im.name} object={im} />
+      ))}
+      <Suspense fallback={null}>
+        <CharacterCast onReady={onRigs} />
+      </Suspense>
       <SelectionFx />
     </group>
   );
@@ -604,7 +797,6 @@ function SelectionFx() {
   );
   useEffect(() => () => Object.values(mats).forEach((m) => m.dispose()), [mats]);
 
-  // The spotlight needs its target in the scene graph.
   useEffect(() => {
     const l = spot.current;
     if (!l) return;
@@ -619,63 +811,67 @@ function SelectionFx() {
     const t = performance.now() / 1000;
     const sel = s.selectedAgentId ? agentWorld.get(s.selectedAgentId) : undefined;
     if (sel) {
-      // The floating marker carries the selected person's mood colour.
       moodColor(agentMood.get(s.selectedAgentId!) ?? 0, tmpMood);
       if (markerFor.current !== s.selectedAgentId) mats.marker.color.copy(tmpMood);
       else mats.marker.color.lerp(tmpMood, damp(6, dt));
       markerFor.current = s.selectedAgentId;
       mats.marker.emissive.copy(mats.marker.color).multiplyScalar(0.55);
     }
-    const showSel = !!sel;
     if (ring.current && glow.current && marker.current) {
-      ring.current.visible = showSel && sel!.visible;
+      ring.current.visible = !!sel && sel.visible;
       glow.current.visible = ring.current.visible;
-      marker.current.visible = showSel;
+      marker.current.visible = !!sel;
       if (sel) {
         const p = sel.pos;
-        const pulse = 1 + Math.sin(t * 3) * 0.08;
-        ring.current.position.set(p.x, 0.75, p.z);
+        const h = sel.h ?? 1.8;
+        const k = h / 1.8;
+        const pulse = (1 + Math.sin(t * 3) * 0.08) * k;
+        ring.current.position.set(p.x, p.y + 0.09, p.z);
         ring.current.scale.setScalar(pulse);
-        glow.current.position.set(p.x, 0.7, p.z);
-        // Floating marker, lifted above the roof if the person is indoors.
+        glow.current.position.set(p.x, p.y + 0.08, p.z);
+        glow.current.scale.setScalar(k);
         const frame = activeRealityOf(s).frameAt(Math.floor(s.time));
         const loc = frame?.agents[s.selectedAgentId!]?.loc ?? '';
-        const roof = loc ? ROOF_HEIGHT.get(loc) ?? 0 : 0;
-        const base = roof > 0 ? roof + 12 : 15;
-        marker.current.position.set(p.x, base + Math.sin(t * 2.2) * 0.8, p.z);
+        const roof = loc && !STOP_SIDE.has(loc) ? Math.min(ROOF_HEIGHT.get(loc) ?? 0, 6) : 0;
+        const base = Math.max(h * 1.6, roof) + 1.2 * k;
+        marker.current.position.set(p.x, p.y + base + Math.sin(t * 2.2) * 0.15 * k, p.z);
+        marker.current.scale.setScalar(k);
         marker.current.rotation.y += dt * 1.5;
       }
     }
     if (spot.current) {
       const l = spot.current;
       if (sel && sel.visible) {
-        l.position.set(sel.pos.x, 55, sel.pos.z + 12);
+        l.position.set(sel.pos.x, 40, sel.pos.z + 8);
         l.target.position.set(sel.pos.x, 0, sel.pos.z);
-        l.intensity += (3200 * (0.55 + env.night * 0.8) - l.intensity) * damp(6, dt);
+        l.intensity += (1800 * (0.45 + env.night * 0.8) - l.intensity) * damp(6, dt);
       } else l.intensity += (0 - l.intensity) * damp(6, dt);
     }
     if (hoverRing.current) {
       const hov = s.hoveredAgentId && s.hoveredAgentId !== s.selectedAgentId ? agentWorld.get(s.hoveredAgentId) : undefined;
       hoverRing.current.visible = !!hov && hov.visible;
-      if (hov) hoverRing.current.position.set(hov.pos.x, 0.72, hov.pos.z);
+      if (hov) {
+        hoverRing.current.position.set(hov.pos.x, hov.pos.y + 0.09, hov.pos.z);
+        hoverRing.current.scale.setScalar((hov.h ?? 1.8) / 1.8);
+      }
     }
   });
 
   return (
     <group>
       <mesh ref={ring} rotation-x={-Math.PI / 2} material={mats.ring} visible={false} renderOrder={3}>
-        <ringGeometry args={[4.3, 5.4, 48]} />
+        <ringGeometry args={[1.25, 1.55, 48]} />
       </mesh>
       <mesh ref={glow} rotation-x={-Math.PI / 2} material={mats.glow} visible={false} renderOrder={2}>
-        <planeGeometry args={[18, 18]} />
+        <planeGeometry args={[5, 5]} />
       </mesh>
       <mesh ref={hoverRing} rotation-x={-Math.PI / 2} material={mats.hover} visible={false} renderOrder={3}>
-        <ringGeometry args={[4.0, 4.7, 40]} />
+        <ringGeometry args={[1.15, 1.35, 40]} />
       </mesh>
       <mesh ref={marker} material={mats.marker} visible={false} rotation-x={Math.PI}>
-        <coneGeometry args={[1.8, 3.6, 4]} />
+        <coneGeometry args={[0.45, 0.9, 4]} />
       </mesh>
-      <spotLight ref={spot} intensity={0} angle={0.2} penumbra={0.85} decay={2} distance={0} color="#fff1cc" />
+      <spotLight ref={spot} intensity={0} angle={0.12} penumbra={0.85} decay={2} distance={0} color="#fff1cc" />
     </group>
   );
 }

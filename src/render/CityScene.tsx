@@ -11,13 +11,12 @@ import type { JSX } from 'react';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Agents } from './Agents';
-import { Buildings } from './Buildings';
 import { Buses } from './Buses';
 import { CameraRig, INITIAL_CAMERA } from './CameraRig';
 import { Lighting } from './Lighting';
-import { Park, Trees } from './Nature';
 import { Rain } from './Rain';
 import { Streets } from './Streets';
+import { Town } from './Town';
 import { CAMERA_FOV } from './shared';
 import './render.css';
 
@@ -33,15 +32,13 @@ export function CityScene(): JSX.Element {
         gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = 1.05;
+          gl.toneMappingExposure = 0.95;
           gl.setClearColor(0x000000, 0);
         }}
       >
         <Lighting />
         <Streets />
-        <Park />
-        <Trees />
-        <Buildings />
+        <Town />
         <Buses />
         <Agents />
         <Rain />

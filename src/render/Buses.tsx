@@ -1,146 +1,185 @@
 /**
- * Buses of the line, built once as merged vertex-coloured models and moved
- * every frame from the interpolated trace. Buses keep to the right-hand lane,
- * turn smoothly towards their direction of travel and carry a small label
- * with their id and current delay.
+ * The Ligne 1 buses: Quaternius bus model recoloured with the line colour,
+ * turning wheels, a "Ligne 1" destination sign, lit headlights at night and
+ * small passenger silhouettes behind the windows. Positions come from the
+ * interpolated trace (right-hand lane, smooth turns); the small id / delay
+ * label only shows in laboratory mode.
  */
 
-import { useEffect, useMemo } from 'react';
+import { Suspense, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { BUS_LINES } from '../sim/city';
 import { useActiveReality, useSimStore } from '../store/useSimStore';
-import { StaticBatch, batchMaterial } from './batch';
+import { bulbMat } from './kit';
 import { type StreetSample, activeRealityOf, angleDelta, damp, env, makeLabel, sampleFrames, sizeLabel, streetLerp } from './shared';
 
 const LANE_OFFSET = 3.6;
-const LENGTH = 17;
-const WIDTH = 5.2;
-const HEIGHT = 5.4;
-const CLEARANCE = 1.0;
+const URL = '/models/quaternius/transport/Bus.glb';
+/** Model scale: along the bus and up (wheels stay round), and across. */
+const S_LEN = 2.25;
+const S_WIDE = 1.55;
+const MAX_SILHOUETTES = 12;
 
-/** Bus body model with its length along local +z (front at +z). */
-function buildBusModel(color: string) {
-  const b = new StaticBatch();
-  const glow = new StaticBatch();
-  const L = LENGTH;
-  const W = WIDTH;
-  const y0 = CLEARANCE;
-  const glass = '#2c3b4d';
-  // Body
-  b.box(0, y0, 0, W, HEIGHT, L, color);
-  b.box(0, y0, 0, W + 0.1, 0.9, L + 0.1, '#e9e4d8'); // skirt
-  b.box(0, y0 + HEIGHT, 0, W - 0.8, 0.5, L - 2, '#f6f1e6'); // roof cap
-  // Side windows
-  for (const s of [-1, 1]) {
-    b.box(s * (W / 2 + 0.03), y0 + 2.4, -0.6, 0.12, 2.1, L - 4.8, glass);
-    for (let i = 0; i < 5; i++) b.box(s * (W / 2 + 0.06), y0 + 2.3, -L / 2 + 2.6 + i * ((L - 4.6) / 4), 0.14, 2.3, 0.35, color);
-    // Doors (right side only)
-    if (s < 0) {
-      b.box(-W / 2 - 0.05, y0 + 0.2, L / 2 - 2.6, 0.12, 4.2, 2.4, glass);
-      b.box(-W / 2 - 0.05, y0 + 0.2, -1.2, 0.12, 4.2, 2.4, glass);
-    }
-  }
-  // Windscreen and rear window
-  b.box(0, y0 + 2.0, L / 2 + 0.03, W - 0.6, 2.8, 0.12, glass);
-  b.box(0, y0 + 2.8, -L / 2 - 0.03, W - 1.2, 1.6, 0.12, glass);
-  // Destination display (glows) and lights
-  glow.box(0, y0 + 4.9, L / 2 + 0.08, W - 1.4, 0.55, 0.1, '#ffb703');
-  for (const s of [-1, 1]) {
-    glow.box(s * (W / 2 - 0.8), y0 + 0.8, L / 2 + 0.08, 0.9, 0.5, 0.1, '#fff6d8');
-    glow.box(s * (W / 2 - 0.7), y0 + 1.0, -L / 2 - 0.08, 0.6, 0.6, 0.1, '#ff3b30');
-  }
-  // Roof sign with the line number
-  b.box(0, y0 + HEIGHT + 0.5, L / 2 - 2.5, 2.4, 1.0, 1.2, '#2d3e50');
-  glow.box(0, y0 + HEIGHT + 0.65, L / 2 - 1.85, 1.8, 0.7, 0.05, '#ffd166');
-  // Wheels
-  for (const s of [-1, 1]) {
-    for (const zz of [L / 2 - 3.2, -L / 2 + 3.4]) {
-      b.shape('cyl16', s * (W / 2 - 0.3), 1.25, zz, 2.5, 0.9, 2.5, '#22252b', { z: Math.PI / 2 });
-      b.shape('cyl8', s * (W / 2 - 0.2), 1.25, zz, 1.2, 0.95, 1.2, '#9aa0a6', { z: Math.PI / 2 });
-    }
-  }
-  return { body: b.build(), glow: glow.build() };
+export function Buses() {
+  return (
+    <Suspense fallback={null}>
+      <BusFleet />
+    </Suspense>
+  );
+}
+
+function signTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#1b1d22';
+  ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = '#ffb703';
+  ctx.font = '700 40px "Helvetica Neue", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Ligne 1', 128, 34);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 interface BusRig {
   root: THREE.Group;
+  wheels: THREE.Mesh[];
+  people: THREE.InstancedMesh;
   label: THREE.Sprite;
   labelKey: string;
   aspect: number;
   heading: number;
   offset: THREE.Vector3;
   init: boolean;
+  last: THREE.Vector3;
+  shown: number;
 }
 
-const tmpOffset = new THREE.Vector3();
-const sample: StreetSample = { x: 0, y: 0, dx: 0, dy: 0 };
+const COLORS: Record<string, string> = {
+  Bumper: '#f6f1e6',
+  Top: '#e8962e',
+  Bottom: '#3a3d42',
+  Windows: '#2e3d4c',
+  Details: '#2b2e33',
+  Material: '#232529',
+};
 
-export function Buses() {
+function BusFleet() {
   const reality = useActiveReality();
   const generation = useSimStore((s) => s.generation);
-  // Bus ids from the first trace frame (stable for a reality).
+  const gltf = useGLTF(URL) as unknown as { scene: THREE.Object3D };
   const busIds = useMemo(() => {
     const f = reality.frameAt(0);
     return f ? Object.keys(f.buses).sort() : [];
     // `generation` bumps when the reality is regenerated.
   }, [reality, generation]);
+  const lineColor = BUS_LINES[0]?.color ?? '#f39c12';
 
-  const color = BUS_LINES[0]?.color ?? '#f39c12';
-  const model = useMemo(() => buildBusModel(color), [color]);
-  const bodyMat = useMemo(() => batchMaterial({ roughness: 0.45, flatShading: true }), []);
-  const glowMat = useMemo(() => new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), []);
+  const shared = useMemo(() => {
+    const mats = new Map<string, THREE.Material>();
+    const matFor = (name: string) => {
+      if (name === 'Lights') return bulbMat();
+      let m = mats.get(name);
+      if (!m) {
+        m = new THREE.MeshStandardMaterial({ color: COLORS[name] ?? '#9aa0a6', roughness: name === 'Windows' ? 0.15 : 0.55, metalness: name === 'Windows' ? 0.2 : 0.05, flatShading: true });
+        mats.set(name, m);
+      }
+      return m;
+    };
+    const sign = signTexture();
+    const signMat = new THREE.MeshBasicMaterial({ map: sign, toneMapped: false });
+    const personGeo = new THREE.CapsuleGeometry(0.28, 0.45, 3, 8);
+    const personMat = new THREE.MeshStandardMaterial({ roughness: 0.7 });
+    return { matFor, mats, sign, signMat, personGeo, personMat };
+  }, []);
 
-  useEffect(
-    () => () => {
-      model.body?.dispose();
-      model.glow?.dispose();
-      bodyMat.dispose();
-      glowMat.dispose();
-    },
-    [model, bodyMat, glowMat],
-  );
-
-  const groups = useMemo(() => {
+  const rigs = useMemo(() => {
     const map = new Map<string, BusRig>();
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    const cx = (box.min.x + box.max.x) / 2;
     for (const id of busIds) {
       const root = new THREE.Group();
       root.name = `bus:${id}`;
-      if (model.body) {
-        const m = new THREE.Mesh(model.body, bodyMat);
-        m.castShadow = true;
-        m.receiveShadow = true;
-        root.add(m);
+      // Model: length along x with the front at -x -> rotate so the front faces +z.
+      const model = new THREE.Group();
+      model.rotation.y = Math.PI / 2;
+      model.scale.set(S_LEN, S_LEN, S_WIDE);
+      root.add(model);
+      const wheels: THREE.Mesh[] = [];
+      gltf.scene.updateMatrixWorld(true);
+      gltf.scene.traverse((o) => {
+        const src = o as THREE.Mesh;
+        if (!src.isMesh) return;
+        const g = src.geometry.clone().applyMatrix4(src.matrixWorld);
+        g.translate(-cx, -box.min.y, 0);
+        const name = (src.material as THREE.Material).name;
+        const mesh = new THREE.Mesh(g, shared.matFor(name));
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        if (/wheel/i.test(src.name)) {
+          g.computeBoundingBox();
+          const c = g.boundingBox!.getCenter(new THREE.Vector3());
+          g.translate(-c.x, -c.y, -c.z);
+          mesh.position.copy(c);
+          wheels.push(mesh);
+        }
+        model.add(mesh);
+      });
+      // Destination sign above the windscreen and on the right side.
+      const front = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.24), shared.signMat);
+      front.position.set(box.min.x - cx - 0.02, box.max.y - box.min.y - 0.22, 0);
+      front.rotation.y = -Math.PI / 2;
+      model.add(front);
+      const side = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.2), shared.signMat);
+      side.position.set(0.6, box.max.y - box.min.y - 0.2, box.max.z + 0.01);
+      model.add(side);
+      // Passengers behind the windows.
+      const people = new THREE.InstancedMesh(shared.personGeo, shared.personMat, MAX_SILHOUETTES);
+      const pal = ['#5d6b7a', '#8a5a3b', '#b4483c', '#6f8c5f', '#d9a85b', '#71889c'];
+      const m4 = new THREE.Matrix4();
+      for (let i = 0; i < MAX_SILHOUETTES; i++) {
+        const row = Math.floor(i / 2);
+        m4.makeTranslation(i % 2 ? 0.55 : -0.55, 2.45, 3.2 - row * 1.25);
+        people.setMatrixAt(i, m4);
+        people.setColorAt(i, new THREE.Color(pal[i % pal.length]));
       }
-      if (model.glow) root.add(new THREE.Mesh(model.glow, glowMat));
+      people.count = 0;
+      people.frustumCulled = false;
+      root.add(people);
       const label = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false, toneMapped: false, fog: false }));
       label.center.set(0.5, 0);
-      label.position.y = HEIGHT + CLEARANCE + 3.5;
+      label.position.y = 5.2;
       label.renderOrder = 8;
       root.add(label);
-      map.set(id, { root, label, labelKey: '', aspect: 1, heading: 0, offset: new THREE.Vector3(), init: false });
+      map.set(id, { root, wheels, people, label, labelKey: '', aspect: 1, heading: 0, offset: new THREE.Vector3(), init: false, last: new THREE.Vector3(), shown: 0 });
     }
     return map;
-  }, [busIds, model, bodyMat, glowMat]);
+  }, [busIds, gltf, shared]);
 
   useEffect(
     () => () => {
-      for (const r of groups.values()) {
+      for (const r of rigs.values()) {
+        r.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose?.());
         const mat = r.label.material as THREE.SpriteMaterial;
         mat.map?.dispose();
         mat.dispose();
       }
     },
-    [groups],
+    [rigs],
   );
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.1);
     const s = useSimStore.getState();
     const pair = sampleFrames(activeRealityOf(s), s.time);
-    glowMat.color.setScalar(0.8 + env.night * 0.6);
-
-    for (const [id, r] of groups) {
+    const lab = s.uiMode === 'lab';
+    for (const [id, r] of rigs) {
       const b0 = pair?.f0.buses[id];
       const b1 = pair?.f1.buses[id] ?? b0;
       if (!pair || !b0 || !b1) {
@@ -151,47 +190,54 @@ export function Buses() {
       const d = Math.hypot(b1.x - b0.x, b1.y - b0.y);
       const k = d > 600 ? (pair.k < 0.5 ? 0 : 1) : pair.k;
       streetLerp(b0.x, b0.y, b1.x, b1.y, k, sample);
-      const x = sample.x;
-      const z = sample.y;
       if (d > 0.5 && d <= 600) {
         const target = Math.atan2(sample.dx, sample.dy);
         if (!r.init) r.heading = target;
         else r.heading += angleDelta(r.heading, target) * damp(5, dt);
       }
-      // Right-hand lane offset follows the (smoothed) heading.
       tmpOffset.set(-Math.cos(r.heading) * LANE_OFFSET, 0, Math.sin(r.heading) * LANE_OFFSET);
       if (!r.init) r.offset.copy(tmpOffset);
       else r.offset.lerp(tmpOffset, damp(6, dt));
-      r.init = true;
-      r.root.position.set(x + r.offset.x, 0, z + r.offset.z);
+      r.root.position.set(sample.x + r.offset.x, 0.02, sample.y + r.offset.z);
       r.root.rotation.y = r.heading;
-
-      // Label: regenerate the texture only when its text changes.
-      const delay = Math.round(b0.delay);
-      const key = `${id}|${delay}`;
-      if (key !== r.labelKey) {
-        r.labelKey = key;
-        const lab = makeLabel({
-          text: `Bus ${id}`,
-          suffix: delay > 0 ? `+${delay} min` : undefined,
-          dot: color,
-          fontSize: 28,
-        });
-        const mat = r.label.material as THREE.SpriteMaterial;
-        mat.map?.dispose();
-        mat.map = lab.texture;
-        mat.needsUpdate = true;
-        r.aspect = lab.aspect;
+      // Wheels turn with the distance actually covered (capped for fast playback).
+      const moved = r.init ? Math.min(r.last.distanceTo(r.root.position), dt * 30) : 0;
+      r.last.copy(r.root.position);
+      r.init = true;
+      for (const w of r.wheels) w.rotation.z += moved / 0.75;
+      // Passenger silhouettes
+      const want = Math.min(MAX_SILHOUETTES, Math.round(b0.passengers));
+      if (want !== r.shown) {
+        r.shown = want;
+        r.people.count = want;
       }
-      sizeLabel(r.label, r.aspect, 18);
+      // Label: lab mode only; regenerate the texture only when its text changes.
+      r.label.visible = lab;
+      if (lab) {
+        const delay = Math.round(b0.delay);
+        const key = `${id}|${delay}`;
+        if (key !== r.labelKey) {
+          r.labelKey = key;
+          const l = makeLabel({ text: `Bus ${id}`, suffix: delay > 0 ? `+${delay} min` : undefined, dot: lineColor, fontSize: 28 });
+          const mat = r.label.material as THREE.SpriteMaterial;
+          mat.map?.dispose();
+          mat.map = l.texture;
+          mat.needsUpdate = true;
+          r.aspect = l.aspect;
+        }
+        sizeLabel(r.label, r.aspect, env.camDistance < 150 ? 16 : 18);
+      }
     }
   });
 
   return (
     <group>
-      {[...groups.entries()].map(([id, r]) => (
+      {[...rigs.entries()].map(([id, r]) => (
         <primitive key={id} object={r.root} />
       ))}
     </group>
   );
 }
+
+const tmpOffset = new THREE.Vector3();
+const sample: StreetSample = { x: 0, y: 0, dx: 0, dy: 0 };
