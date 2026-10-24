@@ -75,22 +75,30 @@ async function dramaShots() {
   await page.evaluate(() => { const s = window.__butterfly.getState(); s.setAi({ ...s.ai, enabled: false }); });
   await act('selectEvent', null);
   // Timeline: hover the first drama marker to show its tooltip.
-  const marker = page.locator('.tl-marker.fam-drama').first();
-  if (await marker.count()) { await marker.hover(); await page.waitForTimeout(300); await page.screenshot({ path: `${dir}/09-timeline.png`, clip: { x: 0, y: 950 - 200, width: 1600, height: 200 } }); console.log('shot drama/09-timeline'); }
+  const hovered = await page.evaluate(() => { const m = document.querySelector('.tl-marker.fam-drama'); m?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); return !!m; });
+  if (hovered) { await page.waitForTimeout(600); await page.screenshot({ path: `${dir}/09-timeline.png`, clip: { x: 0, y: 950 - 200, width: 1600, height: 200 } }); console.log('shot drama/09-timeline'); }
   // Spectator: play across a drama highlight at ×60 and watch the feed.
   const hl = await page.evaluate(() => { const r = window.__butterfly.getState().activeReality(); const e = r.events.find((x) => x.t >= 9 * 60 && (x.type === 'arc_resolved' || x.type === 'revelation' || x.type === 'dilemma' || (x.type === 'gossip' && x.data?.reachesTarget))); return e ? { t: e.t, agent: e.actors[0] } : null; });
   if (hl) {
     await act('setUiMode', 'spectator'); await act('selectAgent', hl.agent); await act('seek', hl.t - 0.3); await act('setSpeed', 60);
+    // A full-page capture takes many seconds with software WebGL: hold the first toast as soon as it appears
+    // (a synthetic mouseover, which React turns into the feed's onMouseEnter — the same as hovering it).
+    await page.evaluate(() => {
+      const mo = new MutationObserver(() => {
+        const t = document.querySelector('.drama-toast');
+        if (t && !t.dataset.held) { t.dataset.held = '1'; t.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+      window.__dramaObserver = mo;
+    });
     await page.waitForTimeout(800); await act('play');
     // The software renderer is slow: wait until the playhead has actually crossed the highlight.
     await page.waitForFunction((t) => window.__butterfly.getState().time >= t + 0.05, hl.t, { timeout: 60000 }).catch(() => console.log('playhead did not reach the highlight'));
     await act('pause');
-    // A full-page capture takes many seconds with software WebGL: hover the feed so that the toast is held.
-    await page.waitForSelector('.drama-toast', { timeout: 10000 }).catch(() => console.log('no drama toast'));
-    const box = await page.locator('.drama-toast').first().boundingBox().catch(() => null);
-    if (box) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForSelector('.drama-toast', { state: 'attached', timeout: 10000 }).catch(() => console.log('no drama toast'));
     await page.waitForTimeout(500);
     await page.screenshot({ path: `${dir}/10-spectator-feed.png` }); console.log('shot drama/10-spectator-feed');
+    await page.evaluate(() => window.__dramaObserver?.disconnect());
     await act('pause'); await act('setUiMode', 'lab'); await act('setSpeed', 20);
   }
   await act('setPanel', null);
@@ -100,7 +108,7 @@ if (dramaOnly) {
   const b = await page.evaluate(() => { const r = window.__butterfly.getState().realityA; const e = r.events.find((x) => x.type === 'bus_arrive' && x.t === 565); return e ? { busId: e.busId, t: e.t } : null; });
   if (b) await page.evaluate((x) => { window.__butterfly.getState().createRealityB({ id: 'demo_iv', kind: 'bus_delay', t: x.t - 1, minutes: 3, busId: x.busId, description: `Le bus ${x.busId} arrive avec 3 min de retard (prévu 09:25)` }); }, b);
   await page.evaluate(() => { const s = window.__butterfly.getState(); if (s.panel) s.setPanel(s.panel); });
-  await dramaShots();
+  await dramaShots().catch((e) => errors.push(`drama: ${e.message.split('\n')[0]}`));
   console.log(errors.length ? `Errors:\n${errors.join('\n')}` : 'No page errors');
   await browser.close();
   stop(0);
@@ -122,7 +130,7 @@ if (busEvent) {
   await act('setPanel', 'report'); await shot('07-report');
   await act('setPanel', 'butterfly'); await shot('08-butterfly');
   await act('setPanel', 'butterfly'); await act('seek', 18 * 60 + 53); await act('selectAgent', 'martin'); await shot('09-reality-b-evening');
-  await dramaShots();
+  await dramaShots().catch((e) => errors.push(`drama: ${e.message.split('\n')[0]}`));
 }
 await act('seek', 21 * 60 + 30); await shot('10-night');
 // Chained days: start day 2 from the end of the displayed reality.
