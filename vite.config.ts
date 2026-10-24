@@ -16,7 +16,20 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:8787', changeOrigin: true },
+      '/api': {
+        target: 'http://localhost:8787',
+        changeOrigin: true,
+        // The AI adapter is optional: answer 503 quietly instead of logging a stack trace when it is not running.
+        configure: (proxy) => {
+          proxy.on('error', (_err, _req, res) => {
+            const r = res as import('node:http').ServerResponse;
+            if (!r.headersSent && typeof r.writeHead === 'function') {
+              r.writeHead(503, { 'content-type': 'application/json' });
+              r.end(JSON.stringify({ enabled: false, message: 'Serveur IA non démarré — narration IA désactivée' }));
+            }
+          });
+        },
+      },
     },
   },
   build: {
