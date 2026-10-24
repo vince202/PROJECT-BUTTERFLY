@@ -131,7 +131,8 @@ const vw: number[] = [];
 const wx: number[] = [];
 const wz: number[] = [];
 const knotV: number[] = [];
-const knotP: number[] = [];
+const cx: number[] = [];
+const cz: number[] = [];
 
 function pushV(x: number, z: number, w: number): void {
   const n = vx.length;
@@ -157,40 +158,69 @@ function pushP(tr: Track, x: number, z: number): void {
 
 const tmpA = { x: 0, y: 0 };
 const tmpB = { x: 0, y: 0 };
+const rx: number[] = [];
+const rz: number[] = [];
+
+/** Does the polyline turn back on itself (more than 90°) at route point j? */
+const doublesBack = (i: number, j: number, k: number) => (rx[j] - rx[i]) * (rx[k] - rx[j]) + (rz[j] - rz[i]) * (rz[k] - rz[j]) < 0;
 
 /**
- * Street route between two consecutive frames (interior points only). A walk
+ * Street route between two consecutive frames (interior points pushed). A walk
  * leaving or reaching a location goes through that location's own door node,
- * as in the simulation (City.walkPath); otherwise shared.routeBetween.
+ * as in the simulation (City.walkPath); otherwise shared.routeBetween. A first
+ * or last node that would make the walker turn back (frame already past the
+ * node, a bus stop right next to it, a park spot behind it) is skipped.
  */
 function pushRoute(p: TraceAgent, f: TraceAgent): void {
+  rx.length = rz.length = 0;
   if (!p.loc && !f.loc) {
     const dx = f.x - p.x;
     const dy = f.y - p.y;
     if (Math.abs(dx) < 0.5 || Math.abs(dy) < 0.5 || Math.hypot(dx, dy) < 12) return;
     const r = routeBetween(p.x, p.y, f.x, f.y);
-    for (let i = 1; i < r.pts.length - 1; i++) pushV(r.pts[i].x, r.pts[i].y, 1);
-    return;
+    for (const q of r.pts) {
+      rx.push(q.x);
+      rz.push(q.y);
+    }
+  } else {
+    const city = getCity();
+    tmpA.x = p.x;
+    tmpA.y = p.y;
+    tmpB.x = f.x;
+    tmpB.y = f.y;
+    const A = p.loc ? city.location(p.loc).node : city.nearestNode(tmpA);
+    const B = f.loc ? city.location(f.loc).node : city.nearestNode(tmpB);
+    rx.push(p.x);
+    rz.push(p.y);
+    for (const id of city.pathNodes(A, B)) {
+      const q = city.nodePos(id);
+      rx.push(q.x);
+      rz.push(q.y);
+    }
+    rx.push(f.x);
+    rz.push(f.y);
   }
-  const city = getCity();
-  tmpA.x = p.x; tmpA.y = p.y;
-  tmpB.x = f.x; tmpB.y = f.y;
-  const A = p.loc ? city.location(p.loc).node : city.nearestNode(tmpA);
-  const B = f.loc ? city.location(f.loc).node : city.nearestNode(tmpB);
-  const nodes = city.pathNodes(A, B);
-  let i0 = 0;
-  let i1 = nodes.length - 1;
-  // A street end (mid-block) must not double back through its nearest node.
-  const back = (ax: number, ay: number, b: { x: number; y: number }, cx: number, cy: number) => (b.x - ax) * (cx - b.x) + (b.y - ay) * (cy - b.y) < 0;
-  if (!p.loc && nodes.length > 1 && back(p.x, p.y, city.nodePos(nodes[0]), city.nodePos(nodes[1]).x, city.nodePos(nodes[1]).y)) i0 = 1;
-  if (!f.loc && i1 - 1 >= i0) {
-    const q = city.nodePos(nodes[i1 - 1]);
-    if (back(q.x, q.y, city.nodePos(nodes[i1]), f.x, f.y)) i1--;
+  if (rx.length > 2 && doublesBack(0, 1, 2)) {
+    rx.splice(1, 1);
+    rz.splice(1, 1);
   }
-  for (let i = i0; i <= i1; i++) {
-    const q = city.nodePos(nodes[i]);
-    pushV(q.x, q.y, 1);
+  const n = rx.length;
+  if (n > 2 && doublesBack(n - 3, n - 2, n - 1)) {
+    rx.splice(n - 2, 1);
+    rz.splice(n - 2, 1);
   }
+  for (let i = 1; i < rx.length - 1; i++) pushV(rx[i], rz[i], 1);
+}
+
+/** 1 - cos of the turn of the raw polyline at vertex i (0 = straight or end). */
+function turnAt(i: number, n: number): number {
+  if (i <= 0 || i >= n - 1) return 0;
+  const ax = vx[i] - vx[i - 1];
+  const az = vz[i] - vz[i - 1];
+  const bx = vx[i + 1] - vx[i];
+  const bz = vz[i + 1] - vz[i];
+  const l = Math.hypot(ax, az) * Math.hypot(bx, bz);
+  return l > 1e-9 ? 1 - (ax * bx + az * bz) / l : 0;
 }
 
 /** A walk to build: trace frames a..b (each consecutive pair moving), optional door legs. */
@@ -266,47 +296,109 @@ function buildTrack(tr: Track, frames: (m: number) => TraceAgent, spec: TripSpec
     wx.push(vx[i] + ox);
     wz.push(vz[i] + oz);
   }
+  // Short segments next to a corner can flip direction once offset: merge their
+  // ends (the straighter vertex moves onto the corner; standing spots never move).
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let i = 0; i < n - 1; i++) {
+      if ((wx[i + 1] - wx[i]) * (vx[i + 1] - vx[i]) + (wz[i + 1] - wz[i]) * (vz[i + 1] - vz[i]) >= 0) continue;
+      const moveI = vw[i] > 0 && (vw[i + 1] === 0 || turnAt(i, n) <= turnAt(i + 1, n));
+      if (moveI) {
+        wx[i] = wx[i + 1];
+        wz[i] = wz[i + 1];
+      } else {
+        wx[i + 1] = wx[i];
+        wz[i + 1] = wz[i];
+      }
+      changed = true;
+    }
+    if (!changed) break;
+  }
 
-  // 3. Rounded corners; each raw vertex maps to an index of the dense path.
-  knotP.length = 0;
-  const anchor: number[] = knotP; // anchor[i] = dense index of raw vertex i
+  // 3. Rounded corners on the simplified polyline (duplicates and collinear
+  //    points removed, so frames lying near a corner do not shrink its radius).
+  cx.length = cz.length = 0;
   for (let i = 0; i < n; i++) {
-    if (i === 0 || i === n - 1) {
-      pushP(tr, wx[i], wz[i]);
-      anchor.push(tr.px.length - 1);
+    const m = cx.length;
+    if (m > 0 && Math.abs(cx[m - 1] - wx[i]) < 1e-3 && Math.abs(cz[m - 1] - wz[i]) < 1e-3) continue;
+    if (m > 1) {
+      const ax = cx[m - 1] - cx[m - 2];
+      const az = cz[m - 1] - cz[m - 2];
+      const bx = wx[i] - cx[m - 1];
+      const bz = wz[i] - cz[m - 1];
+      const l = Math.hypot(ax, az) * Math.hypot(bx, bz);
+      if (l > 1e-9 && (ax * bx + az * bz) / l > 0.9995) {
+        cx[m - 1] = wx[i];
+        cz[m - 1] = wz[i];
+        continue;
+      }
+    }
+    cx.push(wx[i]);
+    cz.push(wz[i]);
+  }
+  const nc = cx.length;
+  for (let i = 0; i < nc; i++) {
+    if (i === 0 || i === nc - 1) {
+      pushP(tr, cx[i], cz[i]);
       continue;
     }
-    const ax = wx[i] - wx[i - 1];
-    const az = wz[i] - wz[i - 1];
-    const bx = wx[i + 1] - wx[i];
-    const bz = wz[i + 1] - wz[i];
+    const ax = cx[i] - cx[i - 1];
+    const az = cz[i] - cz[i - 1];
+    const bx = cx[i + 1] - cx[i];
+    const bz = cz[i + 1] - cz[i];
     const la = Math.hypot(ax, az);
     const lb = Math.hypot(bx, bz);
-    if (la < 1e-3 || lb < 1e-3 || (ax * bx + az * bz) / (la * lb) > 0.9995) {
-      pushP(tr, wx[i], wz[i]);
-      anchor.push(tr.px.length - 1);
-      continue;
-    }
     const c = Math.min(CORNER_CUT, la * 0.5, lb * 0.5);
-    const p0x = wx[i] - (ax / la) * c;
-    const p0z = wz[i] - (az / la) * c;
-    const p2x = wx[i] + (bx / lb) * c;
-    const p2z = wz[i] + (bz / lb) * c;
-    let mid = 0;
+    const p0x = cx[i] - (ax / la) * c;
+    const p0z = cz[i] - (az / la) * c;
+    const p2x = cx[i] + (bx / lb) * c;
+    const p2z = cz[i] + (bz / lb) * c;
     for (let j = 0; j <= CORNER_STEPS; j++) {
       const u = j / CORNER_STEPS;
       const a0 = (1 - u) * (1 - u);
       const a1 = 2 * u * (1 - u);
       const a2 = u * u;
-      pushP(tr, a0 * p0x + a1 * wx[i] + a2 * p2x, a0 * p0z + a1 * wz[i] + a2 * p2z);
-      if (j === CORNER_STEPS / 2) mid = tr.px.length - 1;
+      pushP(tr, a0 * p0x + a1 * cx[i] + a2 * p2x, a0 * p0z + a1 * cz[i] + a2 * p2z);
     }
-    anchor.push(mid);
   }
 
   // 4. Knot arc lengths and monotone (Fritsch–Carlson style) tangents.
+  // Knots: projection of their (offset) frame point onto the rounded path, searched forward.
   const nk = tr.kt.length;
-  for (let j = 0; j < nk; j++) tr.ks.push(tr.pc[anchor[knotV[j]]] ?? 0);
+  const np = tr.px.length;
+  let seg = 0;
+  for (let j = 0; j < nk; j++) {
+    const v = knotV[j];
+    if (j === 0 && v === 0) {
+      tr.ks.push(0);
+      continue;
+    }
+    if (j === nk - 1 && v === n - 1) {
+      tr.ks.push(tr.pc[np - 1] ?? 0);
+      continue;
+    }
+    let best = Infinity;
+    let bestS = tr.ks.length ? tr.ks[tr.ks.length - 1] : 0;
+    let bestSeg = seg;
+    for (let q = seg; q < np - 1; q++) {
+      const ax = tr.px[q];
+      const az = tr.pz[q];
+      const dx = tr.px[q + 1] - ax;
+      const dz = tr.pz[q + 1] - az;
+      const l2 = dx * dx + dz * dz;
+      const u = l2 > 0 ? Math.min(1, Math.max(0, ((wx[v] - ax) * dx + (wz[v] - az) * dz) / l2)) : 0;
+      const ex = ax + dx * u - wx[v];
+      const ez = az + dz * u - wz[v];
+      const d = ex * ex + ez * ez;
+      if (d < best - 1e-9) {
+        best = d;
+        bestS = tr.pc[q] + Math.sqrt(l2) * u;
+        bestSeg = q;
+      }
+    }
+    seg = bestSeg;
+    tr.ks.push(bestS);
+  }
   for (let j = 1; j < nk; j++) if (tr.ks[j] < tr.ks[j - 1]) tr.ks[j] = tr.ks[j - 1];
   const secant = (j: number) => {
     const h = tr.kt[j + 1] - tr.kt[j];
