@@ -1086,7 +1086,7 @@ export class Engine {
       if (t >= a.activity.until) {
         // Meetings are closed by handleMeetings() so that every participant ends together.
         const c = a.activity.commitmentId ? a.commitments.find((x) => x.id === a.activity!.commitmentId) : undefined;
-        const meetingLike = a.activity.action === 'commitment' && c && (c.kind === 'meeting' || c.kind === 'appointment');
+        const meetingLike = (a.activity.action === 'commitment' || a.activity.action === 'wait') && c && (c.kind === 'meeting' || c.kind === 'appointment') && c.status !== 'missed' && c.status !== 'done';
         if (!meetingLike) this.endActivity(a, null, 'terminé');
         return;
       }
@@ -1791,7 +1791,9 @@ export class Engine {
       if (t >= c.end) {
         c.status = 'done';
         a.objectivesDone += 1;
-        ev = this.emit({ type: 'work_end', actors: [a.id], locationId: act.locationId, label: `${p.firstName} termine sa journée`, causes: [act.startEventId, cause], sig: c.id });
+        const wage = c.kind === 'school' ? 0 : Math.round((a.minutesWorked / 60) * 9);
+        if (wage > 0) a.money += wage;
+        ev = this.emit({ type: 'work_end', actors: [a.id], locationId: act.locationId, label: `${p.firstName} termine sa journée${wage ? ` (${wage} € gagnés)` : ''}`, causes: [act.startEventId, cause], effects: wage ? [{ kind: 'money', agentId: a.id, delta: wage }] : [], sig: c.id });
         a.inventory = a.inventory.filter((i) => i !== 'lunch_taken');
       } else {
         ev = this.emit({ type: 'activity_end', actors: [a.id], locationId: act.locationId, label: `${p.firstName} fait une pause : ${reason}`, causes: [act.startEventId, cause], sig: `${act.action}:pause` });
@@ -2233,9 +2235,12 @@ export class Engine {
     b.lastChat[a.id] = t;
 
     const busyKinds = new Set(['work', 'school', 'commitment', 'drive_bus', 'morning_routine']);
-    const busy = (x: AgentState) => (!!x.activity && busyKinds.has(x.activity.action)) || (x.heldUntil !== undefined && t < x.heldUntil);
+    // Two people at the same meeting are together on purpose: that counts as free time for a real conversation.
+    const sameMeeting = !!a.activity?.commitmentId && a.activity.action === 'commitment' && b.activity?.action === 'commitment' && a.activity.commitmentId === b.activity.commitmentId;
+    const busy = (x: AgentState) => (!!x.activity && busyKinds.has(x.activity.action) && !(sameMeeting && x.activity.action === 'commitment')) || (x.heldUntil !== undefined && t < x.heldUntil);
     // Over a counter, people exchange a few words, never a deep conversation.
     const bothFree = how !== 'counter' && !busy(a) && !busy(b);
+    const atWorkplace = !!loc && (pa.workplaceId === loc || pb.workplaceId === loc);
     let type: EventType = 'encounter';
     let label = `${pa.firstName} et ${pb.firstName} discutent ${where}`;
     let mechanism = how === 'visit' ? `${pa.firstName} est venu retrouver ${pb.firstName}` : how === 'counter' ? 'Échange au comptoir entre le commerçant et son client (graine aléatoire)' : 'Présents au même endroit au même moment (graine aléatoire)';
@@ -2330,7 +2335,7 @@ export class Engine {
           dA = 0.04;
           dB = 0.04;
         }
-      } else if (kindA === 'boss' || kindA === 'employee') {
+      } else if ((kindA === 'boss' || kindA === 'employee') && (atWorkplace || !bothFree)) {
         label = `${pa.firstName} et ${pb.firstName} parlent boulot ${where}`;
         dA = 0.03;
         dB = 0.03;
@@ -2345,7 +2350,9 @@ export class Engine {
           label = `${pa.firstName} et ${pb.firstName} bavardent joyeusement ${where}`;
           moodA = 0.12;
           moodB = 0.12;
-          if (bothFree && (how === 'visit' ? roll < 0.5 : roll < 0.3)) {
+        }
+        if (relA.affinity > 0.6 || (relA.affinity > 0.35 && bothFree)) {
+          if (bothFree && (how === 'visit' ? roll < 0.5 : relA.affinity > 0.6 ? roll < 0.3 : roll < 0.18)) {
             type = 'conversation';
             label = `${pa.firstName} et ${pb.firstName} ont une vraie conversation ${where}`;
             importance = 0.6;
@@ -2434,10 +2441,11 @@ export class Engine {
       const arc = arcOf(this.state, owner.id);
       if (!arc) continue;
       const seed = arcSeed(arc.seedId);
-      if (!seed.secret || arc.knownBy.includes(listener.id) || seed.secretAbout === listener.id) continue;
+      if (!seed.secret || arc.knownBy.includes(listener.id)) continue;
       const po = this.profiles.get(owner.id)!;
+      const confession = seed.secretAbout === listener.id;
       const key = `reveal:${arc.id}:${listener.id}:${t}`;
-      const p = revealChance(owner, po, listener.id, deep);
+      const p = confession ? (deep ? 0.2 + 0.25 * Math.max(0, owner.relationships[listener.id]?.affinity ?? 0) + 0.15 * po.traits.honesty : 0) : revealChance(owner, po, listener.id, deep);
       if (p <= 0 || !this.rng.chance(key, p)) continue;
       arc.knownBy.push(listener.id);
       const ev = this.emit({
@@ -2445,12 +2453,13 @@ export class Engine {
         actors: [owner.id, listener.id],
         locationId: conv.locationId,
         busId: conv.busId,
-        label: `${po.firstName} se confie à ${this.name(listener.id)} : ${seed.secret}`,
+        label: confession ? `${po.firstName} avoue à ${this.name(listener.id)} : ${seed.secret}` : `${po.firstName} se confie à ${this.name(listener.id)} : ${seed.secret}`,
         causes: [conv.id],
-        mechanism: `${deep ? 'Vraie conversation' : 'Discussion'} et confiance (affinité ${(owner.relationships[listener.id]?.affinity ?? 0).toFixed(2)})`,
+        mechanism: confession ? `Aveu au cours d’une vraie conversation (honnêteté ${Math.round(po.traits.honesty * 100)} %)` : `${deep ? 'Vraie conversation' : 'Discussion'} et confiance (affinité ${(owner.relationships[listener.id]?.affinity ?? 0).toFixed(2)})`,
         randomDraws: [{ key, value: this.rng.next(key) }],
         effects: [this.adjustRelationship(listener, owner.id, 0.08), this.adjustRelationship(owner, listener.id, 0.05), ...this.mood(owner, 0.05, -0.08)],
-        data: { arcId: arc.id, secretAbout: seed.secretAbout },
+        data: { arcId: arc.id, secretAbout: seed.secretAbout, confession },
+        gravity: confession ? 2 : 1,
         sig: `${arc.id}>${listener.id}`,
       });
       arc.beats.push(ev.id);
@@ -2528,7 +2537,10 @@ export class Engine {
   private applyBeat(beat: Beat, ev: SimEvent) {
     const arc = beat.arc;
     const seed = arcSeed(arc.seedId);
-    if (seed.goal.type === 'conversations') arc.count += 1;
+    if (seed.goal.type === 'conversations') {
+      arc.count += 1;
+      arc.partners = [...new Set([...(arc.partners ?? []), ...ev.actors.filter((x) => x !== arc.agentId)])];
+    }
     if (beat.outcome) {
       arc.progress = beat.progress;
       this.resolveArc(arc, beat.outcome, beat.text, beat.mechanism, [ev.id], ev.locationId);

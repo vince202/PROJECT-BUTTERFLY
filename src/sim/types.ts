@@ -765,6 +765,8 @@ export interface ArcState {
   resolutionEventId?: EventId;
   /** Internal counters (conversations, etc.). */
   count: number;
+  /** Distinct people talked to (for « conversations » goals). */
+  partners?: AgentId[];
   /** Minute of the last dilemma recorded for this arc (anti-spam). */
   lastDilemma?: Minute;
   /** Number of days this arc has been attempted (chained days). */

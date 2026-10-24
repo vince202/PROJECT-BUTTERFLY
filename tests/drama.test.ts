@@ -244,10 +244,16 @@ describe.each([NORMAL_SEED, BUS_SEED, 7, 9])('Dramaturgie : invariants d’une j
       // État juste avant la minute de l’événement : l’affinité y est celle qui a servi au tirage.
       const before = R.stateAt(e.t - 1).agents[owner].relationships[listener];
       expect(before, `${e.id} : ${owner} n’a aucune relation avec ${listener}`).toBeDefined();
-      expect(['friend', 'partner', 'family', 'crush'], `${e.id} : relation ${before.kind}`).toContain(before.kind);
+      expect(['rival', 'ex', 'boss', 'employee'], `${e.id} : relation ${before.kind}`).not.toContain(before.kind);
+      const close = ['friend', 'partner', 'family', 'crush'].includes(before.kind);
       // La conversation de la même minute peut avoir fait bouger l’affinité de quelques centièmes.
-      expect(before.affinity, `${e.id} affinité ${before.affinity}`).toBeGreaterThanOrEqual(0.4);
-      expect(arcSeed(String(e.data?.arcId)).secretAbout).not.toBe(listener);
+      expect(before.affinity, `${e.id} affinité ${before.affinity}`).toBeGreaterThanOrEqual(close ? 0.4 : 0.3);
+      // Un aveu (au destinataire même du secret) n’a lieu qu’au cours d’une vraie conversation.
+      if (arcSeed(String(e.data?.arcId)).secretAbout === listener) {
+        expect(e.data?.confession).toBe(true);
+        expect(e.label).toContain('avoue');
+        expect(R.eventById(e.causes[0])!.type).toBe('conversation');
+      } else expect(e.data?.confession).toBeFalsy();
       expect(R.engine.state.arcs[String(e.data?.arcId)].agentId).toBe(owner);
     }
   });
@@ -547,18 +553,20 @@ describe('evaluateBeat / deadlineOutcome (fonctions pures)', () => {
     expect(deadlineOutcome(arcFor('arc_elodie_rien_perdre'), world, profiles)!.outcome).toBe('fulfilled');
     expect(deadlineOutcome(arcFor('arc_ines_budget'), world, profiles)!.outcome).toBe('fulfilled');
     expect(deadlineOutcome(arcFor('arc_camille_fournee'), world, profiles)!.outcome).toBe('failed');
-    expect(deadlineOutcome(arcFor('arc_mireille_nouvelles', { count: 2 }), world, profiles)!.text).toContain('2 personnes');
+    expect(deadlineOutcome(arcFor('arc_mireille_nouvelles', { count: 2, partners: ['paul', 'gerard'] }), world, profiles)!.text).toContain('2 personnes');
     expect(deadlineOutcome(arcFor('arc_antoine_horaire'), world, profiles)!.outcome).toBe('fulfilled');
     expect(evaluateBeat(arcFor('arc_elodie_rien_perdre'), ev({ type: 'lose_item', actors: ['elodie'] }), world, profiles)!.outcome).toBe('failed');
   });
 
-  it('conversations : le dixième échange accomplit l’arc de Mireille', () => {
-    const arc = arcFor('arc_mireille_nouvelles', { count: 8 });
-    const b9 = evaluateBeat(arc, ev({ type: 'conversation', actors: ['mireille', 'paul'] }), world, profiles)!;
-    expect(b9.outcome).toBeUndefined();
-    expect(b9.progress).toBeCloseTo(0.9);
-    const b10 = evaluateBeat({ ...arc, count: 9 }, ev({ type: 'encounter', actors: ['mireille', 'paul'] }), world, profiles)!;
-    expect(b10.outcome).toBe('fulfilled');
+  it('conversations : la septième personne différente accomplit l’arc de Mireille ; reparler à la même ne compte pas', () => {
+    const five = ['gerard', 'camille', 'alice', 'elodie', 'chloe'];
+    const arc = arcFor('arc_mireille_nouvelles', { count: 5, partners: five });
+    expect(evaluateBeat(arc, ev({ type: 'encounter', actors: ['mireille', 'gerard'] }), world, profiles)).toBeNull();
+    const b6 = evaluateBeat(arc, ev({ type: 'conversation', actors: ['mireille', 'paul'] }), world, profiles)!;
+    expect(b6.outcome).toBeUndefined();
+    expect(b6.progress).toBeCloseTo(6 / 7);
+    const b7 = evaluateBeat({ ...arc, partners: [...five, 'paul'] }, ev({ type: 'encounter', actors: ['mireille', 'lucie'] }), world, profiles)!;
+    expect(b7.outcome).toBe('fulfilled');
   });
 
   it('evaluateBeat ne modifie pas l’arc', () => {
@@ -587,7 +595,12 @@ describe('evaluateBeat / deadlineOutcome (fonctions pures)', () => {
     owner.relationships.paul = { to: 'paul', kind: 'friend', affinity: 0.3 } as never;
     expect(revealChance(owner, p, 'sophie', true)).toBeGreaterThan(revealChance(owner, p, 'sophie', false));
     expect(revealChance(owner, p, 'sophie', false)).toBeGreaterThan(0);
-    expect(revealChance(owner, p, 'thomas', true)).toBe(0);
+    // Un collègue apprécié peut recevoir une confidence, mais seulement en vraie conversation, et moins souvent qu’un ami.
+    expect(revealChance(owner, p, 'thomas', true)).toBeGreaterThan(0);
+    expect(revealChance(owner, p, 'thomas', false)).toBe(0);
+    expect(revealChance(owner, p, 'thomas', true)).toBeLessThan(revealChance(owner, p, 'sophie', true));
+    owner.relationships.martin = { to: 'martin', kind: 'colleague', affinity: 0.2 } as never;
+    expect(revealChance(owner, p, 'martin', true)).toBe(0);
     expect(revealChance(owner, p, 'paul', true)).toBe(0);
     expect(revealChance(owner, p, 'inconnu', true)).toBe(0);
     expect(revealChance(owner, p, 'sophie', true)).toBeLessThanOrEqual(0.6);

@@ -78,16 +78,16 @@ export const ARC_SEEDS: ArcSeed[] = [
   { id: 'arc_paul_commode', agentId: 'paul', kind: 'pride', title: 'Livrer la commode', desire: 'Remettre enfin sa commode à Mireille.', secret: 'Paul a sculpté un cadeau pour Camille qu’il n’ose pas lui donner.', secretAbout: 'camille', tension: 'Mireille raconte tout ; un secret confié à l’atelier fait le tour du quartier.', deadline: h(12), stakes: 0.55, goal: { type: 'commitment', commitmentId: 'c_mireille_dresser' }, fate: [{ kind: 'agent_delay', agentId: 'mireille', t: h(10, 15), minutes: 100, description: 'Mireille s’attarde à bavarder et oublie l’heure', gravity: 1 }] },
   { id: 'arc_paul_camille', agentId: 'paul', kind: 'courage', title: 'Parler à Camille', desire: 'Passer à la boulangerie et parler à Camille d’autre chose que de pain.', tension: 'Paul parle peu, et Camille est toujours occupée.', deadline: h(14), stakes: 0.5, goal: { type: 'talk_to', target: 'camille', deep: true } },
   // Chloé
-  { id: 'arc_chloe_diner', agentId: 'chloe', kind: 'romance', title: 'Le dîner avec Antoine', desire: 'Dîner avec Antoine à l’heure, pour une fois.', secret: 'Chloé a réservé des vacances surprise pour Antoine.', secretAbout: 'antoine', tension: 'Antoine rentre rarement à l’heure annoncée et Mireille adore les surprises… des autres.', deadline: h(21, 30), stakes: 0.65, goal: { type: 'commitment', commitmentId: 'c_chloe_antoine_dinner' }, fate: [{ kind: 'force_action', agentId: 'antoine', t: h(19, 10), action: 'workout', locationId: 'gym', description: 'Antoine file à la salle retrouver Karim', gravity: 1 }, { kind: 'agent_delay', agentId: 'antoine', t: h(19, 25), minutes: 80, description: 'Antoine s’attarde à la salle avec Karim', gravity: 1 }] },
+  { id: 'arc_chloe_diner', agentId: 'chloe', kind: 'romance', title: 'Le dîner avec Antoine', desire: 'Dîner avec Antoine à l’heure, pour une fois.', secret: 'Chloé a réservé des vacances surprise pour Antoine.', secretAbout: 'antoine', tension: 'Antoine rentre rarement à l’heure annoncée et Mireille adore les surprises… des autres.', deadline: h(21, 30), stakes: 0.65, goal: { type: 'commitment', commitmentId: 'c_chloe_antoine_dinner' }, fate: [{ kind: 'force_action', agentId: 'antoine', t: h(19, 10), action: 'workout', locationId: 'gym', description: 'Antoine file à la salle retrouver Karim', gravity: 1 }, { kind: 'agent_delay', agentId: 'antoine', t: h(19, 25), minutes: 80, description: 'Antoine s’attarde à la salle, seul avec ses pensées', gravity: 1 }] },
   { id: 'arc_chloe_mairie', agentId: 'chloe', kind: 'duty', title: 'Les bouquets de la mairie', desire: 'Livrer les bouquets à la mairie dans l’après-midi.', tension: 'La boutique ne se garde pas toute seule.', deadline: h(18), stakes: 0.45, goal: { type: 'be_at', locationId: 'townhall' } },
   // Antoine
   { id: 'arc_antoine_diner', agentId: 'antoine', kind: 'romance', title: 'Rentrer pour le dîner', desire: 'Être à la Villa Rosa à vingt heures pour Chloé.', tension: 'Entre l’interview et la salle de sport, la soirée file.', deadline: h(21, 30), stakes: 0.55, goal: { type: 'commitment', commitmentId: 'c_chloe_antoine_dinner' } },
   { id: 'arc_antoine_horaire', agentId: 'antoine', kind: 'pride', title: 'Tenir l’horaire', desire: 'Finir le service sans retard de plus de deux minutes.', secret: 'Antoine a postulé pour conduire le car régional, loin de la ville.', secretAbout: 'chloe', tension: 'Un journaliste guette les retards et Chloé ignore la candidature.', deadline: h(14), stakes: 0.6, goal: { type: 'bus_on_time', busId: 'L1-1', maxDelay: 3 } },
   // Mireille
-  { id: 'arc_mireille_nouvelles', agentId: 'mireille', kind: 'curiosity', title: 'Tout savoir', desire: 'Parler à au moins cinq personnes différentes avant le soir.', secret: 'Mireille a écrit anonymement au journal au sujet des retards du bus.', secretAbout: 'antoine', tension: 'Si Antoine l’apprend, il ne lui adressera plus la parole dans le bus.', deadline: h(20), stakes: 0.5, goal: { type: 'conversations', min: 10 }, fate: [{ kind: 'stay_home', agentId: 'mireille', t: h(15), until: h(18, 30), description: 'Mireille attend le plombier tout l’après-midi', gravity: 1 }, { kind: 'weather', t: h(14), condition: 'rain', until: h(17, 30), description: 'Une averse vide le parc et les terrasses', gravity: 1 }] },
+  { id: 'arc_mireille_nouvelles', agentId: 'mireille', kind: 'curiosity', title: 'Tout savoir', desire: 'Parler à au moins sept personnes différentes avant le soir.', secret: 'Mireille a écrit anonymement au journal au sujet des retards du bus.', secretAbout: 'antoine', tension: 'Si Antoine l’apprend, il ne lui adressera plus la parole dans le bus.', deadline: h(20), stakes: 0.5, goal: { type: 'conversations', min: 7 }, fate: [{ kind: 'stay_home', agentId: 'mireille', t: h(15), until: h(18, 30), description: 'Mireille attend le plombier tout l’après-midi', gravity: 1 }, { kind: 'weather', t: h(14), condition: 'rain', until: h(17, 30), description: 'Une averse vide le parc et les terrasses', gravity: 1 }] },
   { id: 'arc_mireille_commode', agentId: 'mireille', kind: 'pride', title: 'Récupérer la commode', desire: 'Rapporter enfin la commode promise depuis trois semaines.', tension: 'Paul n’est pas pressé et Mireille s’arrête pour parler à tout le monde.', deadline: h(12), stakes: 0.5, goal: { type: 'commitment', commitmentId: 'c_mireille_dresser' } },
   // Karim
-  { id: 'arc_karim_hugo', agentId: 'karim', kind: 'care', title: 'Entraîner Hugo', desire: 'Tenir la séance avec Hugo à la salle.', secret: 'Le Gymnase Central risque de fermer faute d’abonnés.', secretAbout: 'hugo', tension: 'Hugo ne doit pas s’inquiéter avant le concours.', deadline: h(19), stakes: 0.55, goal: { type: 'commitment', commitmentId: 'c_hugo_karim_gym' }, fate: [{ kind: 'force_action', agentId: 'hugo', t: h(16, 20), action: 'coffee', locationId: 'cafe', description: 'Hugo est rappelé au café : un collègue manque', gravity: 0 }, { kind: 'agent_delay', agentId: 'hugo', t: h(16, 30), minutes: 85, description: 'Hugo doit tenir le comptoir jusqu’au soir', gravity: 1 }] },
+  { id: 'arc_karim_hugo', agentId: 'karim', kind: 'care', title: 'Entraîner Hugo', desire: 'Tenir la séance avec Hugo à la salle.', secret: 'Le Gymnase Central risque de fermer faute d’abonnés.', secretAbout: 'hugo', tension: 'Hugo ne doit pas s’inquiéter avant le concours.', deadline: h(19), stakes: 0.55, goal: { type: 'commitment', commitmentId: 'c_hugo_karim_gym' }, fate: [{ kind: 'force_action', agentId: 'hugo', t: h(16, 20), action: 'work', locationId: 'cafe', description: 'Hugo est rappelé au café : un collègue manque', gravity: 0 }, { kind: 'agent_delay', agentId: 'hugo', t: h(16, 32), minutes: 85, description: 'Hugo doit tenir le comptoir jusqu’au soir', gravity: 1, requires: 'public' }, { kind: 'force_action', agentId: 'hugo', t: h(19, 5), action: 'work', locationId: 'cafe', description: 'Hugo assure la fermeture du café', gravity: 0 }, { kind: 'agent_delay', agentId: 'hugo', t: h(19, 15), minutes: 170, description: 'Le service du soir retient Hugo jusqu’à la fermeture', gravity: 1, requires: 'public' }] },
   { id: 'arc_karim_parc', agentId: 'karim', kind: 'pride', title: 'Courir au parc', desire: 'Courir au parc avant d’ouvrir la salle.', tension: 'Le réveil est dur quand la salle ferme tard.', deadline: h(10), stakes: 0.4, goal: { type: 'be_at', locationId: 'park' } },
   // Élodie
   { id: 'arc_elodie_rien_perdre', agentId: 'elodie', kind: 'courage', title: 'Ne rien perdre aujourd’hui', desire: 'Rentrer le soir avec son portefeuille.', secret: 'Élodie a écrit à Alice une lettre qu’elle n’a jamais envoyée.', secretAbout: 'alice', tension: 'La distraction d’Élodie est légendaire au Marché Plus.', stakes: 0.5, goal: { type: 'keep_wallet' }, fate: [{ kind: 'lose_item', agentId: 'elodie', t: h(12, 35), item: 'wallet', description: 'Élodie pose son portefeuille sur le comptoir et l’oublie', gravity: 1 }] },
@@ -297,10 +297,13 @@ export function evaluateBeat(arc: ArcState, ev: SimEvent, world: WorldState, pro
     }
     case 'conversations': {
       if (!involved || !social) return null;
-      const count = arc.count + 1;
+      const others = ev.actors.filter((x) => x !== me);
+      const known = arc.partners ?? [];
+      if (others.every((o) => known.includes(o))) return null;
+      const count = new Set([...known, ...others]).size;
       const progress = Math.min(1, count / g.min);
-      if (count >= g.min) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} a parlé à ${g.min} personnes : rien ne lui échappe aujourd’hui`, mechanism: `${g.min} conversations dans la journée`, importance: 0.7 };
-      return { arc, progress, text: `${name} glane des nouvelles (${count}/${g.min})`, mechanism: 'Une conversation de plus', importance: 0.3 };
+      if (count >= g.min) return { arc, progress: 1, outcome: 'fulfilled', text: `${name} a parlé à ${g.min} personnes différentes : rien ne lui échappe aujourd’hui`, mechanism: `${g.min} interlocuteurs dans la journée`, importance: 0.7 };
+      return { arc, progress, text: `${name} glane des nouvelles (${count}/${g.min} personnes)`, mechanism: 'Une nouvelle personne à qui parler', importance: 0.3 };
     }
     case 'money_floor': {
       if (!involved || ev.type !== 'purchase') return null;
@@ -345,7 +348,7 @@ export function deadlineOutcome(arc: ArcState, world: WorldState, profiles: Map<
     case 'be_at':
       return { outcome: 'failed', text: g.withAgent ? `${name} n’a pas réussi à retrouver ${firstName(profiles, g.withAgent)}` : `${name} n’a pas trouvé le temps`, mechanism: 'Échéance dépassée' };
     case 'conversations':
-      return { outcome: 'failed', text: `${name} n’a parlé qu’à ${arc.count} personne${arc.count > 1 ? 's' : ''} sur ${g.min}`, mechanism: 'Échéance dépassée' };
+      return { outcome: 'failed', text: `${name} n’a parlé qu’à ${(arc.partners ?? []).length} personne${(arc.partners ?? []).length > 1 ? 's' : ''} sur ${g.min}`, mechanism: 'Échéance dépassée' };
     case 'commitment':
     case 'on_time':
       return { outcome: 'failed', text: `${name} n’a pas atteint son but`, mechanism: 'Échéance dépassée' };
@@ -448,10 +451,16 @@ export function detectDilemma(chosen: Candidate, candidates: Candidate[], arc: A
 export function revealChance(owner: AgentState, ownerProfile: AgentProfile, listener: AgentId, deep: boolean): number {
   const rel = owner.relationships[listener];
   const aff = rel?.affinity ?? 0;
-  if (!rel || aff < 0.5) return 0;
-  if (!['friend', 'partner', 'family', 'crush'].includes(rel.kind)) return 0;
-  const base = deep ? 0.25 : 0.04;
-  return Math.min(0.6, base + 0.25 * (aff - 0.5) + 0.08 * ownerProfile.traits.sociability);
+  if (!rel) return 0;
+  const close = ['friend', 'partner', 'family', 'crush'].includes(rel.kind);
+  if (close) {
+    if (aff < 0.5) return 0;
+    const base = deep ? 0.25 : 0.04;
+    return Math.min(0.6, base + 0.25 * (aff - 0.5) + 0.08 * ownerProfile.traits.sociability);
+  }
+  // Colleagues, neighbours and acquaintances: only in a real conversation, once some affinity exists.
+  if (['rival', 'ex', 'boss', 'employee'].includes(rel.kind) || aff < 0.4 || !deep) return 0;
+  return Math.min(0.35, 0.12 + 0.3 * (aff - 0.4) + 0.05 * ownerProfile.traits.sociability);
 }
 
 /** Probability that a holder passes a secret on to someone else. */
