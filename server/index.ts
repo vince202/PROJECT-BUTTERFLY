@@ -250,6 +250,20 @@ const advisor = createAdvisor();
 const embedder = process.env.BUTTERFLY_EMBED === 'off' ? null : new OllamaEmbedder({ model: process.env.OLLAMA_EMBED_MODEL, baseUrl: process.env.OLLAMA_URL });
 let embedderReady: boolean | null = null;
 const brain = new Brain({ file: process.env.BUTTERFLY_BRAIN_FILE ?? 'data/brain.json' });
+/** Enrich advisor requests with what the brain remembers of similar situations (at most 3 short lines each). */
+async function attachPrecedents(requests: AdviceRequest[]) {
+  if (!brain.stats().grains) return;
+  for (const r of requests) {
+    if (!r.situation) continue;
+    try {
+      const hits = await brain.query({ text: r.situation, k: 3, kinds: ['arc', 'encounter', 'intervention'] });
+      r.precedents = hits.filter((h) => h.similarity >= 0.15).map((h) => `${h.grain.text.slice(0, 220)} (vu ${h.grain.count} fois)`);
+    } catch {
+      /* the brain is advisory: ignore failures */
+    }
+  }
+}
+
 async function embedderStatus(): Promise<boolean> {
   if (!embedder) return false;
   if (embedderReady === null || !embedderReady) embedderReady = await embedder.probe();
@@ -321,7 +335,10 @@ const server = http.createServer(async (req, res) => {
       if (!advisor) return json(res, 503, { ok: false, answers: [], explanation: 'Aucun conseiller de décision configuré (TYPESAFE_API_KEY ou ANTHROPIC_API_KEY).' });
       const requests = (Array.isArray(body.requests) ? body.requests : []).slice(0, 120) as AdviceRequest[];
       const key = cacheKey('decide', advisor.name, requests.map((r) => [r.key, r.candidates.map((c) => c.choice)]));
-      if (!cache.has(key)) cache.set(key, { ok: true, answers: await advisor.advise(requests), source: advisor.name });
+      if (!cache.has(key)) {
+        await attachPrecedents(requests);
+        cache.set(key, { ok: true, answers: await advisor.advise(requests), source: advisor.name });
+      }
       return json(res, 200, cache.get(key));
     }
     if (!provider) return json(res, 503, { ok: false, explanation: 'IA désactivée (aucune clé API).', issues: ['Configurez ANTHROPIC_API_KEY côté serveur.'], text: '' });
@@ -340,7 +357,15 @@ const server = http.createServer(async (req, res) => {
       const facts = String(body.facts ?? '').slice(0, 60000);
       const style = String(body.style ?? 'day');
       const key = cacheKey('narrate', facts, style);
-      if (!cache.has(key)) cache.set(key, { ok: true, text: await provider.narrate(facts, style), source: provider.name });
+      if (!cache.has(key)) {
+        let input = facts;
+        if (style === 'counterfactual' && brain.stats().grains) {
+          const hits = await brain.query({ text: facts.slice(0, 1500), k: 4, kinds: ['intervention', 'arc'] });
+          const lines = hits.filter((h) => h.similarity >= 0.15).map((h) => `- ${h.grain.text.slice(0, 240)} (observé ${h.grain.count} fois)`);
+          if (lines.length) input += `\n\nPrécédents réellement observés dans d’autres journées simulées (à citer comme tels, jamais comme des faits de cette journée) :\n${lines.join('\n')}`;
+        }
+        cache.set(key, { ok: true, text: await provider.narrate(input, style), source: provider.name });
+      }
       return json(res, 200, cache.get(key));
     }
     return json(res, 404, { ok: false, explanation: 'Route inconnue', issues: [] });

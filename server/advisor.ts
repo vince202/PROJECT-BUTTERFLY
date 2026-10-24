@@ -47,6 +47,7 @@ export class AnthropicAdvisor implements DecisionAdvisor {
           r.nextCommitment ? `Prochain engagement : ${r.nextCommitment}.` : 'Aucun engagement proche.',
           r.recentMemories.length ? `Souvenirs récents : ${r.recentMemories.join(' | ')}.` : '',
           r.relevantMemories?.length ? `Souvenirs liés à la situation : ${r.relevantMemories.join(' | ')}.` : '',
+          r.precedents?.length ? `Précédents observés dans d’autres journées : ${r.precedents.join(' | ')}.` : '',
           r.stakes ? `Enjeu du jour : ${r.stakes}` : '',
           r.influences.length ? `Vient de vivre : ${r.influences.join(', ')}.` : '',
           `Options : ${r.candidates.map((c) => `${c.choice} = « ${c.label} » (score ${c.score}${c.components.length ? ' : ' + c.components.map((x) => `${x.label} ${x.value > 0 ? '+' : ''}${x.value}`).join(', ') : ''})`).join(' ; ')}. Choix utilitaire : ${r.baseline}.`,

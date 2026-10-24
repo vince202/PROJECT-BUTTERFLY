@@ -49,6 +49,7 @@ export function buildJevRequest(r: AdviceRequest, model: string) {
       etat: { besoins: r.needs, humeur: r.mood },
       souvenirs_recents: r.recentMemories,
       souvenirs_pertinents: r.relevantMemories ?? [],
+      precedents_observes: r.precedents ?? [],
       vient_de_vivre: r.influences,
       enjeu_du_jour: r.stakes ?? 'aucun',
       choix_utilitaire: r.baseline,

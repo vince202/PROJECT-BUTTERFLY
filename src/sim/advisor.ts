@@ -51,6 +51,8 @@ export interface AdviceRequest {
   situation: string;
   /** Memories ranked by relevance to the situation (filled by the recall step). */
   relevantMemories?: string[];
+  /** Precedents from the persistent brain: what happened in similar situations before (filled server-side). */
+  precedents?: string[];
   /** All memories at decision time (consumed by the recall step, not sent to advisors). */
   memoryPool?: Memory[];
   candidates: AdviceCandidate[];
