@@ -2162,17 +2162,21 @@ export class Engine {
           const lastAnyA = Math.max(-999, ...Object.values(a.lastChat));
           const lastAnyB = Math.max(-999, ...Object.values(b.lastChat));
           if (t - lastAnyA < 8 || t - lastAnyB < 8) continue;
-          const wa = this.socialWeight(a);
-          const wb = this.socialWeight(b);
-          if (wa === 0 || wb === 0) continue;
           const pa = this.profiles.get(a.id)!;
           const pb = this.profiles.get(b.id)!;
+          // Shopkeepers chat with their customers over the counter: the shop is their social place.
+          const staffA = !!loc && a.activity?.action === 'work' && pa.workplaceId === loc && ['bakery', 'cafe', 'florist', 'supermarket', 'restaurant', 'gym', 'library'].includes(kind as string);
+          const staffB = !!loc && b.activity?.action === 'work' && pb.workplaceId === loc && ['bakery', 'cafe', 'florist', 'supermarket', 'restaurant', 'gym', 'library'].includes(kind as string);
+          const counter = staffA !== staffB;
+          const wa = counter && staffA ? 0.9 : this.socialWeight(a);
+          const wb = counter && staffB ? 0.9 : this.socialWeight(b);
+          if (wa === 0 || wb === 0) continue;
           const rel = a.relationships[b.id];
           const relFactor = rel ? 0.8 + Math.max(-0.5, rel.affinity) : 0.03 * ((pa.traits.curiosity + pb.traits.curiosity) / 2);
           const p = base * wa * wb * (0.3 + (pa.traits.sociability + pb.traits.sociability) / 2) * relFactor;
           const key2 = `encounter:${a.id}:${b.id}:${t}`;
           if (!this.rng.chance(key2, p)) continue;
-          this.converse(a, b, loc ?? null, null, 'chance', { key: key2, value: this.rng.next(key2) }, isBus ? key.slice(4) : undefined);
+          this.converse(a, b, loc ?? null, null, counter ? 'counter' : 'chance', { key: key2, value: this.rng.next(key2) }, isBus ? key.slice(4) : undefined);
         }
       }
     }
@@ -2216,24 +2220,25 @@ export class Engine {
   }
 
   /** A conversation between two inhabitants, with relationship effects and possible plan changes. */
-  private converse(a: AgentState, b: AgentState, loc: LocationId | null, cause: EventId | null, how: 'chance' | 'visit', draw?: RandomDraw, busId?: string): SimEvent | null {
+  private converse(a: AgentState, b: AgentState, loc: LocationId | null, cause: EventId | null, how: 'chance' | 'visit' | 'counter', draw?: RandomDraw, busId?: string): SimEvent | null {
     const t = this.state.t;
     const pa = this.profiles.get(a.id)!;
     const pb = this.profiles.get(b.id)!;
     const relA = a.relationships[b.id];
     const relB = b.relationships[a.id];
     const stranger = !relA;
-    const where = busId ? `dans le bus ${busId}` : loc ? `à ${this.locName(loc)}` : 'dans la rue';
+    const where = busId ? `dans le bus ${busId}` : loc ? (how === 'counter' ? `au comptoir de ${this.locName(loc)}` : `à ${this.locName(loc)}`) : 'dans la rue';
     const presenceCauses = [cause, a.lastArrivalEventId, b.lastArrivalEventId, a.travel?.legEventIds.at(-1), b.travel?.legEventIds.at(-1), a.travel?.departEventId, b.travel?.departEventId];
     a.lastChat[b.id] = t;
     b.lastChat[a.id] = t;
 
     const busyKinds = new Set(['work', 'school', 'commitment', 'drive_bus', 'morning_routine']);
     const busy = (x: AgentState) => (!!x.activity && busyKinds.has(x.activity.action)) || (x.heldUntil !== undefined && t < x.heldUntil);
-    const bothFree = !busy(a) && !busy(b);
+    // Over a counter, people exchange a few words, never a deep conversation.
+    const bothFree = how !== 'counter' && !busy(a) && !busy(b);
     let type: EventType = 'encounter';
     let label = `${pa.firstName} et ${pb.firstName} discutent ${where}`;
-    let mechanism = how === 'visit' ? `${pa.firstName} est venu retrouver ${pb.firstName}` : 'Présents au même endroit au même moment (graine aléatoire)';
+    let mechanism = how === 'visit' ? `${pa.firstName} est venu retrouver ${pb.firstName}` : how === 'counter' ? 'Échange au comptoir entre le commerçant et son client (graine aléatoire)' : 'Présents au même endroit au même moment (graine aléatoire)';
     let dA = 0.05;
     let dB = 0.05;
     let moodA = 0.05;
@@ -2259,7 +2264,7 @@ export class Engine {
       const roll = this.rng.next(outcomeKey);
       draws.push({ key: outcomeKey, value: roll });
       if (kindA === 'ex' || kindB === 'ex') {
-        if (roll < 0.3 && a.emotions.mood > 0 && b.emotions.mood > 0) {
+        if (bothFree && roll < 0.3 && a.emotions.mood > 0 && b.emotions.mood > 0) {
           type = 'conversation';
           label = `Retrouvailles : ${pa.firstName} et ${pb.firstName} se parlent longuement ${where}`;
           dA = 0.25;

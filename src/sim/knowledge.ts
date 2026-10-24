@@ -200,6 +200,8 @@ export function interventionGrains(A: Reality, B: Reality, comparison: Compariso
 /** Everything worth remembering from a day (and from its comparison, when any). */
 export function extractGrains(A: Reality, B?: Reality | null, comparison?: Comparison | null): KnowledgeGrain[] {
   const out = [...arcGrains(A), ...secretGrains(A), ...chainGrains(A), ...encounterGrains(A)];
-  if (B && comparison) out.push(...interventionGrains(A, B, comparison), ...arcGrains(B).filter((g) => !out.some((x) => x.signature === g.signature)));
-  return out;
+  if (B && comparison) out.push(...interventionGrains(A, B, comparison), ...arcGrains(B));
+  // One grain per signature within a day (the same pair may chat twice at the same counter).
+  const seen = new Set<string>();
+  return out.filter((g) => (seen.has(g.signature) ? false : (seen.add(g.signature), true)));
 }

@@ -64,7 +64,7 @@ function QuestCardView({ card: c, training, onPick }: { card: QuestCard; trainin
       onClick={onPick}
       title={`Suivre ${c.firstName} — ${c.title}\n${c.desire}\nTension : ${c.tension}\nÉchéance : ${fmtTime(c.deadline)}`}
     >
-      {training && <span className="quest-ribbon">Entraînement · commencez ici</span>}
+      {training && <span className="quest-ribbon">★ Commencez ici</span>}
       <span className="quest-card-head">
         <span className="agent-dot lg" style={{ background: c.color }} aria-hidden />
         <span className="quest-card-name">{c.firstName}</span>
