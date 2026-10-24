@@ -21,7 +21,7 @@ import { LampGlow } from './Streets';
 import { focusBoxes } from './focus';
 import { PlaceLabels } from './PlaceLabels';
 import { Life } from './Life';
-import { buildCafeBlockLots, buildOtherLots, buildPark, canalDressing, fillBlock, gardenBlock, newTownOut, parkChairs, parkNorthEdge } from './town';
+import { buildCafeBlockLots, buildOtherLots, buildPark, canalDressing, countryside, fillBlock, gardenBlock, newTownOut, parkChairs, parkNorthEdge } from './town';
 
 /** Locations built with the detailed café-block builder. */
 export const TOWN_LOTS = new Set(['cafe', 'bakery', 'florist']);
@@ -49,7 +49,9 @@ function activityOf(loc: LocationDef | undefined, t: number, awake: number): num
   return awake > 0 ? 0.25 : 0.04;
 }
 
-const WARM = [new THREE.Color('#ffcf7a'), new THREE.Color('#ffe0a6'), new THREE.Color('#ffb765')].map((c) => c.multiplyScalar(1.6));
+const WARM = [new THREE.Color('#ffcf7a'), new THREE.Color('#ffe0a6'), new THREE.Color('#ffb765'), new THREE.Color('#ffc46e')].map((c, i) => c.multiplyScalar([1.7, 1.3, 1.5, 0.9][i]));
+/** Cool flicker of a television in a few windows. */
+const TV = new THREE.Color('#8fb0ff').multiplyScalar(0.95);
 const BLACK = new THREE.Color(0, 0, 0);
 const SMOKE_DAY = new THREE.Color('#eeeae4');
 const SMOKE_NIGHT = new THREE.Color('#3a3f52');
@@ -66,6 +68,7 @@ function TownInner() {
     parkNorthEdge(out, protos);
     parkChairs(out);
     canalDressing(out, protos);
+    countryside(out);
     const park = buildPark(out, protos);
     for (const blk of blocks()) {
       if (blk.kind !== 'normal') continue;
@@ -94,6 +97,13 @@ function TownInner() {
       k++;
     }
     for (const [name, items] of bySpecies) meshes.push(...instancedModel(protos[name], items, { sway: 0.01 }));
+    // Countryside trees: same species, separate instances without shadows.
+    const far = new Map<ModelName, { x: number; z: number; y: number; rotY: number; scale: number; tint: THREE.Color }[]>();
+    out.farTrees.forEach((t, i) => {
+      if (!far.has(t.kind)) far.set(t.kind, []);
+      far.get(t.kind)!.push({ x: t.x, z: t.z, y: -0.08, rotY: i * 2.1, scale: t.h / protos[t.kind].size.y, tint: new THREE.Color().setHSL(0.24, 0.18, 0.7 + ((i * 0.37) % 1) * 0.2) });
+    });
+    for (const [name, items] of far) meshes.push(...instancedModel(protos[name], items, { sway: 0.006, castShadow: false }));
     const bushItems = out.bushes.map((b, i) => ({ x: b.x, z: b.z, y: CURB_H, rotY: i * 1.7, scale: b.s / protos.bush.size.y }));
     meshes.push(...instancedModel(protos.bush, bushItems, { sway: 0.004 }));
     // Chimney smoke (four puffs per chimney, GPU animated)
@@ -125,6 +135,7 @@ function TownInner() {
       if (a.loc && !a.asleep) awake.set(a.loc, (awake.get(a.loc) ?? 0) + 1);
     }
     const glowK = THREE.MathUtils.smoothstep(night, 0.1, 0.65);
+    const perf = performance.now() / 1000;
     for (const id of TOWN_LOTS) litUniform(id).value = activityOf(locById.get(id), t, awake.get(id) ?? 0) * glowK;
     litUniform('homes').value = activityOf(undefined, t, 0) * glowK;
     built.owners.forEach((o, i) => {
@@ -136,7 +147,11 @@ function TownInner() {
       const seeds = built.glassSeed[gi];
       for (let i = 0; i < own.length; i++) {
         const lit = seeds[i] < ownerAct[own[i]] && glowK > 0;
-        if (lit) gm.setColorAt(i, tmpC.copy(WARM[Math.floor(seeds[i] * 1000) % 3]).multiplyScalar(glowK));
+        if (lit) {
+          const v = Math.floor(seeds[i] * 1000);
+          const tv = v % 13 === 0 && t > 19 * 60;
+          gm.setColorAt(i, tv ? tmpC.copy(TV).multiplyScalar(glowK * (0.85 + 0.15 * Math.sin(perf * 6 + v))) : tmpC.copy(WARM[v % 4]).multiplyScalar(glowK));
+        }
         else gm.setColorAt(i, BLACK);
       }
       if (gm.instanceColor) gm.instanceColor.needsUpdate = true;

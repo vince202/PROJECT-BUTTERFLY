@@ -213,6 +213,19 @@ function buildGround(): THREE.Mesh[] {
     b.get('gravel').box(W / 2, -0.1, z1 + 2.5, 5200, 0.12, 4, C.path);
     void lvl;
   }
+  // Dirt roads leading away into the countryside.
+  const dirt = (pts: [number, number][]) => {
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, az] = pts[i - 1];
+      const [bx, bz] = pts[i];
+      const len = Math.hypot(bx - ax, bz - az);
+      b.get('gravel').box((ax + bx) / 2, -0.12, (az + bz) / 2, 5, 0.16, len + 4, '#b9a685', Math.atan2(bx - ax, bz - az));
+    }
+  };
+  dirt([[240, -18], [232, -160], [205, -330], [190, -560], [150, -900], [120, -1500]]);
+  dirt([[-18, 360], [-170, 372], [-360, 405], [-620, 420], [-1000, 470], [-1600, 520]]);
+  dirt([[420, 514], [428, 640], [462, 820], [520, 1100], [560, 1600]]);
+  dirt([[738, 120], [900, 110], [1120, 70], [1500, 40]]);
   // Asphalt and cobbles (streets are long strips; footpath segments are skipped)
   for (let z = 0; z <= H; z += STREET_SPACING) {
     // Horizontal streets: split at x = 240 / 480 for the cobbled part on z = 120.

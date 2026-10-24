@@ -21,7 +21,7 @@ import { CITY_CENTER, agentWorld, damp, env } from './shared';
 import { focusBoxes } from './focus';
 
 const INITIAL_DISTANCE = 830;
-const INITIAL_POLAR = 0.92;
+const INITIAL_POLAR = 0.98;
 const INITIAL_AZIMUTH = 0.36;
 export const INITIAL_CAMERA: [number, number, number] = [
   CITY_CENTER.x + INITIAL_DISTANCE * Math.sin(INITIAL_POLAR) * Math.sin(INITIAL_AZIMUTH),
@@ -30,8 +30,11 @@ export const INITIAL_CAMERA: [number, number, number] = [
 ];
 
 const PAN_MARGIN = 80;
-const FIT_HALF_WIDTH = 400;
-const FIT_HALF_HEIGHT = 190;
+/** The town (with its outer sidewalk) should fill about 70 % of the canvas height. */
+const FIT_HALF_WIDTH = 345;
+const FIT_HALF_HEIGHT = 150;
+/** Spectator framing: the central district. */
+const SPECTATOR_VIEW = { target: { x: 315, y: 0, z: 195 }, distance: 360, azimuth: 0.42, polar: 1.0 };
 const MIN_DISTANCE = 9;
 const MAX_DISTANCE = 1100;
 
@@ -82,6 +85,7 @@ export function CameraRig() {
   const anim = useRef<Anim | null>(null);
   const lastInput = useRef(performance.now());
   const lastSel = useRef<string | null>(null);
+  const lastMode = useRef<string>('lab');
 
   // Initial framing: the whole city fits the viewport.
   useEffect(() => {
@@ -89,7 +93,7 @@ export function CameraRig() {
     framed.current = true;
     const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
     const tanH = tanV * (size.width / size.height);
-    const d = THREE.MathUtils.clamp(Math.max(FIT_HALF_WIDTH / tanH, FIT_HALF_HEIGHT / tanV), 520, 1050);
+    const d = THREE.MathUtils.clamp(Math.max(FIT_HALF_WIDTH / tanH, FIT_HALF_HEIGHT / tanV), 430, 1000);
     const dir = new THREE.Vector3(...INITIAL_CAMERA).sub(CITY_CENTER).normalize();
     camera.position.copy(CITY_CENTER).addScaledVector(dir, d);
     controls.current?.update();
@@ -195,6 +199,19 @@ export function CameraRig() {
     c.maxPolarAngle = THREE.MathUtils.lerp(1.5, 1.22, near);
     c.minPolarAngle = 0.15;
 
+    // Entering spectator mode frames the central district (unless following someone).
+    if (s.uiMode !== lastMode.current) {
+      lastMode.current = s.uiMode;
+      if (s.uiMode === 'spectator' && !s.followAgentId) {
+        const v = sphericalOf(camera, c.target);
+        const T = SPECTATOR_VIEW;
+        let az = T.azimuth;
+        while (az - v.az > Math.PI) az -= Math.PI * 2;
+        while (az - v.az < -Math.PI) az += Math.PI * 2;
+        anim.current = { t: 0, dur: 2.2, from: { target: c.target.clone(), ...v }, to: { target: new THREE.Vector3(T.target.x, T.target.y, T.target.z), r: T.distance, az, pol: T.polar } };
+        lastInput.current = performance.now();
+      }
+    }
     // Lab-mode selection: glide to the selected inhabitant (keeps the zoom).
     if (s.selectedAgentId !== lastSel.current) {
       lastSel.current = s.selectedAgentId;

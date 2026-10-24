@@ -16,8 +16,8 @@ import { addSeat } from './seats';
 export const Q_SCALE = 5.5;
 const KIT_SCALE = 0.8;
 
-const WALLS = [P.creme[0], P.creme[1], P.creme[2], P.ocre[2], P.vertSauge[0], P.bleuGris[0], P.rougeFane[2], '#e9c9b4', P.ocre[0]];
-const ROOFS = [P.brique[0], P.brique[1], P.brique[2], P.ardoise[0], P.rougeFane[1], P.ardoise[2]];
+const WALLS = [P.creme[0], P.creme[1], P.creme[2], P.ocre[2], P.vertSauge[0], P.bleuGris[0], P.rougeFane[2], '#e9c9b4', P.ocre[0], P.ocre[1], P.pierre[0], '#d8c0a0', P.vertSauge[1], '#c9b4a8'];
+const ROOFS = [P.brique[0], P.brique[1], P.brique[2], P.ardoise[0], P.rougeFane[1], P.ardoise[2], '#8a5a48', P.boisChaud[0], '#9a6f55', P.bleuGris[2]];
 const SHUTTERS = [P.vertSauge[1], P.bleuGris[1], P.rougeFane[1], P.boisChaud[0], P.vertSauge[2]];
 
 export interface TownOut {
@@ -30,6 +30,8 @@ export interface TownOut {
   /** Tree spots (species, x, z, height). */
   trees: { kind: 'treeOak' | 'treeDefault' | 'treeDetailed' | 'treeTall' | 'treeFat'; x: number; z: number; h: number }[];
   bushes: { x: number; z: number; s: number }[];
+  /** Countryside trees (cheap, no shadows). */
+  farTrees: { kind: 'treeDefault' | 'treeFat'; x: number; z: number; h: number }[];
   /** Wall lanterns (halo positions). */
   lanterns: THREE.Vector3[];
   /** Hover / focus boxes of the locations. */
@@ -41,7 +43,7 @@ export function newTownOut(): TownOut {
   // tight shadow frustum) only draw what is around the camera.
   const b = new Batches('homes', (x, z) => `${x < 240 ? 0 : x < 480 ? 1 : 2}:${z < 240 ? 0 : 1}`);
   const ctx: Ctx = { b, win: new WindowSet(), signs: new SignAtlas(), emit: { smoke: [], lamps: [] }, rnd: seeded(77) };
-  return { b, lotBatches: new Map(), ctx, instances: new Map(), textured: new Map(), trees: [], bushes: [], lanterns: [], pick: [] };
+  return { b, lotBatches: new Map(), ctx, instances: new Map(), textured: new Map(), trees: [], bushes: [], farTrees: [], lanterns: [], pick: [] };
 }
 
 function pushInst<K>(map: Map<K, InstanceSpec[]>, k: K, s: InstanceSpec): void {
@@ -317,6 +319,13 @@ export function planter(b: Batches, x: number, y: number, z: number, len: number
   }
 }
 
+/** Wooden crate of fruit or vegetables (procedural, a few dozen triangles). */
+export function fruitCrate(b: Batches, x: number, y: number, z: number, rot: number, fruit: string): void {
+  const f = frameAt(x, z, rot);
+  b.wood.box(0, y, 0, 0.75, 0.38, 0.5, '#9c7048', 0, f);
+  for (let i = 0; i < 4; i++) b.trim.shape('dodeca', -0.2 + (i % 2) * 0.4, y + 0.4, -0.1 + Math.floor(i / 2) * 0.2, 0.3, 0.22, 0.24, fruit, undefined, f);
+}
+
 /** Crate of flowers (florist display). */
 export function flowerCrate(b: Batches, x: number, y: number, z: number, rnd: () => number, rot = 0): void {
   const f = frameAt(x, z, rot);
@@ -394,10 +403,12 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
     if (top) out.ctx.emit.smoke.push(top.clone().applyMatrix4(m));
     keep.push(rect(300 - width / 2 - 1, front - 1, 300 + width / 2 + 1, front + depth + 1));
     out.pick.push({ id: 'cafe', box: new THREE.Box3(new THREE.Vector3(300 - width / 2, 0, front), new THREE.Vector3(300 + width / 2, inn.size.y * s, front + depth)) });
-    // Terrace (paved), keep-out for fillers
+    // Forecourt: plain paving from the street, a warmer stone terrace within ~12 m of the façade.
     const t0 = 131.5;
+    const tEdge = 142.6; // front edge of the terrace (the seats of rows 1-2 are behind it)
     keep.push(rect(281, t0 - 1, 319, front + 1));
-    g.get('paving').box(300, y, (t0 + front) / 2, 40, 0.05, front - t0, '#cdbd9f');
+    g.get('paving').box(300, y, (t0 + tEdge) / 2, 40, 0.04, tEdge - t0, '#c4baa8');
+    g.get('paving').box(300, y, (tEdge + front) / 2, 34, 0.06, front - tEdge, '#cdb89a');
     // Porch front (local +z = north, the street): striped awning under the porch roof, name board on its edge.
     const F = frameAt(300, front, Math.PI);
     awning(out.ctx, F, 0, width * 0.86, 4.55, '#b4483c', '#f2e6cf', 2.2);
@@ -410,47 +421,57 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
       wallLantern(g, F, u, 3.2, 0.1);
       out.lanterns.push(p);
     }
-    // Seats at the twelve standing spots: chairs facing the street (Paris style), a small table in front.
-    const slots: { x: number; z: number }[] = [];
+    // Seats on the standing spots that fall on the terrace (rows 1-2): chairs facing the
+    // street, Paris style, a small table in front. Spots of row 0 are on the open
+    // forecourt: those inhabitants stand and chat there.
+    const tables: [number, number][] = [];
     for (let slot = 0; slot < 12; slot++) {
       const p = city.insidePos('cafe', slot);
-      slots.push({ x: p.x, z: p.y });
+      if (p.y < tEdge) continue;
       bistroChair(g, p.x, y, p.y, Math.PI);
-      bistroTable(g, p.x, y, p.y - 0.85);
+      tables.push([p.x, p.y - 0.85]);
       addSeat('cafe', { x: p.x, z: p.y, heading: Math.PI, height: 0.46 });
     }
-    // A dense terrace: more tables between and around the seats (left empty).
-    for (let xi = -5; xi <= 5; xi++) {
-      for (let zi = 0; zi < 5; zi++) {
-        const x = 300 + xi * 2.5;
-        const z = 139.75 + zi * 2.5;
-        if (slots.some((q) => Math.abs(q.x - x) < 1.2 && Math.abs(q.z - z) < 1.2)) continue;
-        if (zi % 2 === 1 && xi % 2 === 0) continue;
-        bistroTable(g, x, y, z - 0.85);
-        bistroChair(g, x, y, z, Math.PI + (rnd() - 0.5) * 0.5);
-        if (rnd() < 0.5) bistroChair(g, x + 0.7, y, z - 1.5, (rnd() - 0.5) * 0.5);
-      }
+    // A few more tables under the awning and at the terrace ends (14 in all).
+    for (const [x, z, r] of [[287.5, 146, 0.3], [287.5, 151, -0.2], [312.5, 146, -0.3], [312.5, 151, 0.25], [295, 152.6, 0], [305, 152.6, 0]] as const) {
+      tables.push([x, z]);
+      bistroChair(g, x - 0.75, y, z + 0.1, Math.PI / 2 + r);
+      bistroChair(g, x + 0.75, y, z - 0.1, -Math.PI / 2 + r);
     }
-    // Parasols between the rows
-    for (const [x, z, a] of [[295, 142.3, 0], [305, 142.3, 1], [295, 152, 1], [305, 152, 0], [286.5, 145, 0], [313.5, 145, 1]] as const) {
-      parasol(g, x, y, z, a ? '#b4483c' : '#f2e6cf', a ? '#f2e6cf' : '#b4483c', 1.9);
+    for (const [x, z] of tables) bistroTable(g, x, y, z);
+    // Parasols over the seated rows and the terrace ends
+    for (const [x, z, a2] of [[295, 147.3, 0], [305, 147.3, 1], [287.5, 148.5, 1], [312.5, 148.5, 0]] as const) {
+      parasol(g, x, y, z, a2 ? '#b4483c' : '#f2e6cf', a2 ? '#f2e6cf' : '#b4483c', 2.0);
     }
+    // Low planter edge on the terrace sides and corners (the middle stays open for the walkers).
+    planter(g, 284.2, y, 148.5, 11, false, rnd);
+    planter(g, 315.8, y, 148.5, 11, false, rnd);
+    planter(g, 287, y, tEdge - 0.4, 5, true, rnd);
+    planter(g, 313, y, tEdge - 0.4, 5, true, rnd);
+    // The open forecourt: planters, a bike rack with two bikes, a lamp.
+    planter(g, 284, y, 133.6, 4, true, rnd);
+    planter(g, 316, y, 133.6, 4, true, rnd);
+    for (let i = 0; i < 5; i++) {
+      const hoop = new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(309.5 + i * 0.9, y, 136.5);
+      g.metal.shape('torus', 0, 0.5, 0, 0.75, 1.1, 0.75, '#2f4a3e', { z: 0 }, hoop);
+    }
+    const bike = protos.bicycle;
+    for (const [x, c] of [[311.3, P.rougeFane[0]]] as const) {
+      placeModel(g, bike, modelMatrix(bike, x, y, 136.5, 0, 1.75 / bike.size.z), { tint: [[/bike|material\.00[15]/i, c], [/wheel|handle|00[23]/i, '#2b2e33']] });
+    }
+    pushInst(out.instances, 'lamp', { x: 291, y, z: 135.5, rotY: 0, scale: 4.2 / protos.lamp.size.y });
+    out.lanterns.push(new THREE.Vector3(291, y + 3.85, 135.5));
     // Houses flanking the inn on its façade line enclose the little square.
     for (const sg of [-1, 1]) {
       const fp = footprint(sg < 0 ? 'q2' : 'kMansard', protos, rnd);
       const cx = 300 + sg * (width / 2 + fp.w / 2 + 0.4);
       keep.push(placeHouse(out, protos, fp, cx, front + 1.5, Math.PI, 2, 911 + sg, { smoke: true }));
     }
-    // Planters bounding the terrace on the sidewalk side (gap in the middle for the walkers)
-    planter(g, 284, y, 133.3, 5, true, rnd);
-    planter(g, 316, y, 133.3, 5, true, rnd);
-    planter(g, 281.6, y, 141, 9, false, rnd);
-    planter(g, 318.4, y, 141, 9, false, rnd);
     // Two trees framing the terrace, a bench under each
     out.trees.push({ kind: 'treeOak', x: 278, z: 150, h: 10.5 }, { kind: 'treeOak', x: 322, z: 150, h: 11 });
     pushInst(out.instances, 'bench1', { x: 278, y, z: 145.2, rotY: Math.PI, scale: 2.2 / protos.bench1.size.x });
     // Chalkboard menu
-    const chalk = frameAt(291.5, 136, Math.PI - 0.3);
+    const chalk = frameAt(297.5, 141.6, Math.PI - 0.3);
     g.wood.box(0, y, 0, 0.7, 1.1, 0.05, '#5c3f2c', 0, chalk);
     g.trim.box(0, y + 0.35, 0.03, 0.56, 0.62, 0.02, '#2c3a33', 0, chalk);
     g.metal.shape('box', 0, y + 0.55, -0.25, 0.05, 1.1, 0.05, '#5c3f2c', { x: -0.4 }, chalk);
@@ -488,14 +509,14 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
       keep.push(placeHouse(out, protos, fp, front + 0.5, cz, -Math.PI / 2, 2, 555 + sg));
     }
     // Market stalls on both sides of the forecourt (bread, fruit)
-    for (const [z, rot, colA, colB] of [[166.2, 0, P.ocre[0], P.creme[0]], [193.8, Math.PI, P.rougeFane[0], P.creme[0]]] as const) {
+    for (const [z, rot, colA, colB] of [[166.2, 0, P.ocre[0], P.creme[0]]] as const) {
       const sx = 142;
       const st = tprops.stall;
       const ss = 2.6 / st.size.y;
       pushInst(out.textured, 'stall', { x: sx, y, z, rotY: rot, scale: ss });
       const f = frameAt(sx, z, rot);
       stallCanopy(g, f, st.size.x * ss + 0.4, st.size.z * ss + 0.6, y + st.size.y * ss + 0.05, colA, colB);
-      pushInst(out.textured, 'crateApple', { x: sx - 1.6, y, z: z + (rot ? -1.6 : 1.6), rotY: rnd(), scale: 0.6 / tprops.crateApple.size.y });
+      fruitCrate(g, sx - 1.6, y, z + (rot ? -1.6 : 1.6), rnd(), '#c8453a');
       pushInst(out.textured, 'barrelApples', { x: sx + 2.2, y, z: z + (rot ? -1.4 : 1.4), rotY: rnd(), scale: 1.0 / tprops.barrelApples.size.y });
     }
     // Baskets of loaves on a trestle by the door
@@ -504,18 +525,23 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
       for (let i = 0; i < 4; i++) g.trim.shape('dodeca', front - 2.1 + i * 0.33, y + 0.9, z + (rnd() - 0.5) * 0.3, 0.28, 0.16, 0.5, '#d49a52', { y: 0.4 });
     }
     // A small bakery terrace either side of the door, planters, a bench and trees.
-    for (const [x, z] of [[151, 168.5], [151, 191.5], [146.5, 171], [146.5, 189]] as const) {
+    for (const [x, z] of [[151, 191.5], [147, 194.5]] as const) {
       bistroTable(g, x, y, z, '#f6efe0');
       bistroChair(g, x - 0.8, y, z, Math.PI / 2, '#5c3f2c');
       bistroChair(g, x + 0.8, y, z, -Math.PI / 2, '#5c3f2c');
     }
-    parasol(g, 151, y, 168.5, P.ocre[0], P.creme[0], 1.6);
-    parasol(g, 151, y, 191.5, P.creme[0], P.ocre[0], 1.6);
+    parasol(g, 149.5, y, 193, P.creme[0], P.ocre[0], 1.9);
     planter(g, 133.5, y, 170, 5, false, rnd);
     planter(g, 133.5, y, 190, 5, false, rnd);
     pushInst(out.instances, 'bench1', { x: 134.5, y, z: 157.5, rotY: Math.PI / 2, scale: 2.2 / protos.bench1.size.x });
     pushInst(out.instances, 'bench1', { x: 134.5, y, z: 202.5, rotY: Math.PI / 2, scale: 2.2 / protos.bench1.size.x });
     out.trees.push({ kind: 'treeDefault', x: 137, z: 153.5, h: 9.5 }, { kind: 'treeDefault', x: 137, z: 206.5, h: 10 }, { kind: 'treeOak', x: 152, z: 161, h: 8 }, { kind: 'treeOak', x: 152, z: 199, h: 8.5 });
+    // Frame the forecourt from the street: two trees in tubs, a bench between them, bread crates by the stall.
+    for (const z of [167.5, 192.5]) {
+      g.wood.box(134.2, y, z, 1.4, 0.7, 1.4, '#7a5236');
+      out.trees.push({ kind: 'treeDefault', x: 134.2, z, h: 6.5 });
+    }
+    for (let i = 0; i < 4; i++) fruitCrate(g, 139.2 + (i % 2) * 0.8, y + (i > 1 ? 0.42 : 0), 163.4, i * 0.2, i % 2 ? '#e07b2c' : '#c8453a');
     // A delivery cart of flour sacks
     const cart = protos.cart;
     placeModel(g, cart, modelMatrix(cart, 150.5, y, 202, -0.4, 2.0 / cart.size.y));
@@ -565,7 +591,8 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
       placeModel(g, pr, modelMatrix(pr, x, y, z, r, sc), { tint: [[/roof/i, awn[i % awn.length]]] });
     });
     for (const [x, z] of [[381, 144.5], [460, 144], [397.5, 151]]) {
-      pushInst(out.textured, pick(rnd, ['crateApple', 'crateCarrot', 'barrelApples'] as const), { x, y, z, rotY: rnd() * 3, scale: 0.65 / tprops.crateApple.size.y });
+      if (rnd() < 0.3) pushInst(out.textured, 'barrelApples', { x, y, z, rotY: rnd() * 3, scale: 1.0 / tprops.barrelApples.size.y });
+      else fruitCrate(g, x, y, z, rnd() * 3, pick(rnd, ['#c8453a', '#e07b2c', '#7fae4a']));
     }
     // The well, a cart, a bench and trees on the square
     const well = protos.well;
@@ -1012,4 +1039,52 @@ export function buildPark(out: TownOut, protos: Record<ModelName, Proto>): { lam
   }
   out.pick.push({ id: 'park', box: new THREE.Box3(new THREE.Vector3(x0, 0, z0), new THREE.Vector3(x1, 3, z1)) });
   return { lamps };
+}
+
+/** Tree clumps and lone trees in the fields around the town (cheap species). */
+export function countryside(out: TownOut): void {
+  const rnd = seeded(808);
+  const roads: [number, number][][] = [
+    [[240, -18], [232, -160], [205, -330], [190, -560], [150, -900]],
+    [[-18, 360], [-170, 372], [-360, 405], [-620, 420], [-1000, 470]],
+    [[420, 514], [428, 640], [462, 820], [520, 1100]],
+    [[738, 120], [900, 110], [1120, 70]],
+  ];
+  const nearRoad = (x: number, z: number) =>
+    roads.some((r) => r.some(([ax, az], i) => {
+      if (i === 0) return false;
+      const [px, pz] = r[i - 1];
+      const dx = ax - px, dz = az - pz;
+      const t = Math.max(0, Math.min(1, ((x - px) * dx + (z - pz) * dz) / (dx * dx + dz * dz)));
+      return Math.hypot(x - (px + dx * t), z - (pz + dz * t)) < 9;
+    }));
+  const inTown = (x: number, z: number) => x > -40 && x < 760 && z > -40 && z < 530;
+  let clumps = 0;
+  for (let i = 0; i < 300 && clumps < 22; i++) {
+    const a = rnd() * Math.PI * 2;
+    const r = 520 + rnd() * 620;
+    const cx = 360 + Math.cos(a) * r * 1.2;
+    const cz = 240 + Math.sin(a) * r;
+    if (inTown(cx, cz) || Math.abs(cz - 504) < 30) continue;
+    const n = 3 + Math.floor(rnd() * 6);
+    for (let k = 0; k < n; k++) {
+      const x = cx + (rnd() - 0.5) * 50;
+      const z = cz + (rnd() - 0.5) * 36;
+      if (inTown(x, z) || nearRoad(x, z) || Math.abs(z - 504) < 14) continue;
+      out.farTrees.push({ kind: rnd() < 0.6 ? 'treeDefault' : 'treeFat', x, z, h: 9 + rnd() * 6 });
+    }
+    clumps++;
+  }
+  // Lone trees along the dirt roads
+  for (const r of roads) {
+    for (let i = 1; i < r.length; i++) {
+      const [px, pz] = r[i - 1];
+      const [ax, az] = r[i];
+      for (let t = 0.2; t < 1; t += 0.45) {
+        const x = px + (ax - px) * t + 8 * (rnd() < 0.5 ? -1 : 1);
+        const z = pz + (az - pz) * t;
+        if (!inTown(x, z) && Math.abs(z - 504) > 14) out.farTrees.push({ kind: 'treeFat', x, z, h: 8 + rnd() * 4 });
+      }
+    }
+  }
 }

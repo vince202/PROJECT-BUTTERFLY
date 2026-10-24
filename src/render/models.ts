@@ -46,6 +46,7 @@ export const MODELS = {
   flowerRed: 'kenney/nature/flower_redA',
   flowerYellow: 'kenney/nature/flower_yellowA',
   bridge: 'kenney/nature/bridge_stoneRound',
+  bicycle: 'quaternius/transport/Bicycle',
 } as const;
 
 export type ModelName = keyof typeof MODELS;

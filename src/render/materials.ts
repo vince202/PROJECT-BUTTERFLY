@@ -163,16 +163,24 @@ const PATTERN = /* glsl */ `
   float n2 = bf_noise(wp.xz * 0.21);
   c *= 0.84 + 0.22 * n1 + 0.1 * n2;
   c = mix(c, c * vec3(1.12, 1.06, 0.72), smoothstep(0.55, 0.9, bf_noise(wp.xz * 0.012 + 7.0)) * 0.5);
-  // Countryside patchwork of fields around the town.
+  // Countryside: soft irregular fields (noise-warped cells) in desaturated greens and ochres,
+  // with the odd hedgerow along a field edge.
   if (wp.x < -30.0 || wp.x > 750.0 || wp.z < -30.0 || wp.z > 525.0) {
-    vec2 fq = vec2(wp.x * 0.94 + wp.z * 0.34, wp.z * 0.94 - wp.x * 0.34) / vec2(95.0, 70.0);
-    vec2 fc = floor(fq);
+    vec2 q = wp.xz / 140.0;
+    q += vec2(bf_noise(wp.xz * 0.004 + 3.1), bf_noise(wp.xz * 0.004 + 9.7)) * 1.6 - 0.8;
+    vec2 fc = floor(q);
+    vec2 ff = fract(q);
     float fh = bf_hash12(fc);
-    vec3 crop = fh < 0.25 ? vec3(1.32, 1.12, 0.55) : fh < 0.45 ? vec3(0.78, 0.92, 0.7) : fh < 0.6 ? vec3(1.15, 0.86, 0.6) : vec3(1.0);
-    vec2 ff = fract(fq);
-    float hedge = 1.0 - smoothstep(0.0, 0.025, min(min(ff.x, 1.0 - ff.x), min(ff.y, 1.0 - ff.y)));
-    c = mix(c * crop, c * vec3(0.62, 0.75, 0.5), hedge * 0.9);
-    if (fh < 0.25) c *= 0.93 + 0.07 * sin(fq.x * 160.0);
+    vec3 meadow = vec3(0.26, 0.37, 0.15);
+    vec3 crop = fh < 0.22 ? vec3(0.5, 0.42, 0.2) : fh < 0.42 ? vec3(0.19, 0.29, 0.12) : fh < 0.58 ? vec3(0.4, 0.33, 0.2) : meadow;
+    // Soft blend instead of hard field borders, slight furrow texture on crops.
+    float edge = min(min(ff.x, 1.0 - ff.x), min(ff.y, 1.0 - ff.y));
+    vec3 field = mix(meadow, crop, smoothstep(0.0, 0.08, edge));
+    if (fh < 0.22 || (fh > 0.42 && fh < 0.58)) field *= 0.95 + 0.05 * sin(dot(wp.xz, vec2(0.6 + fh, 0.8 - fh)) * 1.3);
+    float hedge = (1.0 - smoothstep(0.004, 0.018, edge)) * step(0.55, bf_hash12(fc + vec2(17.0, 3.0)));
+    field = mix(field, vec3(0.1, 0.17, 0.07), hedge);
+    field *= 0.9 + 0.16 * bf_noise(wp.xz * 0.02);
+    c = field * 0.95;
   }
 #elif BF_SURFACE == 9
   // Gravel / sand paths.
@@ -285,6 +293,8 @@ ${
         `${
           haze
             ? `{
+  float farLand = smoothstep(600.0, 1800.0, length(vBfPos.xz - vec2(360.0, 240.0)));
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, uHazeColor, farLand * 0.7);
   float hz = bf_haze(vBfPos);
   float g = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
   vec3 calm = mix(vec3(g), gl_FragColor.rgb, 0.55);
@@ -538,7 +548,10 @@ export function litWindowMaterial(key = 'homes'): THREE.MeshStandardMaterial {
   vec3 cell = floor(vBfPos / 2.5);
   float h = bf_hash12(cell.xz + cell.y * 17.31);
   float on = step(h, uLit);
-  vec3 warm = mix(vec3(1.0, 0.72, 0.38), vec3(1.0, 0.84, 0.55), bf_hash12(cell.zx + 3.1));
+  float hv = bf_hash12(cell.zx + 3.1);
+  vec3 warm = mix(vec3(1.0, 0.72, 0.38), vec3(1.0, 0.84, 0.55), hv) * (0.7 + 0.6 * bf_hash12(cell.xy + 7.7));
+  // A few cool television-blue windows late in the evening.
+  if (hv > 0.92) warm = vec3(0.55, 0.68, 1.0) * 0.9;
   totalEmissiveRadiance += warm * on * 1.25 + uSky * 0.12;
 }`,
       );

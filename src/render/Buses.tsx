@@ -61,13 +61,14 @@ interface BusRig {
   shown: number;
 }
 
+/** Two-tone city livery: line-orange lower body, cream roof / window band, dark grey running gear. */
 const COLORS: Record<string, string> = {
-  Bumper: '#f6f1e6',
-  Top: '#e8962e',
-  Bottom: '#3a3d42',
-  Windows: '#2e3d4c',
-  Details: '#2b2e33',
-  Material: '#232529',
+  Bottom: '#f39c12',
+  Bumper: '#e08a10',
+  Top: '#f4ecdc',
+  Windows: '#34495a',
+  Details: '#4a4f57',
+  Material: '#33363b',
 };
 
 function BusFleet() {

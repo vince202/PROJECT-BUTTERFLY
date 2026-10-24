@@ -41,6 +41,12 @@ await page.addStyleTag({ content: '.city-scene{position:fixed!important;inset:0!
 await page.evaluate(() => { const s = window.__butterfly.getState(); s.pause(); s.selectAgent(null); s.followAgent(null); if (s.setUiMode) s.setUiMode('lab'); });
 await page.waitForTimeout(1500);
 const hasCam = await page.evaluate(() => !!window.__butterflyCamera);
+// The default lab view as the user first sees it (after the models have loaded).
+await page.waitForTimeout(6000);
+await page.evaluate(() => window.__butterfly.getState().seek(8 * 60 + 10));
+await page.waitForTimeout(2500);
+await page.screenshot({ path: `${outDir}/default-lab-view.png` });
+console.log('shot', `${outDir}/default-lab-view.png`);
 
 // Rainy minute in the displayed reality, if any.
 const rainMinute = await page.evaluate(() => {
@@ -104,7 +110,7 @@ if (!onlyTimes || onlyTimes.includes('ui')) {
   console.log('shot', `${outDir}/ui-hover-lab.png`);
   await page.evaluate(() => window.__butterfly.getState().setUiMode?.('spectator'));
   await page.mouse.move(10, 10);
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(6000);
   await page.screenshot({ path: `${outDir}/ui-spectator.png` });
   console.log('shot', `${outDir}/ui-spectator.png`);
 }

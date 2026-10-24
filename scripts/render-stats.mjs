@@ -25,7 +25,7 @@ for (const [name, v] of [
   const fps = await page.evaluate(() => new Promise((res) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 3000) requestAnimationFrame(f); else res((n * 1000) / (performance.now() - t0)); }; requestAnimationFrame(f); }));
   const info = await page.evaluate(() => window.__butterflyRender.info());
   console.log(name, JSON.stringify(info), `fps(swiftshader)=${fps.toFixed(1)}`);
-  if (name === 'overview') console.log((await page.evaluate(() => window.__butterflyRender.breakdown())).map(([k, n]) => `${k}=${Math.round(n)}`).join('\n'));
+  if (process.env.BREAKDOWN || name === 'overview') console.log((await page.evaluate(() => window.__butterflyRender.breakdown())).map(([k, n]) => `${k}=${Math.round(n)}`).join('\n'));
 }
 await browser.close();
 try { process.kill(-vite.pid, 'SIGTERM'); } catch { /* gone */ }
