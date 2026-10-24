@@ -201,7 +201,7 @@ export function dayReport(reality: Reality, comparison?: Comparison | null): Day
   for (const e of ev.filter((e) => e.type === 'activity_end' && /ne trouve pas|trop tard/.test(e.label))) missed.items.push({ t: e.t, text: e.label, eventId: e.id, agents: e.actors });
 
   const unexpected: ReportSection = { title: 'Événements inattendus', items: [] };
-  for (const e of ev.filter((e) => ['lose_item', 'find_item', 'return_item', 'shop_closed', 'weather', 'invitation', 'intervention'].includes(e.type) || (e.type === 'bus_delay' && Number(e.data?.minutes ?? 0) >= 2))) unexpected.items.push({ t: e.t, text: e.label, eventId: e.id, agents: e.actors });
+  for (const e of ev.filter((e) => ['lose_item', 'find_item', 'return_item', 'shop_closed', 'weather', 'invitation', 'intervention', 'incident', 'accident', 'fire', 'theft', 'breakup', 'dismissal', 'promotion', 'illness'].includes(e.type) || (e.type === 'bus_delay' && Number(e.data?.minutes ?? 0) >= 2))) unexpected.items.push({ t: e.t, text: e.label, eventId: e.id, agents: e.actors });
 
   const relations: ReportSection = { title: 'Évolution des relations', items: [] };
   const startState = reality.snapshots.get(360)!;

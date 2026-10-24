@@ -204,11 +204,12 @@ function AgentField({ label, value, onChange, exclude }: { label: string; value:
   );
 }
 
-function PlaceField({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+function PlaceField({ value, onChange, habitual = false }: { value: string; onChange: (id: string) => void; habitual?: boolean }) {
   return (
     <label className="composer-field">
       <span>Lieu</span>
       <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
+        {habitual && <option value="">Lieu habituel</option>}
         {GAME_PLACES.map((l) => (
           <option key={l.id} value={l.id}>
             {l.name}
@@ -258,7 +259,7 @@ function DraftFields({ draft: d, onChange, game, minute }: { draft: GestureDraft
       {kind === 'force_action' && (
         <label className="composer-field">
           <span>Action</span>
-          <select className="input" value={d.action} onChange={(e) => set('action', e.target.value as ActionType)}>
+          <select className="input" value={d.action} onChange={(e) => onChange({ ...d, action: e.target.value as ActionType, locationId: '' })}>
             {GAME_ACTIONS.map((a) => (
               <option key={a} value={a}>
                 {actionLabel(a)}
@@ -267,6 +268,7 @@ function DraftFields({ draft: d, onChange, game, minute }: { draft: GestureDraft
           </select>
         </label>
       )}
+      {kind === 'force_action' && <PlaceField value={d.locationId} onChange={(v) => set('locationId', v)} habitual />}
       {kind === 'location_hours' && <PlaceField value={d.locationId} onChange={(v) => set('locationId', v)} />}
       {kind === 'weather' && (
         <div className="composer-field">

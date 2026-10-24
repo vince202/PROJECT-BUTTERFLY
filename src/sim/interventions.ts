@@ -200,6 +200,54 @@ export function interpretFrench(text: string, ctx: InterpretContext): InterpretR
     return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.9 };
   }
 
+  // World incidents: theft, accident, fire, breakup, dismissal, promotion, illness
+  if (agent && /\b(vol[ée]?|voler|volait|derob)/.test(n) && /portefeuille|porte-monnaie|sac/.test(n)) {
+    const name = AGENTS.find((a) => a.id === agent)!.firstName;
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'theft', agentId: agent, t, description: `${name} se fait voler son portefeuille à ${fmtTime(t)}` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.85 };
+  }
+  if (agent && /accident|renvers|chut|tomb\w* (dans|de|du) /.test(n) && !/tomb\w* sur/.test(n)) {
+    const name = AGENTS.find((a) => a.id === agent)!.firstName;
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'accident', agentId: agent, t, minutes: 180, description: `${name} a un accident à ${fmtTime(t)} (trois heures à la clinique)` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.85 };
+  }
+  if (/incendie|brul|feu /.test(n)) {
+    const loc = findLocation(n);
+    if (!loc) return { ok: false, explanation: 'Un incendie, mais où ? Nommez un lieu (boulangerie, café, bibliothèque…).', issues, confidence: 0.3 };
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'fire', locationId: loc, t, description: `Un incendie se déclare à ${getCity().location(loc).name} à ${fmtTime(t)}` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.85 };
+  }
+  if (agent && /separ|rompr|rupture|quitt\w* (son|sa) (compagn|partenaire|copain|copine|mari|femme)/.test(n)) {
+    const me = AGENTS.find((a) => a.id === agent)!;
+    const rest = n.replace(normalize(me.firstName), ' ');
+    const other = findAgent(rest) ?? me.relationships.find((r) => r.kind === 'partner')?.to ?? null;
+    if (!other) return { ok: false, explanation: `${me.firstName} se sépare de qui ? Nommez la personne.`, issues, confidence: 0.3 };
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'breakup', agentA: agent, agentB: other, t, description: `${me.firstName} et ${AGENTS.find((a) => a.id === other)!.firstName} se séparent à ${fmtTime(t)}` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.8 };
+  }
+  if (agent && /renvoy|licenci|vir[ée]e? /.test(n)) {
+    const name = AGENTS.find((a) => a.id === agent)!.firstName;
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'dismissal', agentId: agent, t, description: `${name} est renvoyé à ${fmtTime(t)}` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.85 };
+  }
+  if (agent && /promu|promotion|augment/.test(n)) {
+    const name = AGENTS.find((a) => a.id === agent)!.firstName;
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'promotion', agentId: agent, t, description: `${name} est promu à ${fmtTime(t)}` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.85 };
+  }
+  if (agent && /malaise|evanou|tomb\w* malade|fievre|grippe/.test(n)) {
+    const name = AGENTS.find((a) => a.id === agent)!.firstName;
+    const t = clock ?? ctx.t;
+    const iv: Intervention = { id: newInterventionId(), kind: 'illness', agentId: agent, t, minutes: 240, description: `${name} fait un malaise à ${fmtTime(t)} et rentre se reposer` };
+    return { ok: true, intervention: iv, explanation: iv.description, issues, confidence: 0.8 };
+  }
+
   // Lost wallet: « Et si Gérard oubliait son portefeuille ? »
   if (agent && /(oubli|perd|egar)\w*\s+(son|le)?\s*(portefeuille|porte-monnaie)/.test(n)) {
     const name = AGENTS.find((a) => a.id === agent)!.firstName;
@@ -291,6 +339,8 @@ export function validateIntervention(iv: Intervention): string[] {
     if (iv.agentA === iv.agentB) errors.push('Une rencontre demande deux personnes différentes.');
   }
   if ('locationId' in iv && iv.locationId && !city.locations.has(iv.locationId)) errors.push(`Lieu inconnu : ${iv.locationId}`);
+  if (iv.kind === 'breakup' && iv.agentA === iv.agentB) errors.push('Deux habitants différents sont nécessaires.');
+  if ((iv.kind === 'accident' || iv.kind === 'illness') && (iv.minutes < 10 || iv.minutes > 600)) errors.push('Durée invalide (10 à 600 min).');
   if (iv.kind === 'bus_delay') {
     if (iv.minutes < 1 || iv.minutes > 60) errors.push('Le retard doit être compris entre 1 et 60 minutes.');
     if (!/^L\d+-\d+$/.test(iv.busId)) errors.push(`Bus inconnu : ${iv.busId}`);
@@ -310,5 +360,12 @@ export const INTERVENTION_TEMPLATES: { id: string; label: string; example: strin
   { id: 'rain', label: 'Changer la météo', example: 'Et si la pluie commençait à 14 h ?', kind: 'weather' },
   { id: 'miss', label: 'Manquer un rendez-vous', example: 'Et si Gérard oubliait son rendez-vous ?', kind: 'cancel_commitment' },
   { id: 'wallet', label: 'Oublier son portefeuille', example: 'Et si Élodie oubliait son portefeuille à midi ?', kind: 'lose_item' },
+  { id: 'theft', label: 'Un vol', example: 'Et si Gérard se faisait voler son portefeuille ?', kind: 'theft' },
+  { id: 'accident', label: 'Un accident', example: 'Et si Paul avait un accident à 10h ?', kind: 'accident' },
+  { id: 'fire', label: 'Un incendie', example: 'Et si un incendie se déclarait à la boulangerie à 11h ?', kind: 'fire' },
+  { id: 'breakup', label: 'Une rupture', example: 'Et si Chloé et Antoine se séparaient ?', kind: 'breakup' },
+  { id: 'dismissal', label: 'Un renvoi', example: 'Et si Alice était renvoyée ?', kind: 'dismissal' },
+  { id: 'promotion', label: 'Une promotion', example: 'Et si Martin était promu ?', kind: 'promotion' },
+  { id: 'illness', label: 'Un malaise', example: 'Et si Nadia faisait un malaise à 15h ?', kind: 'illness' },
   { id: 'late', label: 'Partir plus tard', example: 'Et si Léa partait dix minutes plus tard ?', kind: 'agent_delay' },
 ];

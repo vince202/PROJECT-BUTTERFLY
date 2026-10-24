@@ -45,7 +45,7 @@ export function QuestPicker({ leaving = false }: { leaving?: boolean }) {
         </header>
         <ul className="quest-grid">
           {cards.map((c) => (
-            <li key={c.agentId}>
+            <li key={c.agentId} className={c.agentId === TRAINING_AGENT ? 'training' : undefined}>
               <QuestCardView card={c} training={c.agentId === TRAINING_AGENT} onPick={() => start(c.agentId)} />
             </li>
           ))}
@@ -82,7 +82,7 @@ function QuestCardView({ card: c, training, onPick }: { card: QuestCard; trainin
           {c.difficultyLabel}
         </span>
         <span className="quest-budget">
-          {c.budget} gestes · avant {fmtTime(c.deadline)}
+          {c.budget} gestes · ⏳ {fmtTime(c.deadline)}
         </span>
       </span>
       {c.trivialInA && <span className="quest-trivial">déjà réussi dans la journée telle qu’elle se répète</span>}

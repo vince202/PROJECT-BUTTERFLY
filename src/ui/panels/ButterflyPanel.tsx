@@ -339,6 +339,20 @@ function StructuredForm({ t, onCreate }: { t: number; onCreate: (iv: Interventio
         return { id, kind, agentA: agentId, agentB, locationId, t: startT, description: `${name} et ${firstName(agentB)} se retrouvent à ${locName(locationId)} à partir de ${fmtTime(startT)}` };
       case 'lose_item':
         return { id, kind, agentId, t: startT, item: 'wallet', description: `${name} oublie son portefeuille à ${fmtTime(startT)} (s’il est dans un lieu public)` };
+      case 'theft':
+        return { id, kind, agentId, t: startT, description: `${name} se fait voler son portefeuille à ${fmtTime(startT)}` };
+      case 'accident':
+        return { id, kind, agentId, t: startT, minutes: Math.max(10, minutes * 10), description: `${name} a un accident à ${fmtTime(startT)} (${Math.max(10, minutes * 10)} min à la clinique)` };
+      case 'fire':
+        return { id, kind, locationId, t: startT, description: `Un incendie se déclare à ${locName(locationId)} à ${fmtTime(startT)}` };
+      case 'breakup':
+        return { id, kind, agentA: agentId, agentB, t: startT, description: `${name} et ${firstName(agentB)} se séparent à ${fmtTime(startT)}` };
+      case 'dismissal':
+        return { id, kind, agentId, t: startT, description: `${name} est renvoyé à ${fmtTime(startT)}` };
+      case 'promotion':
+        return { id, kind, agentId, t: startT, description: `${name} est promu à ${fmtTime(startT)}` };
+      case 'illness':
+        return { id, kind, agentId, t: startT, minutes: Math.max(10, minutes * 10), description: `${name} fait un malaise à ${fmtTime(startT)} et se repose ${Math.max(10, minutes * 10)} min` };
     }
   };
 

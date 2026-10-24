@@ -78,7 +78,7 @@ export const QUICK_LABELS: Record<QuickKind, { label: string; icon: string }> = 
   weather: { label: 'Changer la météo', icon: '🌦' },
 };
 
-export const GAME_ACTIONS: ActionType[] = ['coffee', 'eat_bakery', 'eat_cafe', 'eat_restaurant', 'shop_groceries', 'relax_park', 'read_library', 'workout', 'stroll', 'rest_home', 'stay_home'];
+export const GAME_ACTIONS: ActionType[] = ['school', 'work', 'coffee', 'eat_bakery', 'eat_cafe', 'eat_restaurant', 'shop_groceries', 'relax_park', 'read_library', 'workout', 'stroll', 'rest_home', 'stay_home'];
 export const GAME_PLACES = LOCATIONS.filter((l) => l.kind !== 'bus_stop');
 
 export interface GestureDraft {
@@ -125,6 +125,9 @@ export function quickGestures(played: Reality, agentId: AgentId, now: Minute): {
   const target = focus.targets.find((x) => x !== agentId) ?? profileOf(agentId).relationships[0]?.to ?? agentId;
   const place = focus.places[0] ?? 'cafe';
   const buses = busOptions(played, agentId, now, 1);
+  // « Imposer une décision » defaults to going where the quest happens (school or work when it is the workplace).
+  const p = profileOf(agentId);
+  const goalAction: ActionType = place === p.workplaceId ? (place === 'school' && p.age < 20 ? 'school' : 'work') : 'stroll';
   const kinds: QuickKind[] = [];
   if (buses[0]?.mine) kinds.push('bus_delay');
   if (focus.targets.length) kinds.push('encounter');
@@ -138,11 +141,11 @@ export function quickGestures(played: Reality, agentId: AgentId, now: Minute): {
     t,
     agentId: kind === 'stay_home' && target !== agentId && focus.targets.length ? target : agentId,
     agentB: target === agentId ? (profileOf(agentId).relationships.find((r) => r.to !== agentId)?.to ?? agentId) : target,
-    locationId: kind === 'location_hours' ? (GAME_PLACES.some((p) => p.id === place) ? place : 'cafe') : place,
+    locationId: kind === 'location_hours' ? (GAME_PLACES.some((l) => l.id === place) ? place : 'cafe') : place,
     minutes: 5,
     until: Math.min(DAY_END, t + 60),
     closes: Math.min(DAY_END, Math.max(t + 1, Math.ceil(t / 60) * 60)),
-    action: 'coffee',
+    action: goalAction,
     condition: 'rain',
     arrivalId: buses[0]?.event.id ?? '',
   });

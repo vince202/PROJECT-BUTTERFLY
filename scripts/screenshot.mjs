@@ -107,13 +107,14 @@ async function dramaShots() {
   await act('setPanel', null);
 }
 
-// Player mode (screenshots/game/): start screen → follow Léa → a gesture → bubbles →
-// midnight summary → rewind → loop 2 with the notebook → a failing loop.
+// Player mode (screenshots/game/): start screen → follow Léa → a gesture at 08:40 → bubbles →
+// midnight summary → rewind → loop 2 with the notebook → a winning gesture → victory summary.
 async function gameShots() {
   const dir = `${outDir}/game`;
   mkdirSync(dir, { recursive: true });
   const clickButton = (text, sel = 'button') => page.evaluate(([t, q]) => { const b = [...document.querySelectorAll(q)].find((x) => x.textContent.includes(t)); b?.click(); return !!b; }, [text, sel]);
-  const gshot = async (name, wait = 900) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${dir}/${name}.png` }); console.log('shot game/' + name); };
+  // Software WebGL renders ~1 frame per second here: a full-page capture can take more than 30 s.
+  const gshot = async (name, wait = 900) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${dir}/${name}.png`, timeout: 180000 }); console.log('shot game/' + name); };
   const ui = (fn, arg) => page.evaluate(([f, a]) => window.__butterflyGameUi.getState()[f](a), [fn, arg]);
   const state = () => page.evaluate(() => { const s = window.__butterfly.getState(); return { time: s.time, phase: s.game?.phase, loop: s.game?.loop, active: s.activeRealityId, b: s.realityB?.def.interventions.length ?? 0 }; });
   // Play at ×60 until the clock reaches `t` (software WebGL is slow: wait on the store, not on wall time).
@@ -155,31 +156,33 @@ async function gameShots() {
   await gshot('05b-refusal', 700);
   await page.keyboard.press('Escape');
 
-  // Bubbles: play across the first quest alerts after 09:00 in the loop (reality B).
-  const al = await page.evaluate(() => {
-    const s = window.__butterfly.getState();
-    const r = s.activeReality();
-    return r.events.filter((e) => e.t >= 9 * 60 && e.gravity >= 1 && e.actors.length).slice(0, 12).map((e) => ({ t: e.t, g: e.gravity, type: e.type, label: e.label }));
-  });
-  console.log('events after 09:00', al.slice(0, 6));
-  await act('seek', 9 * 60 + 18);
-  await hold(false);
-  await page.evaluate(() => {
-    // Hold as soon as three alerts are on screen.
-    window.__holdTimer = setInterval(() => { const g = window.__butterflyGameUi.getState(); if (g.alerts.length >= 3 && !g.held) g.setHeld(true); }, 50);
-  });
-  await playTo(9 * 60 + 50);
-  await page.evaluate(() => clearInterval(window.__holdTimer));
+  // Bubbles: hold the live alerts as soon as `n` are on screen (a slow capture still shows them).
+  const holdWhen = (n) => page.evaluate((k) => {
+    clearInterval(window.__holdTimer);
+    window.__holdTimer = setInterval(() => { const g = window.__butterflyGameUi.getState(); if (g.alerts.length >= k && !g.held) g.setHeld(true); }, 50);
+  }, n);
+  const alertsOnScreen = () => page.evaluate(() => window.__butterflyGameUi.getState().alerts.map((a) => `${a.alert.event.t} g${a.alert.gravity} ${a.alert.link} ${a.alert.event.label}`));
+  await holdWhen(3);
+  await playTo(8 * 60 + 43);
   await hold(true);
-  console.log('alerts on screen', await page.evaluate(() => window.__butterflyGameUi.getState().alerts.map((a) => `${a.alert.event.t} g${a.alert.gravity} ${a.alert.link} ${a.alert.event.label}`)));
-  await gshot('06-bubbles', 600);
+  console.log('alerts 08:41', await alertsOnScreen());
+  await gshot('06-bubbles-0841', 600);
+  await hold(false);
+  await act('seek', 9 * 60 + 40);
+  await holdWhen(2);
+  await playTo(9 * 60 + 48);
+  await hold(true);
+  console.log('alerts 09:46', await alertsOnScreen());
+  await gshot('06b-bubbles-0946', 600);
+  await page.evaluate(() => clearInterval(window.__holdTimer));
   await hold(false);
 
   // Planning with reality A: markers on the scrub bar (click = pinned label), then the A view.
   await page.evaluate(() => { const m = [...document.querySelectorAll('.scrub-marker')].find((x) => !x.classList.contains('past')); m?.click(); });
   await gshot('07-scrub-markers', 600);
   await page.evaluate(() => { const m = document.querySelector('.scrub-marker.past'); m?.click(); });
-  await page.screenshot({ path: `${dir}/07b-scrub-past.png`, clip: { x: 400, y: 950 - 220, width: 800, height: 220 } }); console.log('shot game/07b-scrub-past');
+  await page.screenshot({ path: `${dir}/07b-scrub-past.png`, clip: { x: 400, y: 950 - 220, width: 800, height: 220 }, timeout: 180000 }); console.log('shot game/07b-scrub-past');
+  await page.evaluate(() => { const m = document.querySelector('.scrub-marker.past'); m?.click(); });
   await clickButton('Voir la journée', 'label');
   await gshot('08-view-A', 900);
   await page.evaluate(() => window.__butterfly.getState().switchReality('B'));
@@ -193,24 +196,37 @@ async function gameShots() {
 
   // Rewind (the clock spins back to 06:00), then loop 2 with the notebook open.
   await clickButton('Rejouer');
-  await page.waitForTimeout(500);
-  await page.screenshot({ path: `${dir}/10-rewind.png` }); console.log('shot game/10-rewind');
-  await page.waitForFunction(() => !window.__butterflyGameUi.getState().rewinding, null, { timeout: 30000 }).catch(() => console.log('rewind did not finish'));
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${dir}/10-rewind.png`, timeout: 180000 }); console.log('shot game/10-rewind');
+  await page.waitForFunction(() => !window.__butterflyGameUi.getState().rewinding, null, { timeout: 120000 }).catch(() => console.log('rewind did not finish'));
   console.log('loop 2', await state());
-  await act('seek', 7 * 60 + 10);
+  await act('seek', 7 * 60 + 20);
   await page.keyboard.press('n');
   await gshot('11-loop2-notebook', 1200);
   await page.keyboard.press('Escape');
 
-  // A failing loop: keep Léa home until 10:00, then midnight → the non-victory summary.
-  await page.evaluate(() => window.__butterfly.getState().applyGesture({ id: 'game_fail', kind: 'stay_home', agentId: 'lea', t: 7 * 60 + 11, until: 10 * 60, description: 'Léa reste à la maison de 07:11 à 10:00' }));
+  // Loop 2: the quick « Imposer une décision » (defaults: Léa goes to school now) saves the quest.
+  await page.keyboard.press('g');
+  await page.waitForTimeout(600);
+  await clickButton('Imposer une décision', '.composer-kind');
+  await gshot('12-composer-quick', 800);
+  await clickButton('Appliquer ce geste');
+  await page.waitForTimeout(1500);
+  console.log('loop 2 gesture', await state(), await page.evaluate(() => { const s = window.__butterfly.getState(); return s.realityB?.def.interventions.map((i) => i.description); }));
+  await holdWhen(1);
+  await playTo(7 * 60 + 45);
+  await hold(true);
+  console.log('alerts loop 2', await alertsOnScreen());
+  await gshot('13-loop2-success-bubble', 600);
+  await page.evaluate(() => clearInterval(window.__holdTimer));
+  await hold(false);
   await act('seek', 23 * 60 + 59);
   await playTo(24 * 60);
   await page.waitForFunction(() => window.__butterfly.getState().game?.phase !== 'playing', null, { timeout: 60000 }).catch(() => console.log('loop 2 did not close'));
   console.log('loop 2 closed', await state());
-  await gshot('12-bilan-failed', 1200);
-  await clickButton('Changer de personnage');
-  await gshot('13-back-to-start', 1200);
+  await gshot('14-bilan-won', 1500);
+  await clickButton('Choisir une autre quête');
+  await gshot('15-back-to-start', 1200);
 }
 
 if (gameOnly) {

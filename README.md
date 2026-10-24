@@ -183,6 +183,20 @@ Chaque habitant vit chaque jour **une histoire** : un **désir** (ce qu'il veut 
 - **Les histoires s'enchaînent d'un jour à l'autre.** Après « Jour suivant », un habitant dont l'histoire a été accomplie ou bouleversée passe à la suivante ; celui qui a échoué **retente** la même histoire avec des enjeux plus élevés (jusqu'à trois tentatives), et ce qui a été appris des secrets est conservé.
 - **Dans le rapport.** La section « Arcs du jour — ce que chacun voulait » résume les vingt histoires, « Confidences, rumeurs et dilemmes » liste les secrets qui ont circulé, et chaque fiche d'habitant raconte son histoire. L'assistant de questions répond à « Quelle était l'histoire de Noé ? ». Dans la comparaison A/B, la ligne **« Destins modifiés »** indique les histoires dont l'issue diffère entre les deux réalités (par exemple « Antoine — « Tenir l'horaire » : accompli en A, échoué en B »).
 
+## Incidents du monde : accidents, incendies, vols, ruptures…
+
+La palette des faits ne se limite plus à travailler, manger, dormir et prendre le bus. Sept incidents ont de vraies mécaniques dans le moteur, utilisables comme gestes du joueur, comme coups du sort ou, demain, choisis par Jev :
+
+- **Accident** : l'habitant est conduit à la clinique et y reste le temps indiqué ; ses rendez-vous se manquent, ses proches l'apprennent (humeur, souvenir).
+- **Incendie** : le lieu est évacué dans la panique et fermé pour la journée ; quiconque y avait rendez-vous trouve porte close.
+- **Vol** : portefeuille et argent disparaissent ; une course « Déclarer le vol à la mairie » s'ajoute à la journée.
+- **Rupture** : les partenaires deviennent des ex, les rendez-vous partagés sont annulés, l'humeur s'effondre.
+- **Renvoi** : la journée de travail est annulée, le lien avec le patron se dégrade, les proches l'apprennent.
+- **Promotion** : argent, moral et lien avec le patron remontent.
+- **Malaise** : retour forcé à la maison pour se reposer.
+
+Chaque incident est un événement causal (gravité 2 ou 3) avec ses effets d'état explicites, visible dans la frise et dans « Événements inattendus ». L'interprète par règles les comprend : « Et si Paul avait un accident à 10 h ? », « Et si un incendie se déclarait à la boulangerie à 11 h ? », « Et si Chloé et Antoine se séparaient ? », « Et si Alice était renvoyée ? ».
+
 ## Interventions comprises sans LLM
 
 L'interprète par règles reconnaît notamment :

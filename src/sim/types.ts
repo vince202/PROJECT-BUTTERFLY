@@ -492,6 +492,13 @@ export type EventType =
   | 'gossip'
   | 'dilemma'
   | 'incident'
+  | 'accident'
+  | 'fire'
+  | 'theft'
+  | 'breakup'
+  | 'dismissal'
+  | 'promotion'
+  | 'illness'
   | 'day_end';
 
 export interface StateChange {
@@ -622,6 +629,60 @@ export type Intervention =
       t: Minute;
       /** Only 'wallet' is modelled today. */
       item: 'wallet';
+      description: string;
+    }
+  | {
+      id: string;
+      kind: 'accident';
+      agentId: AgentId;
+      t: Minute;
+      /** Minutes spent at the clinic. */
+      minutes: Minute;
+      description: string;
+    }
+  | {
+      id: string;
+      kind: 'fire';
+      locationId: LocationId;
+      t: Minute;
+      description: string;
+    }
+  | {
+      id: string;
+      kind: 'theft';
+      agentId: AgentId;
+      t: Minute;
+      description: string;
+    }
+  | {
+      id: string;
+      kind: 'breakup';
+      agentA: AgentId;
+      agentB: AgentId;
+      t: Minute;
+      description: string;
+    }
+  | {
+      id: string;
+      kind: 'dismissal';
+      agentId: AgentId;
+      t: Minute;
+      description: string;
+    }
+  | {
+      id: string;
+      kind: 'promotion';
+      agentId: AgentId;
+      t: Minute;
+      description: string;
+    }
+  | {
+      id: string;
+      kind: 'illness';
+      agentId: AgentId;
+      t: Minute;
+      /** Minutes of rest at home. */
+      minutes: Minute;
       description: string;
     };
 

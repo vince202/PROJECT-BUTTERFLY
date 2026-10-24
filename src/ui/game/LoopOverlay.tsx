@@ -17,6 +17,7 @@ import { OUTCOME_MARKS } from './gestures';
 
 /** Duration of the rewind (ms). */
 const REWIND_MS = 1600;
+const REWIND_FRAMES = 24;
 
 export function LoopOverlay({ game }: { game: GameState }) {
   const hidden = useGameUi((s) => s.bilanHidden);
@@ -38,8 +39,10 @@ export function rewindAndRestart() {
   if (prefersReducedMotion()) return finish();
   const from = Math.max(DAY_START, Math.min(DAY_END, useSimStore.getState().time));
   const t0 = performance.now();
+  let frames = 0;
   const step = (now: number) => {
-    const k = Math.min(1, (now - t0) / REWIND_MS);
+    // At least REWIND_FRAMES frames, so that the spin stays visible on a slow machine.
+    const k = Math.min(1, (now - t0) / REWIND_MS, ++frames / REWIND_FRAMES);
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
     // The loop is closed: seeking backwards is allowed until the next loop starts.
     useSimStore.getState().seek(from - (from - DAY_START) * e);

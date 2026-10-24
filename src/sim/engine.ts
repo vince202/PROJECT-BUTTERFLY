@@ -84,9 +84,25 @@ const GRAVITY: Partial<Record<EventType, Gravity>> = {
   new_commitment: 1,
   commitment_cancelled: 1,
   mood_shift: 1,
+  accident: 3,
+  fire: 3,
+  theft: 2,
+  breakup: 3,
+  dismissal: 3,
+  promotion: 2,
+  illness: 2,
+  incident: 1,
 };
 
 const IMPORTANCE: Partial<Record<EventType, number>> = {
+  accident: 0.95,
+  fire: 0.95,
+  theft: 0.8,
+  breakup: 0.95,
+  dismissal: 0.9,
+  promotion: 0.8,
+  illness: 0.75,
+  incident: 0.65,
   arc_beat: 0.55,
   arc_resolved: 0.85,
   revelation: 0.8,
@@ -648,7 +664,142 @@ export class Engine {
           this.addWalletErrand(a, lose.id);
           break;
         }
+        case 'accident': {
+          const a = this.state.agents[iv.agentId];
+          if (!a) break;
+          const where = a.locationId ? this.locName(a.locationId) : 'dans la rue';
+          if (a.travel && a.travel.stage !== 'riding') this.cancelTravel(a);
+          if (a.activity) this.endActivity(a, root.id, 'accident');
+          const ev = this.emit({ type: 'accident', actors: [a.id], locationId: 'clinic', label: `${this.name(a.id)} a un accident ${a.locationId ? `à ${where}` : where} et est conduit à la clinique`, causes: [root.id], mechanism: tag ? 'Accident imposé par l’intervention' : 'Accident', interventionId: tag, effects: this.mood(a, -0.4, 0.4), sig: a.id });
+          this.moveTo(a, 'clinic');
+          a.heldUntil = t + iv.minutes;
+          a.needs.fatigue = Math.min(100, a.needs.fatigue + 25);
+          a.activity = { action: 'wait', label: 'Soigné à la clinique', locationId: 'clinic', since: t, until: t + iv.minutes, startEventId: ev.id, interruptible: false };
+          a.plan = null;
+          this.remember(a, ev, `Accident : ${iv.minutes} min à la clinique`, 0.9, -0.8);
+          this.notifyClose(a.id, ev, `${this.name(a.id)} a eu un accident`, -0.25, 0.25);
+          break;
+        }
+        case 'fire': {
+          const ls = this.state.locations[iv.locationId];
+          if (!ls) break;
+          const def = this.city.location(iv.locationId);
+          const ev = this.emit({ type: 'fire', actors: [], locationId: iv.locationId, label: `Un incendie se déclare à ${def.name} : le lieu est évacué et fermé pour la journée`, causes: [root.id], mechanism: tag ? 'Incendie imposé par l’intervention' : 'Incendie', interventionId: tag, sig: iv.locationId });
+          ls.closedEarlyAt = t;
+          ls.closedEarlyEventId = ev.id;
+          ls.closes = t;
+          for (const o of Object.values(this.state.agents)) {
+            if (o.locationId !== iv.locationId || o.asleep) continue;
+            ev.effects.push(...this.mood(o, -0.2, 0.35));
+            this.remember(o, ev, `Incendie à ${def.name} : évacuation dans la panique`, 0.85, -0.7);
+            this.influence(o, ev, `Incendie à ${def.name}`);
+            o.heldUntil = undefined;
+            const c = o.activity?.commitmentId ? o.commitments.find((x) => x.id === o.activity!.commitmentId) : undefined;
+            if (c && (c.kind === 'work' || c.kind === 'shift' || c.kind === 'school') && c.status === 'ongoing') c.status = 'done';
+            if (o.activity) this.endActivity(o, ev.id, 'évacuation');
+            else if (!o.travel) this.decide(o, ev.id);
+          }
+          for (const o of Object.values(this.state.agents)) {
+            for (const c of o.commitments) if (c.locationId === iv.locationId && c.status === 'pending' && c.start >= t) this.failCommitment(o, c.id, ev.id, 'le lieu a brûlé');
+          }
+          break;
+        }
+        case 'theft': {
+          const a = this.state.agents[iv.agentId];
+          if (!a || !a.inventory.includes('wallet')) break;
+          const taken = Math.min(a.money, 40);
+          a.inventory = a.inventory.filter((i) => i !== 'wallet');
+          a.money -= taken;
+          const ev = this.emit({ type: 'theft', actors: [a.id], locationId: a.locationId ?? undefined, label: `${this.name(a.id)} se fait voler son portefeuille${a.locationId ? ` à ${this.locName(a.locationId)}` : ' dans la rue'}`, causes: [root.id], mechanism: tag ? 'Vol imposé par l’intervention' : 'Vol', interventionId: tag, effects: [{ kind: 'money', agentId: a.id, delta: -taken }, { kind: 'inventory', agentId: a.id, value: 'wallet', delta: -1 }, ...this.mood(a, -0.3, 0.3)], sig: a.id });
+          this.remember(a, ev, `Portefeuille volé (${taken} €)`, 0.85, -0.8);
+          this.influence(a, ev, 'Portefeuille volé');
+          const c: Commitment = { id: `theft_${a.id}`, kind: 'errand', label: 'Déclarer le vol à la mairie', locationId: 'townhall', start: t + 20, end: Math.min(DAY_END - 1, t + 150), with: [], tolerance: 120, status: 'pending' };
+          a.commitments.push(c);
+          this.emit({ type: 'new_commitment', actors: [a.id], locationId: 'townhall', label: `${this.name(a.id)} veut déclarer le vol à la mairie`, causes: [ev.id], data: { commitmentId: c.id }, sig: c.id });
+          break;
+        }
+        case 'breakup': {
+          const a = this.state.agents[iv.agentA];
+          const b = this.state.agents[iv.agentB];
+          if (!a || !b) break;
+          const effects: StateChange[] = [];
+          for (const [x, y] of [[a, b], [b, a]] as [AgentState, AgentState][]) {
+            const r = x.relationships[y.id] ?? { to: y.id, kind: 'acquaintance', affinity: 0 };
+            r.kind = 'ex';
+            r.affinity = Math.max(-1, r.affinity - 0.6);
+            r.lastInteraction = t;
+            x.relationships[y.id] = r;
+            effects.push({ kind: 'relationship', agentId: x.id, otherId: y.id, delta: -0.6 }, ...this.mood(x, -0.5, 0.35));
+            for (const c of x.commitments) if (c.status === 'pending' && c.with.includes(y.id)) c.status = 'cancelled';
+          }
+          const ev = this.emit({ type: 'breakup', actors: [a.id, b.id], locationId: a.locationId ?? undefined, label: `${this.name(a.id)} et ${this.name(b.id)} se séparent`, causes: [root.id], mechanism: tag ? 'Rupture imposée par l’intervention' : 'Rupture', interventionId: tag, effects, sig: `${a.id}+${b.id}` });
+          this.remember(a, ev, `Rupture avec ${this.name(b.id)}`, 0.95, -0.9, [b.id]);
+          this.remember(b, ev, `Rupture avec ${this.name(a.id)}`, 0.95, -0.9, [a.id]);
+          this.influence(a, ev, 'Rupture');
+          this.influence(b, ev, 'Rupture');
+          break;
+        }
+        case 'dismissal': {
+          const a = this.state.agents[iv.agentId];
+          if (!a) break;
+          const p = this.profiles.get(a.id)!;
+          const work = a.commitments.find((c) => (c.kind === 'work' || c.kind === 'shift') && c.status !== 'done' && c.status !== 'missed');
+          const ev = this.emit({ type: 'dismissal', actors: [a.id], locationId: p.workplaceId, label: `${p.firstName} est renvoyé${p.workplaceId ? ` de ${this.locName(p.workplaceId)}` : ''}`, causes: [root.id], mechanism: tag ? 'Renvoi imposé par l’intervention' : 'Renvoi', interventionId: tag, effects: this.mood(a, -0.5, 0.45), sig: a.id });
+          if (work) work.status = 'cancelled';
+          for (const [other, r] of Object.entries(a.relationships)) if (r.kind === 'boss') ev.effects.push(this.adjustRelationship(a, other, -0.35));
+          this.remember(a, ev, 'Renvoyé. Que faire maintenant ?', 0.95, -0.9);
+          this.influence(a, ev, 'Renvoyé');
+          if (a.activity && (a.activity.action === 'work' || a.activity.action === 'school')) this.endActivity(a, ev.id, 'renvoyé');
+          this.notifyClose(a.id, ev, `${p.firstName} a été renvoyé`, -0.1, 0.1);
+          break;
+        }
+        case 'promotion': {
+          const a = this.state.agents[iv.agentId];
+          if (!a) break;
+          const p = this.profiles.get(a.id)!;
+          a.money += 100;
+          const ev = this.emit({ type: 'promotion', actors: [a.id], locationId: a.locationId ?? undefined, label: `${p.firstName} reçoit une promotion`, causes: [root.id], mechanism: tag ? 'Promotion imposée par l’intervention' : 'Promotion', interventionId: tag, effects: [{ kind: 'money', agentId: a.id, delta: 100 }, ...this.mood(a, 0.45, -0.2)], sig: a.id });
+          for (const [other, r] of Object.entries(a.relationships)) if (r.kind === 'boss') ev.effects.push(this.adjustRelationship(a, other, 0.2));
+          this.remember(a, ev, 'Promu ! Une grande nouvelle', 0.9, 0.9);
+          this.influence(a, ev, 'Promotion');
+          this.notifyClose(a.id, ev, `${p.firstName} a été promu`, 0.1, -0.05);
+          break;
+        }
+        case 'illness': {
+          const a = this.state.agents[iv.agentId];
+          if (!a) break;
+          const p = this.profiles.get(a.id)!;
+          const ev = this.emit({ type: 'illness', actors: [a.id], locationId: a.locationId ?? undefined, label: `${p.firstName} fait un malaise et doit rentrer se reposer`, causes: [root.id], mechanism: tag ? 'Malaise imposé par l’intervention' : 'Malaise (épuisement)', interventionId: tag, effects: this.mood(a, -0.25, 0.2), sig: a.id });
+          a.needs.fatigue = Math.min(100, a.needs.fatigue + 40);
+          a.confinedUntil = Math.max(a.confinedUntil ?? 0, t + iv.minutes);
+          this.remember(a, ev, 'Malaise : obligé de rentrer', 0.8, -0.6);
+          this.influence(a, ev, 'Malaise');
+          if (a.travel && a.travel.stage !== 'riding') this.cancelTravel(a);
+          if (a.activity) this.endActivity(a, ev.id, 'malaise');
+          else if (!a.travel) this.decide(a, ev.id);
+          break;
+        }
       }
+    }
+  }
+
+  /** Put an agent at a location immediately (ambulance, evacuation): used by incidents only. */
+  private moveTo(a: AgentState, loc: LocationId) {
+    if (a.travel) a.travel = null;
+    a.locationId = loc;
+    a.pos = this.city.insidePos(loc, this.slotFor(loc) - 1);
+    this.state.locations[loc].visitsToday += 1;
+  }
+
+  /** Family, partners and close friends learn big news at once (phone call), with a memory and a mood shift. */
+  private notifyClose(agentId: AgentId, ev: SimEvent, text: string, dMood: number, dStress: number) {
+    for (const o of Object.values(this.state.agents)) {
+      if (o.id === agentId) continue;
+      const r = o.relationships[agentId];
+      if (!r || !(r.kind === 'family' || r.kind === 'partner' || (r.kind === 'friend' && r.affinity >= 0.6))) continue;
+      ev.effects.push(...this.mood(o, dMood, dStress));
+      this.remember(o, ev, text, 0.75, dMood < 0 ? -0.6 : 0.5, [agentId]);
+      this.influence(o, ev, text);
     }
   }
 
