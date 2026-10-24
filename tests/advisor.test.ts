@@ -41,3 +41,30 @@ describe('Politique de décision conseillée (DecisionPolicy + cache oracle)', (
     }
   });
 });
+
+describe('Rôle « antagoniste » (dramaturge de la journée qui se répète)', () => {
+  it('le conseiller simulé, en antagoniste, choisit l’option plausible qui sert le moins le désir du jour', async () => {
+    const { MockAdvisor } = await import('../src/sim/advisor');
+    const req = {
+      key: 'k', agentId: 'ines', name: 'Inès', t: 900, time: '15:00', occupation: '', traits: '', needs: 'fatigue 10', mood: '', goals: [], location: 'Bibliothèque', recentMemories: [], influences: [], role: 'antagonist' as const, situation: 's',
+      candidates: [
+        { choice: 'coffee:cafe', label: 'Prendre un café', score: 0.9, components: [{ label: 'Désir du jour : revoir Hugo', value: 0.3 }, { label: 'Envie de compagnie', value: 0.6 }] },
+        { choice: 'read_library:library', label: 'Lire', score: 0.7, components: [{ label: 'Curiosité', value: 0.7 }] },
+        { choice: 'rest_home:res_parc', label: 'Se reposer', score: 0.2, components: [{ label: 'Fatigue', value: 0.2 }] },
+      ],
+      baseline: 'coffee:cafe',
+    };
+    const [a] = await new MockAdvisor().advise([req]);
+    expect(a.choice).toBe('read_library:library'); // plausible (within 0.4 of the best) and without the desire component
+    expect(a.reason).toContain('dramaturge');
+    const [b] = await new MockAdvisor().advise([{ ...req, role: 'character' as const }]);
+    expect(b.reason).not.toContain('dramaturge');
+  });
+
+  it('AdvisedPolicy transmet le rôle dans ses demandes', () => {
+    const policy = new AdvisedPolicy(new Map(), { role: 'antagonist' });
+    new Reality({ id: 'A', name: 'A', seed: 51, interventions: [], policy }).generate();
+    expect(policy.pending.size).toBeGreaterThan(0);
+    for (const r of policy.pending.values()) expect(r.role).toBe('antagonist');
+  });
+});

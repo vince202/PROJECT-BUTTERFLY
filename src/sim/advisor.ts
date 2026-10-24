@@ -17,7 +17,7 @@ import { UtilityPolicy, type DecisionContext, type DecisionOutcome, type Decisio
 import { profileOf } from './population';
 import { Reality, type RealityDef } from './reality';
 import { fmtTime } from './time';
-import { ARC_STATUS_LABELS, arcDeadline, arcOf, arcSeed } from './drama';
+import { ARC_STATUS_LABELS, DESIRE_LABEL, arcDeadline, arcOf, arcSeed } from './drama';
 import { presentNames, recallMemories, situationQuery, type Embedder } from './recall';
 import type { AgentId, AgentProfile, AgentState, Candidate, Memory, Minute } from './types';
 
@@ -49,6 +49,8 @@ export interface AdviceRequest {
   stakes?: string;
   /** One-line description of the situation (query for memory recall). */
   situation: string;
+  /** Who the advisor plays: the inhabitant's free will, or the dramaturge keeping the day's stories unresolved. */
+  role: AdvisorRole;
   /** Memories ranked by relevance to the situation (filled by the recall step). */
   relevantMemories?: string[];
   /** Precedents from the persistent brain: what happened in similar situations before (filled server-side). */
@@ -77,6 +79,8 @@ export interface DecisionAdvisor {
 export interface AdvisedPolicyOptions {
   /** Maximum score gap between the two best options for the advisor to be consulted. */
   margin?: number;
+  /** 'character' (default) or 'antagonist' (dramaturge of the repeating day). */
+  role?: AdvisorRole;
 }
 
 function choiceOf(c: Candidate): string {
@@ -92,7 +96,7 @@ function hashString(s: string): string {
   return (h >>> 0).toString(36);
 }
 
-function describeAgent(agent: AgentState, profile: AgentProfile, ctx: DecisionContext): Omit<AdviceRequest, 'key' | 'candidates' | 'baseline'> {
+function describeAgent(agent: AgentState, profile: AgentProfile, ctx: DecisionContext): Omit<AdviceRequest, 'key' | 'candidates' | 'baseline' | 'role'> {
   const tr = profile.traits;
   const top = (Object.entries(tr) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${Math.round(v * 100)}%`);
   const low = (Object.entries(tr) as [string, number][]).sort((a, b) => a[1] - b[1]).slice(0, 2).map(([k, v]) => `${k} ${Math.round(v * 100)}%`);
@@ -126,8 +130,12 @@ function describeStakes(agent: AgentState, ctx: DecisionContext): string | undef
   return `« ${seed.title} » — ${seed.desire} ${seed.tension} État : ${state}.${secret}`;
 }
 
+export type AdvisorRole = 'character' | 'antagonist';
+
 /** Decision policy that defers open choices to an advisor through a replayable cache. */
 export class AdvisedPolicy implements DecisionPolicy {
+  /** Role requested from the advisor (the dramaturge « antagonist » keeps arcs unresolved while staying plausible). */
+  role: AdvisorRole;
   readonly name = 'advised-v1';
   readonly cache: Map<string, AdviceAnswer>;
   readonly pending = new Map<string, AdviceRequest>();
@@ -141,6 +149,7 @@ export class AdvisedPolicy implements DecisionPolicy {
   constructor(cache: Map<string, AdviceAnswer> = new Map(), opts: AdvisedPolicyOptions = {}) {
     this.cache = cache;
     this.margin = opts.margin ?? 0.25;
+    this.role = opts.role ?? 'character';
   }
 
   decide(agent: AgentState, profile: AgentProfile, ctx: DecisionContext): DecisionOutcome {
@@ -172,6 +181,7 @@ export class AdvisedPolicy implements DecisionPolicy {
       this.pending.set(key, {
         key,
         ...describeAgent(agent, profile, ctx),
+        role: this.role,
         candidates: options.map((c) => ({ choice: choiceOf(c), label: c.label, score: Number(c.score.toFixed(2)), components: c.components.filter((x) => Math.abs(x.value) >= 0.05).map((x) => ({ label: x.label, value: Number(x.value.toFixed(2)) })) })),
         baseline: choiceOf(base.chosen),
       });
@@ -269,6 +279,14 @@ export class MockAdvisor implements DecisionAdvisor {
   async advise(requests: AdviceRequest[]): Promise<AdviceAnswer[]> {
     return requests.map((r) => {
       const p = profileOf(r.agentId);
+      if (r.role === 'antagonist') {
+        // The dramaturge: among plausible options (close to the best score), take the one that serves the desire least.
+        const best = Math.max(...r.candidates.map((c) => c.score));
+        const plausible = r.candidates.filter((c) => best - c.score <= 0.4);
+        const desireOf = (c: AdviceCandidate) => c.components.filter((x) => x.label.startsWith(DESIRE_LABEL)).reduce((s, x) => s + x.value, 0);
+        const pick = [...plausible].sort((a, b) => desireOf(a) - desireOf(b) || b.score - a.score)[0] ?? r.candidates[0];
+        return { key: r.key, choice: pick.choice, reason: desireOf(pick) < desireOf(r.candidates.find((c) => c.choice === r.baseline) ?? pick) ? 'le dramaturge détourne l’habitant de son désir' : 'rien de plausible ne contrarie l’histoire ici' };
+      }
       const prefer = (pred: (c: AdviceCandidate) => boolean) => r.candidates.find(pred);
       let pick: AdviceCandidate | undefined;
       let reason = '';

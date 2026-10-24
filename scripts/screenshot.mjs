@@ -1,11 +1,14 @@
 // Visual smoke test of the full demonstration flow: starts the Vite dev server,
 // drives the app through the store in headless Chromium and saves screenshots.
-// Usage: node scripts/screenshot.mjs [outDir] [--drama]   (--drama: only the dramaturgy views, under <outDir>/drama/)
+// Usage: node scripts/screenshot.mjs [outDir] [--drama] [--game]
+//   --drama: only the dramaturgy views, under <outDir>/drama/
+//   --game:  only the player mode (time loop), under <outDir>/game/
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 const dramaOnly = process.argv.includes('--drama');
+const gameOnly = process.argv.includes('--game');
 const outDir = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'screenshots';
 mkdirSync(outDir, { recursive: true });
 const port = 5177;
@@ -102,6 +105,119 @@ async function dramaShots() {
     await act('pause'); await act('setUiMode', 'lab'); await act('setSpeed', 20);
   }
   await act('setPanel', null);
+}
+
+// Player mode (screenshots/game/): start screen → follow Léa → a gesture → bubbles →
+// midnight summary → rewind → loop 2 with the notebook → a failing loop.
+async function gameShots() {
+  const dir = `${outDir}/game`;
+  mkdirSync(dir, { recursive: true });
+  const clickButton = (text, sel = 'button') => page.evaluate(([t, q]) => { const b = [...document.querySelectorAll(q)].find((x) => x.textContent.includes(t)); b?.click(); return !!b; }, [text, sel]);
+  const gshot = async (name, wait = 900) => { await page.waitForTimeout(wait); await page.screenshot({ path: `${dir}/${name}.png` }); console.log('shot game/' + name); };
+  const ui = (fn, arg) => page.evaluate(([f, a]) => window.__butterflyGameUi.getState()[f](a), [fn, arg]);
+  const state = () => page.evaluate(() => { const s = window.__butterfly.getState(); return { time: s.time, phase: s.game?.phase, loop: s.game?.loop, active: s.activeRealityId, b: s.realityB?.def.interventions.length ?? 0 }; });
+  // Play at ×60 until the clock reaches `t` (software WebGL is slow: wait on the store, not on wall time).
+  const playTo = async (t) => {
+    await act('setSpeed', 60); await act('play');
+    await page.waitForFunction((x) => window.__butterfly.getState().time >= x || !window.__butterfly.getState().playing, t, { timeout: 180000 }).catch(() => console.log('playTo timeout', t));
+    await act('pause');
+  };
+  // Hold the live alerts (as hovering the feed does) so that a slow capture still shows them.
+  const hold = (v) => ui('setHeld', v);
+
+  await act('setUiMode', 'spectator');
+  await gshot('01-start-screen', 1500);
+  await clickButton('Léa', '.quest-card');
+  await page.waitForTimeout(1500);
+  console.log('game', await state());
+  await gshot('02-hud-loop1', 1200);
+
+  // Forward only: jump to 08:34, then play to 08:40.
+  await act('seek', 8 * 60 + 34);
+  await playTo(8 * 60 + 40);
+  await gshot('03-0840', 600);
+
+  // Composer: a French sentence, interpreted locally at the current minute.
+  await page.keyboard.press('g');
+  await page.waitForTimeout(600);
+  await page.fill('.composer-input', 'Et si le bus avait trois minutes de retard ?');
+  await page.press('.composer-input', 'Enter');
+  await gshot('04-composer', 800);
+  await clickButton('Appliquer ce geste');
+  await page.waitForTimeout(1500);
+  console.log('after gesture', await state());
+  await gshot('05-gesture-applied', 400);
+  // The same sentence again: refused inline (already in place in this loop).
+  await page.keyboard.press('g');
+  await page.waitForTimeout(600);
+  await page.fill('.composer-input', 'Et si le bus avait trois minutes de retard ?');
+  await page.press('.composer-input', 'Enter');
+  await gshot('05b-refusal', 700);
+  await page.keyboard.press('Escape');
+
+  // Bubbles: play across the first quest alerts after 09:00 in the loop (reality B).
+  const al = await page.evaluate(() => {
+    const s = window.__butterfly.getState();
+    const r = s.activeReality();
+    return r.events.filter((e) => e.t >= 9 * 60 && e.gravity >= 1 && e.actors.length).slice(0, 12).map((e) => ({ t: e.t, g: e.gravity, type: e.type, label: e.label }));
+  });
+  console.log('events after 09:00', al.slice(0, 6));
+  await act('seek', 9 * 60 + 18);
+  await hold(false);
+  await page.evaluate(() => {
+    // Hold as soon as three alerts are on screen.
+    window.__holdTimer = setInterval(() => { const g = window.__butterflyGameUi.getState(); if (g.alerts.length >= 3 && !g.held) g.setHeld(true); }, 50);
+  });
+  await playTo(9 * 60 + 50);
+  await page.evaluate(() => clearInterval(window.__holdTimer));
+  await hold(true);
+  console.log('alerts on screen', await page.evaluate(() => window.__butterflyGameUi.getState().alerts.map((a) => `${a.alert.event.t} g${a.alert.gravity} ${a.alert.link} ${a.alert.event.label}`)));
+  await gshot('06-bubbles', 600);
+  await hold(false);
+
+  // Planning with reality A: markers on the scrub bar (click = pinned label), then the A view.
+  await page.evaluate(() => { const m = [...document.querySelectorAll('.scrub-marker')].find((x) => !x.classList.contains('past')); m?.click(); });
+  await gshot('07-scrub-markers', 600);
+  await page.evaluate(() => { const m = document.querySelector('.scrub-marker.past'); m?.click(); });
+  await page.screenshot({ path: `${dir}/07b-scrub-past.png`, clip: { x: 400, y: 950 - 220, width: 800, height: 220 } }); console.log('shot game/07b-scrub-past');
+  await clickButton('Voir la journée', 'label');
+  await gshot('08-view-A', 900);
+  await page.evaluate(() => window.__butterfly.getState().switchReality('B'));
+
+  // Midnight: seek to 23:59 and let the clock close the loop.
+  await act('seek', 23 * 60 + 59);
+  await playTo(24 * 60);
+  await page.waitForFunction(() => window.__butterfly.getState().game?.phase !== 'playing', null, { timeout: 60000 }).catch(() => console.log('loop did not close'));
+  console.log('loop closed', await state());
+  await gshot('09-bilan', 1200);
+
+  // Rewind (the clock spins back to 06:00), then loop 2 with the notebook open.
+  await clickButton('Rejouer');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${dir}/10-rewind.png` }); console.log('shot game/10-rewind');
+  await page.waitForFunction(() => !window.__butterflyGameUi.getState().rewinding, null, { timeout: 30000 }).catch(() => console.log('rewind did not finish'));
+  console.log('loop 2', await state());
+  await act('seek', 7 * 60 + 10);
+  await page.keyboard.press('n');
+  await gshot('11-loop2-notebook', 1200);
+  await page.keyboard.press('Escape');
+
+  // A failing loop: keep Léa home until 10:00, then midnight → the non-victory summary.
+  await page.evaluate(() => window.__butterfly.getState().applyGesture({ id: 'game_fail', kind: 'stay_home', agentId: 'lea', t: 7 * 60 + 11, until: 10 * 60, description: 'Léa reste à la maison de 07:11 à 10:00' }));
+  await act('seek', 23 * 60 + 59);
+  await playTo(24 * 60);
+  await page.waitForFunction(() => window.__butterfly.getState().game?.phase !== 'playing', null, { timeout: 60000 }).catch(() => console.log('loop 2 did not close'));
+  console.log('loop 2 closed', await state());
+  await gshot('12-bilan-failed', 1200);
+  await clickButton('Changer de personnage');
+  await gshot('13-back-to-start', 1200);
+}
+
+if (gameOnly) {
+  await gameShots().catch((e) => errors.push(`game: ${e.message.split('\n')[0]}`));
+  console.log(errors.length ? `Errors:\n${errors.join('\n')}` : 'No page errors');
+  await browser.close();
+  stop(0);
 }
 
 if (dramaOnly) {

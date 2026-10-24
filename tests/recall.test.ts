@@ -81,7 +81,7 @@ describe('Rappel branché sur le conseiller', () => {
     const alice = A.engine.state.agents.alice;
     const req: AdviceRequest = {
       key: 'k', agentId: 'alice', name: 'Alice', t: 20 * 60, time: '20:00', occupation: 'x', traits: '', needs: '', mood: '', goals: [], location: 'Café Le Papillon',
-      recentMemories: [], influences: [], situation: situationQuery(alice, profileOf('alice'), { t: 20 * 60, locationName: 'Café Le Papillon', present: ['Sophie'] }),
+      recentMemories: [], influences: [], role: 'character', situation: situationQuery(alice, profileOf('alice'), { t: 20 * 60, locationName: 'Café Le Papillon', present: ['Sophie'] }),
       memoryPool: alice.memories, candidates: [], baseline: 'c0',
     };
     expect(req.situation).toContain('Sophie');

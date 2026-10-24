@@ -53,12 +53,13 @@ export function buildJevRequest(r: AdviceRequest, model: string) {
       vient_de_vivre: r.influences,
       enjeu_du_jour: r.stakes ?? 'aucun',
       choix_utilitaire: r.baseline,
-      consigne: 'Choisir ce que cette personne ferait maintenant, en cohérence avec sa personnalité, ses besoins, ses objectifs, son enjeu du jour (désir, tension, échéance), ses souvenirs et le moment de la journée. Les scores sont indicatifs.',
+      role: r.role === 'antagonist' ? 'dramaturge' : 'habitant',
+      consigne: r.role === 'antagonist' ? 'Tu es le dramaturge de la journée qui se répète : parmi les options crédibles pour cette personne (celles qu’elle pourrait vraiment choisir, proches du meilleur score), choisis celle qui maintient la tension et l’éloigne de son désir du jour, sans jamais trahir son caractère. Les scores sont indicatifs.' : 'Choisir ce que cette personne ferait maintenant, en cohérence avec sa personnalité, ses besoins, ses objectifs, son enjeu du jour (désir, tension, échéance), ses souvenirs et le moment de la journée. Les scores sont indicatifs.',
     },
     questions: {
       decision: {
         type: 'choice',
-        instructions: `Que fait ${r.name} maintenant (${r.time}) ?`,
+        instructions: r.role === 'antagonist' ? `Que fait ${r.name} maintenant (${r.time}), pour que son histoire du jour reste en suspens tout en restant crédible ?` : `Que fait ${r.name} maintenant (${r.time}) ?`,
         criteria,
       },
     },

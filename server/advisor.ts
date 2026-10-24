@@ -30,6 +30,12 @@ const SYSTEM = [
   'Les scores utilitaires sont indicatifs : tu peux t’en écarter quand la personnalité le justifie, mais pas systématiquement.',
 ].join('\n');
 
+const SYSTEM_ANTAGONIST = [
+  'Tu es le dramaturge d’une journée qui se répète dans une ville miniature simulée (BUTTERFLY).',
+  'Pour chaque demande, un habitant hésite entre quelques options que le moteur a déjà jugées possibles ; son « enjeu du jour » décrit ce qu’il désire. Choisis l’option crédible (proche du meilleur score, fidèle à son caractère) qui maintient la tension et l’éloigne de son désir, sans jamais le faire agir contre nature.',
+  'Règles : réponds pour chaque clé fournie ; `choice` doit être EXACTEMENT l’identifiant d’une option proposée ; `reason` est une justification courte en français (moins de 15 mots), à la troisième personne, sans inventer de faits.',
+].join('\n');
+
 export class AnthropicAdvisor implements DecisionAdvisor {
   readonly name = 'anthropic';
   private client = new Anthropic();
@@ -56,7 +62,7 @@ export class AnthropicAdvisor implements DecisionAdvisor {
       const common = {
         model: this.model,
         max_tokens: 6000,
-        system: SYSTEM,
+        system: batch.some((r) => r.role === 'antagonist') ? SYSTEM_ANTAGONIST : SYSTEM,
         messages: [{ role: 'user' as const, content: user }],
         output_config: { effort: 'low' as const, format: { type: 'json_schema' as const, schema: ANSWERS_SCHEMA as unknown as Record<string, unknown> } },
       };
