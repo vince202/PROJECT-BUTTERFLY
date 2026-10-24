@@ -6,12 +6,16 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { useSimStore } from '../store/useSimStore';
 import { profileOf } from '../sim/population';
-import { agentSummary } from '../sim/narrative';
+import { agentSummary, arcSummary } from '../sim/narrative';
+import { ARC_STATUS_LABELS, arcOf, arcSeed } from '../sim/drama';
+import { LexicalEmbedder, presentNames, recallMemoriesSync, situationQuery } from '../sim/recall';
+import { aiNarrate } from '../ai/client';
 import { busDelayFor, validateIntervention } from '../sim/interventions';
 import { fmtTime } from '../sim/time';
-import type { AgentState, Candidate, SimEvent, TraitName } from '../sim/types';
+import type { AgentId, AgentState, Candidate, SimEvent, TraitName, WorldState } from '../sim/types';
 import type { Reality } from '../sim/reality';
-import { AgentChip, Badge, Bar, Empty, EventRow, KV, Section, SignedBar } from './common';
+import { AgentChip, AiButton, Badge, Bar, Empty, EventRow, FamilyDot, KV, NarrationBox, Section, SignedBar } from './common';
+import { ARC_STATUS_TONE, DIALOGUE_TYPES, PROFILES, STAKES_WORDS, attemptLabel, dialogueFacts, stakesLevel } from './drama';
 import {
   COMMITMENT_STATUS,
   NEED_LABELS,
@@ -27,14 +31,17 @@ import {
   signed,
   stressWord,
 } from './format';
-import { useActiveReality, useMinute, useWorldState } from './hooks';
+import { cachedStateAt, useActiveReality, useGoToEvent, useMinute, useWorldState } from './hooks';
+
+/** Offline embedder for the « Souvenirs liés à la situation » preview (vectors cached by text). */
+const LEXICAL = new LexicalEmbedder();
 
 export function Inspector() {
   const selectedEventId = useSimStore((s) => s.selectedEventId);
   const selectedAgentId = useSimStore((s) => s.selectedAgentId);
   return (
     <div className="inspector">
-      {selectedEventId ? <EventCard id={selectedEventId} /> : selectedAgentId ? <CharacterPanel key={selectedAgentId} id={selectedAgentId} /> : <Welcome />}
+      {selectedEventId ? <EventCard key={selectedEventId} id={selectedEventId} /> : selectedAgentId ? <CharacterPanel key={selectedAgentId} id={selectedAgentId} /> : <Welcome />}
     </div>
   );
 }
@@ -48,8 +55,10 @@ function EventCard({ id }: { id: string }) {
   const generation = useSimStore((s) => s.generation);
   const selectedAgentId = useSimStore((s) => s.selectedAgentId);
   const panel = useSimStore((s) => s.panel);
+  const ai = useSimStore((s) => s.ai);
   const { selectEvent, seek, setPanel, createRealityB } = useSimStore.getState();
   const [error, setError] = useState<string | null>(null);
+  const [scene, setScene] = useState<{ busy: boolean; text?: string; error?: string }>({ busy: false });
   const e = reality.eventById(id);
   const graph = reality.causal;
   const causes = useMemo(() => (e ? graph.directCauses(e.id) : []), [graph, e, generation]);
@@ -65,6 +74,17 @@ function EventCard({ id }: { id: string }) {
       </div>
     );
   }
+
+  const stageDialogue = async () => {
+    setScene({ busy: true });
+    try {
+      const res = await aiNarrate(dialogueFacts(e, cachedStateAt(reality, e.t)), 'dialogue');
+      setScene(res.ok && res.text ? { busy: false, text: res.text } : { busy: false, error: 'Le modèle n’a pas pu écrire la scène.' });
+    } catch {
+      setScene({ busy: false, error: 'Service IA injoignable.' });
+    }
+  };
+  const canStage = DIALOGUE_TYPES.has(e.type) && e.actors.length >= 2;
 
   const delayBus = () => {
     const iv = busDelayFor(e, 3);
@@ -134,8 +154,22 @@ function EventCard({ id }: { id: string }) {
             </button>
           )}
         </div>
+        {canStage && (
+          <div className="row gap wrap">
+            <AiButton
+              enabled={ai.enabled}
+              busy={scene.busy}
+              onClick={stageDialogue}
+              title="Scène dialoguée imaginée par le modèle, limitée aux faits enregistrés (événement, relation, désirs du jour, souvenirs de chacun)"
+              disabledTitle={`Narration IA indisponible${ai.message ? ` — ${ai.message}` : ''}`}
+            >
+              🎭 {scene.busy ? 'Mise en scène…' : 'Mettre en scène (dialogue)'}
+            </AiButton>
+          </div>
+        )}
         {error && <div className="error">{error}</div>}
       </div>
+      <NarrationBox label="Scène dialoguée" {...scene} />
 
       <Section title="Causes directes" count={causes.length}>
         {causes.length ? causes.map((c) => <EventRow key={c.id} e={c} onClick={() => selectEvent(c.id)} sub={c.mechanism} />) : <Empty>Aucune cause enregistrée : événement racine (routine, horaire ou hasard).</Empty>}
@@ -181,6 +215,7 @@ function CharacterPanel({ id }: { id: string }) {
   const state = useWorldState(reality, minute);
   const followId = useSimStore((s) => s.followAgentId);
   const generation = useSimStore((s) => s.generation);
+  const lab = useSimStore((s) => s.uiMode === 'lab');
   const { selectAgent, followAgent, selectEvent } = useSimStore.getState();
   const [showSummary, setShowSummary] = useState(false);
   const [allRels, setAllRels] = useState(false);
@@ -222,6 +257,8 @@ function CharacterPanel({ id }: { id: string }) {
       <p className="bio">{p.bio}</p>
 
       <NowBlock a={a} minute={minute} />
+
+      <ArcSection reality={reality} state={state} id={id} minute={minute} lab={lab} />
 
       <WhyBlock a={a} reality={reality} />
 
@@ -318,6 +355,12 @@ function CharacterPanel({ id }: { id: string }) {
         )}
       </Section>
 
+      {lab && (
+        <Section title="Souvenirs liés à la situation" className="recall">
+          <SituationRecall a={a} state={state} minute={minute} />
+        </Section>
+      )}
+
       <Section title="Décisions récentes" count={decisions.length}>
         {decisions.length ? decisions.map((e) => <EventRow key={e.id} e={e} onClick={() => selectEvent(e.id)} sub={e.type === 'plan_change' ? e.mechanism : undefined} />) : <Empty>Aucune décision encore.</Empty>}
       </Section>
@@ -331,6 +374,128 @@ function CharacterPanel({ id }: { id: string }) {
         <div className="muted small">Objectifs accomplis aujourd’hui : {a.objectivesDone}</div>
       </Section>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// « Son histoire aujourd’hui » — the arc of the day at the displayed minute
+// ---------------------------------------------------------------------------
+
+const BAR_TONE: Record<string, string> = { muted: 'accent', accent: 'accent', ok: 'ok', danger: 'danger', warn: 'warn' };
+
+function ArcSection({ reality, state, id, minute, lab }: { reality: Reality; state: WorldState; id: AgentId; minute: number; lab: boolean }) {
+  const generation = useSimStore((s) => s.generation);
+  const go = useGoToEvent();
+  // Static facts (title, desire, tension, secret…) come from the day's summary;
+  // status, progress and knowledge come from the world state at the displayed minute.
+  const summary = useMemo(() => arcSummary(reality, id), [reality, id, generation]);
+  const arc = arcOf(state, id);
+  const beats = useMemo(() => (arc ? arc.beats.map((b) => reality.eventById(b)).filter((e): e is SimEvent => !!e && e.t <= minute) : []), [arc, reality, minute]);
+  if (!summary || !arc) return null;
+  const tone = ARC_STATUS_TONE[arc.status];
+  const flames = stakesLevel(summary.stakes);
+  const attempt = attemptLabel(arc.attempt);
+  const late = minute >= summary.deadline && (arc.status === 'open' || arc.status === 'advancing');
+  const secretAbout = summary.secret ? arcSeed(arc.seedId).secretAbout : undefined;
+  return (
+    <Section title="Son histoire aujourd’hui" className="arc-section" right={<Badge tone={tone}>{ARC_STATUS_LABELS[arc.status]}</Badge>}>
+      <div className={`arc-card st-${arc.status}`}>
+        <div className="arc-head">
+          <span className="fam-pill fam-drama">{summary.kind}</span>
+          {attempt && <Badge tone="warn" title="L’histoire a échoué la veille : elle est retentée, avec des enjeux plus élevés">{attempt}</Badge>}
+          <span className="arc-stakes" title={`Enjeu ${STAKES_WORDS[flames]} (${Math.round(summary.stakes * 100)} / 100)`} aria-label={`Enjeu ${STAKES_WORDS[flames]}`}>
+            {[1, 2, 3].map((i) => (
+              <span key={i} className={`flame ${i <= flames ? 'on' : ''}`} aria-hidden>
+                🔥
+              </span>
+            ))}
+          </span>
+        </div>
+        <div className="arc-title">{summary.title}</div>
+        <p className="arc-desire">{summary.desire}</p>
+        <p className="arc-tension">
+          <span className="arc-k">Tension</span> {summary.tension}
+        </p>
+        <div className="arc-meta">
+          <span className={late ? 'neg' : ''} title="Heure à laquelle l’histoire se règle d’elle-même">
+            Échéance <span className="mono">{fmtTime(summary.deadline)}</span>
+          </span>
+          <Bar value={arc.progress} tone={BAR_TONE[tone]} right={`${Math.round(arc.progress * 100)} %`} />
+        </div>
+        {lab && summary.secret && (
+          <div className="arc-secret">
+            <div className="arc-k">Secret (laboratoire)</div>
+            <div>{summary.secret}</div>
+            <div className="muted small">
+              {secretAbout ? `caché à ${firstName(secretAbout)} · ` : ''}connu de : {arc.knownBy.length ? arc.knownBy.map(firstName).join(', ') : 'personne pour l’instant'}
+            </div>
+          </div>
+        )}
+      </div>
+      {beats.length > 0 ? (
+        <div className="arc-beats">
+          <div className="sub-title">Temps forts jusqu’à {fmtTime(minute)}</div>
+          {beats.map((e) => (
+            <EventRow key={e.id} e={e} onClick={() => go(e, { seek: true })} active={e.id === arc.resolutionEventId} />
+          ))}
+        </div>
+      ) : (
+        <div className="muted small">Aucun temps fort pour l’instant.</div>
+      )}
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// « Souvenirs liés à la situation » — similarity recall (laboratory)
+// ---------------------------------------------------------------------------
+
+function SituationRecall({ a, state, minute }: { a: AgentState; state: WorldState; minute: number }) {
+  const embedModel = useSimStore((s) => s.ai.embedModel);
+  const { selectEvent } = useSimStore.getState();
+  const { query, items } = useMemo(() => {
+    const p = profileOf(a.id);
+    const next = [...a.commitments].filter((c) => c.status === 'pending' && c.end >= minute).sort((x, y) => x.start - y.start)[0];
+    const arc = arcOf(state, a.id);
+    const q = situationQuery(a, p, {
+      t: minute,
+      locationName: a.locationId ? locName(a.locationId) : a.travel?.stage === 'riding' ? 'dans le bus' : 'en chemin',
+      present: presentNames(a, state.agents, PROFILES),
+      nextCommitment: next?.label,
+      desire: arc ? arcSeed(arc.seedId).desire : undefined,
+    });
+    return { query: q, items: recallMemoriesSync(a.memories.filter((m) => m.t <= minute), q, LEXICAL, minute, 5) };
+  }, [a, state, minute]);
+  return (
+    <>
+      <div className="recall-query muted small" title="Requête de rappel construite à partir de la situation">
+        Situation : {query}
+      </div>
+      {items.length ? (
+        <ul className="memories">
+          {items.map((r, i) => (
+            <li key={`${r.memory.eventId}-${i}`}>
+              <button
+                className="memory recall-item"
+                onClick={() => selectEvent(r.memory.eventId)}
+                title={`Score ${r.score.toFixed(2)} = similarité ${r.similarity.toFixed(2)} · récence ${r.recency.toFixed(2)} · importance ${r.memory.importance.toFixed(2)} — voir l’événement d’origine`}
+              >
+                <span className="mono t">{fmtTime(r.memory.t)}</span>
+                <span className="recall-rel" aria-label={`Similarité ${Math.round(r.similarity * 100)} %`}>
+                  <span style={{ width: `${Math.max(4, Math.min(100, r.similarity * 100))}%` }} />
+                </span>
+                <span>{r.memory.text}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <Empty>Aucun souvenir à rappeler pour l’instant.</Empty>
+      )}
+      <div className="muted small recall-caption" title={embedModel ? `Dans l’interface, la similarité est calculée hors ligne (lexique) ; les conseillers utilisent ${embedModel}.` : 'Similarité lexicale déterministe, calculée hors ligne.'}>
+        Rappel par similarité + récence + importance (embeddings locaux : {embedModel ?? 'lexique hors ligne'})
+      </div>
+    </>
   );
 }
 

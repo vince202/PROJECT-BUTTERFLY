@@ -143,3 +143,33 @@ export function KV({ k, children }: { k: ReactNode; children: ReactNode }) {
     </div>
   );
 }
+
+/**
+ * Button for a narration request. When the AI adapter is unavailable it is
+ * disabled and the reason is shown as a tooltip (on a wrapper, since disabled
+ * buttons do not receive pointer events).
+ */
+export function AiButton({ enabled, busy, onClick, title, disabledTitle, children, tone = '' }: { enabled: boolean; busy?: boolean; onClick: () => void; title: string; disabledTitle: string; children: ReactNode; tone?: string }) {
+  return (
+    <span className="ai-btn-wrap" title={enabled ? title : disabledTitle}>
+      <button className={`btn sm ${tone}`} onClick={onClick} disabled={!enabled || busy} aria-busy={busy || undefined}>
+        {children}
+      </button>
+    </span>
+  );
+}
+
+/** Narration output: the model's text with its provenance caption. */
+export function NarrationBox({ label, text, error, busy }: { label: string; text?: string; error?: string; busy?: boolean }) {
+  if (!text && !error && !busy) return null;
+  return (
+    <div className="narration" aria-live="polite">
+      <div className="row gap center">
+        <Badge tone="b">IA</Badge>
+        <span className="strong small">{label}</span>
+      </div>
+      {busy ? <div className="muted small">Le modèle écrit…</div> : error ? <div className="error">{error}</div> : <div className="prose">{text}</div>}
+      {!busy && !error && <div className="muted small narration-caption">Généré par le modèle, à partir des faits enregistrés</div>}
+    </div>
+  );
+}
