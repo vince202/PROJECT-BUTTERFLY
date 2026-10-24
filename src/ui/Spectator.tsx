@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useSimStore, type Speed } from '../store/useSimStore';
+import { useSimStore } from '../store/useSimStore';
+import { SPEEDS, speedTitle } from '../store/speed';
 import { AGENTS } from '../sim/population';
 import { fmtTime, periodOfDay } from '../sim/time';
 import { DAY_END, DAY_LENGTH, DAY_START, type AgentId } from '../sim/types';
@@ -16,7 +17,6 @@ import { eventFamily, eventTypeLabel, fold, locName, moodColor, moodWord, weathe
 import { useActiveReality, useMinute } from './hooks';
 import { usePresence } from './mode';
 
-const SPEEDS: Speed[] = [1, 2, 10, 60];
 const HINT_KEY = 'butterfly:spectator-hint-dismissed';
 
 export function SpectatorOverlay({ leaving = false }: { leaving?: boolean }) {
@@ -109,9 +109,9 @@ function PlaybackPill() {
         <button className={`spec-btn play ${playing ? 'on' : ''}`} onClick={togglePlay} title={playing ? 'Pause (Espace)' : 'Lecture (Espace)'} aria-label={playing ? 'Pause' : 'Lecture'}>
           {playing ? '⏸' : '▶'}
         </button>
-        <div className="spec-speed" role="group" aria-label="Vitesse">
+        <div className="spec-speed" role="group" aria-label="Vitesse" title="×1 = temps réel · touches + / −">
           {SPEEDS.map((s) => (
-            <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)} title={`×${s} = ${s} minute${s > 1 ? 's' : ''} simulée${s > 1 ? 's' : ''} par seconde`} aria-pressed={speed === s}>
+            <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)} title={speedTitle(s)} aria-pressed={speed === s}>
               ×{s}
             </button>
           ))}

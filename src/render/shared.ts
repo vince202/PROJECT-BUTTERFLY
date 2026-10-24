@@ -117,7 +117,7 @@ const routeCache = new Map<string, { pts: Vec2[]; len: number }>();
  * blocks: use an L-shaped path along streets when possible, otherwise the
  * shortest path on the street graph between the nearest nodes.
  */
-function routeBetween(x0: number, y0: number, x1: number, y1: number): { pts: Vec2[]; len: number } {
+export function routeBetween(x0: number, y0: number, x1: number, y1: number): { pts: Vec2[]; len: number } {
   const key = `${x0.toFixed(1)},${y0.toFixed(1)}>${x1.toFixed(1)},${y1.toFixed(1)}`;
   const hit = routeCache.get(key);
   if (hit) return hit;
@@ -202,7 +202,7 @@ export function damp(lambda: number, dt: number): number {
 }
 
 /** World positions of agents, written by <Agents/> every frame and read by the camera rig. */
-export const agentWorld = new Map<string, { pos: THREE.Vector3; visible: boolean; /** Displayed height (m). */ h?: number }>();
+export const agentWorld = new Map<string, { pos: THREE.Vector3; visible: boolean; /** Displayed height (m). */ h?: number; /** Inside a building: `pos` is its door, only an indicator is drawn. */ inside?: boolean }>();
 
 // ---------------------------------------------------------------------------
 // Deterministic pseudo-randomness

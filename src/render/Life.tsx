@@ -151,7 +151,7 @@ export function Life() {
       const b = built.birds[i];
       let scared = false;
       for (const a of agentWorld.values()) {
-        if (!a.visible) continue;
+        if (!a.visible || a.inside) continue;
         const dx = b.x - a.pos.x;
         const dz = b.z - a.pos.z;
         if (dx * dx + dz * dz < 6) {

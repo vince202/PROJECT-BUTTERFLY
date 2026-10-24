@@ -12,6 +12,7 @@ import { CURB_H, type Block, type LotFrame, type Rect, inside, localRect, lotFra
 import { type InstanceSpec, type PropName, type Proto, type ModelName, type TexturedProto, chimneyTop, modelMatrix, placeModel } from './models';
 import { BUTTERFLY_PALETTE as P, seeded, hashString } from './shared';
 import { addSeat } from './seats';
+import { addDoor } from './motion';
 
 export const Q_SCALE = 5.5;
 const KIT_SCALE = 0.8;
@@ -403,6 +404,7 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
     if (top) out.ctx.emit.smoke.push(top.clone().applyMatrix4(m));
     keep.push(rect(300 - width / 2 - 1, front - 1, 300 + width / 2 + 1, front + depth + 1));
     out.pick.push({ id: 'cafe', box: new THREE.Box3(new THREE.Vector3(300 - width / 2, 0, front), new THREE.Vector3(300 + width / 2, inn.size.y * s, front + depth)) });
+    addDoor('cafe', 300, front - 0.7, Math.PI);
     // Forecourt: plain paving from the street, a warmer stone terrace within ~12 m of the façade.
     const t0 = 131.5;
     const tEdge = 142.6; // front edge of the terrace (the seats of rows 1-2 are behind it)
@@ -492,6 +494,7 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
     if (top) out.ctx.emit.smoke.push(top.clone().applyMatrix4(m), top.clone().applyMatrix4(m).add(new THREE.Vector3(0, 0.6, 0.3)));
     keep.push(rect(front - 1, 180 - width / 2 - 1, front + depth + 1, 180 + width / 2 + 1));
     out.pick.push({ id: 'bakery', box: new THREE.Box3(new THREE.Vector3(front, 0, 180 - width / 2), new THREE.Vector3(front + depth, h2.size.y * s, 180 + width / 2)) });
+    addDoor('bakery', front - 0.7, 180, -Math.PI / 2);
     keep.push(rect(131, 160, front + 1, 200));
     g.get('paving').box((131.5 + front) / 2, y, 180, front - 131.5, 0.05, 40, '#d9ccb2');
     // Façade frame: local +z = west
@@ -561,6 +564,7 @@ export function buildCafeBlockLots(out: TownOut, protos: Record<ModelName, Proto
     placeModel(fb, h1, m, { tint: [[/plaster|beige/i, '#ecd6d0'], [/roof/i, P.ardoise[0]]] });
     keep.push(rect(420 - width / 2 - 1, front - 1, 420 + width / 2 + 1, front + depth + 1));
     out.pick.push({ id: 'florist', box: new THREE.Box3(new THREE.Vector3(420 - width / 2, 0, front), new THREE.Vector3(420 + width / 2, h1.size.y * s, front + depth)) });
+    addDoor('florist', 420, front - 0.7, Math.PI);
     // The square: cobbles from the street to the florist
     keep.push(rect(375, 131, 466, front + 2));
     g.get('cobble').box(420.5, y, 144, 93, 0.06, 25, '#b4aa9a');
@@ -717,6 +721,8 @@ export function buildOtherLots(out: TownOut, protos: Record<ModelName, Proto>, s
     const wF = f.stand.w0 - 5;
     const front = toWorldL(f, 0, wF);
     const detail = f.detail;
+    const doorAt = toWorldL(f, spec.q ? 0 : (spec.door?.u ?? 0) * KIT_SCALE, wF + 0.7);
+    addDoor(id, doorAt.x, doorAt.z, f.yaw);
     let r: Rect;
     let top = 12;
     if (spec.q) {
@@ -854,6 +860,9 @@ function buildSchool(out: TownOut, protos: Record<ModelName, Proto>, f: LotFrame
   // Courtyard behind the wings: sports ground.
   g.get('grass').box(360, CURB_H + 0.02, 34, 190, 0.02, 40, '#93b86a');
   out.pick.push({ id: 'school', box: new THREE.Box3(new THREE.Vector3(265, 0, 64), new THREE.Vector3(455, 16, 82)) });
+  // The two wings' doors (u = +20 / -20 kit units from their front centres), on the yard side.
+  addDoor('school', 302 + 20 * KIT_SCALE, front + 0.7, 0);
+  addDoor('school', 418 - 20 * KIT_SCALE, front + 0.7, 0);
   return keep;
 }
 
@@ -868,6 +877,8 @@ function buildSupermarket(out: TownOut, f: LotFrame, rnd: () => number): Rect[] 
   };
   const r = placeKit(out, front.x, front.z, f.yaw, spec, 2, 'supermarket', 'supermarket');
   keep.push(r);
+  const doorAt = toWorldL(f, 0, wF + 0.7);
+  addDoor('supermarket', doorAt.x, doorAt.z, f.yaw);
   out.pick.push({ id: 'supermarket', box: new THREE.Box3(new THREE.Vector3(r.x0, 0, r.z0), new THREE.Vector3(r.x1, 7, r.z1)) });
   // Car park on both sides of the entrance
   const half = Math.max(Math.abs(f.stand.u0), Math.abs(f.stand.u1)) + 5;

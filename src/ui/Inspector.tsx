@@ -479,7 +479,7 @@ function Welcome() {
       </p>
       <ol className="steps">
         <li>
-          <strong>Observez.</strong> Lancez la lecture <kbd>Espace</kbd> et choisissez une vitesse (×1 = une minute simulée par seconde).
+          <strong>Observez.</strong> Lancez la lecture <kbd>Espace</kbd> et choisissez une vitesse (×1 = temps réel, ×60 = une minute simulée par seconde).
         </li>
         <li>
           <strong>Choisissez un habitant</strong> dans la liste ou dans la ville pour comprendre ce qu’il fait, et surtout <em>pourquoi</em>.

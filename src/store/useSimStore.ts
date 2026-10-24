@@ -10,10 +10,11 @@ import { create } from 'zustand';
 import { compareRealities, type Comparison } from '../sim/compare';
 import { Reality, forkReality, nextDayReality } from '../sim/reality';
 import { AdvisedPolicy, MockAdvisor, generateWithAdvisor, type DecisionAdvisor } from '../sim/advisor';
-import { HttpAdvisor } from '../ai/client';
+import { HttpAdvisor, createEmbedder } from '../ai/client';
 import { DAY_END, DAY_START, type AgentId, type EventId, type Intervention, type Minute } from '../sim/types';
+import { normalizeSpeed, simMinutes, type Speed } from './speed';
 
-export type Speed = 1 | 2 | 10 | 60;
+export type { Speed } from './speed';
 export type RealityId = 'A' | 'B';
 export type PanelId = 'butterfly' | 'causal' | 'compare' | 'report' | null;
 
@@ -28,6 +29,8 @@ interface Persisted {
   selectedAgentId: AgentId | null;
   /** Interventions of the branch kept for each past day (to rebuild the current day). */
   history?: Intervention[][];
+  /** Playback speed preset (×1 = real time). Older or unknown values fall back to ×20. */
+  speed?: number;
 }
 
 function loadPersisted(): Persisted | null {
@@ -39,9 +42,13 @@ function loadPersisted(): Persisted | null {
   }
 }
 
+/** Last persisted speed, merged into every write (callers only pass the simulation fields). */
+let persistedSpeed: Speed | undefined;
+
 function persist(p: Persisted) {
+  if (p.speed !== undefined) persistedSpeed = normalizeSpeed(p.speed);
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...p, speed: persistedSpeed }));
   } catch {
     /* storage unavailable */
   }
@@ -56,6 +63,8 @@ export interface AiStatus {
   /** Server-side decision advisor ('jev', 'anthropic') when configured. */
   advisor?: string;
   advisorModel?: string;
+  embedder?: string;
+  embedModel?: string;
 }
 
 export interface SimStore {
@@ -89,7 +98,7 @@ export interface SimStore {
   togglePlay: () => void;
   setSpeed: (s: Speed) => void;
   seek: (t: Minute) => void;
-  /** Advance the display clock by `dtSeconds` of real time (×1 = one simulated minute per second). */
+  /** Advance the display clock by `dtSeconds` of real time (×1 = real time: one simulated minute per 60 s). */
   tick: (dtSeconds: number) => void;
   generateAll: () => void;
   selectAgent: (id: AgentId | null) => void;
@@ -144,6 +153,8 @@ const initialSeed = persisted?.seed ?? DEMO_SEED;
 const initialHistory = persisted?.history ?? [];
 const initialA = initialHistory.length ? rebuildDays(initialSeed, initialHistory) : buildA(initialSeed);
 const initialB = persisted?.interventionsB?.length ? buildB(initialA, persisted.interventionsB) : null;
+const initialSpeed = normalizeSpeed(persisted?.speed);
+persistedSpeed = initialSpeed;
 
 export const useSimStore = create<SimStore>((set, get) => ({
   policyMode: 'utility',
@@ -161,7 +172,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   activeRealityId: 'A',
   time: Math.max(DAY_START, Math.min(DAY_END, persisted?.time ?? DAY_START)),
   playing: false,
-  speed: 10,
+  speed: initialSpeed,
   selectedAgentId: persisted?.selectedAgentId ?? null,
   followAgentId: null,
   selectedEventId: null,
@@ -184,7 +195,11 @@ export const useSimStore = create<SimStore>((set, get) => ({
   play: () => set((s) => ({ playing: true, time: s.time >= DAY_END ? DAY_START : s.time })),
   pause: () => set({ playing: false }),
   togglePlay: () => (get().playing ? get().pause() : get().play()),
-  setSpeed: (speed) => set({ speed }),
+  setSpeed: (speed) => {
+    const s = get();
+    set({ speed });
+    persist({ seed: s.seed, interventionsB: s.realityB?.def.interventions ?? [], time: s.time, selectedAgentId: s.selectedAgentId, history: s.history, speed });
+  },
   seek: (t) => {
     const time = Math.max(DAY_START, Math.min(DAY_END, t));
     set({ time });
@@ -193,7 +208,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   tick: (dtSeconds) => {
     const s = get();
     if (!s.playing) return;
-    const next = s.time + dtSeconds * s.speed;
+    const next = s.time + simMinutes(dtSeconds, s.speed);
     if (next >= DAY_END) set({ time: DAY_END, playing: false });
     else set({ time: next });
   },
@@ -254,7 +269,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
     const policy = s.realityA.def.policy instanceof AdvisedPolicy ? s.realityA.def.policy : new AdvisedPolicy();
     set({ advising: true, advisorInfo: `${advisorLabel} arbitre les choix ouverts…` });
     try {
-      const opts = { policy, maxPasses: online ? 4 : 6, maxRequestsPerPass: online ? 40 : 150 };
+      const opts = { policy, maxPasses: online ? 4 : 6, maxRequestsPerPass: online ? 40 : 150, embedder: createEmbedder(!!s.ai.embedder) };
       const { policy: _ignoredA, ...defA } = s.realityA.def;
       void _ignoredA;
       const resA = await generateWithAdvisor(defA, advisor, opts);

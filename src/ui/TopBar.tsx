@@ -6,13 +6,12 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { useSimStore, type PanelId, type Speed } from '../store/useSimStore';
+import { useSimStore, type PanelId } from '../store/useSimStore';
+import { SPEEDS, speedTitle } from '../store/speed';
 import { fmtTime, periodOfDay } from '../sim/time';
 import { DAY_END, DAY_START } from '../sim/types';
 import { parseClock, weatherLabel } from './format';
 import { useActiveReality, useMinute } from './hooks';
-
-const SPEEDS: Speed[] = [1, 2, 10, 60];
 
 const PANELS: { id: Exclude<PanelId, null>; label: string; icon: string; title: string }[] = [
   { id: 'butterfly', label: 'Et si…', icon: '🦋', title: 'Éditeur d’interventions : modifier un détail et créer une réalité B' },
@@ -102,9 +101,9 @@ export function TopBar() {
         <button className={`icon-btn play ${playing ? 'on' : ''}`} onClick={togglePlay} title={playing ? 'Pause (Espace)' : 'Lecture (Espace)'}>
           {playing ? '⏸' : '▶'}
         </button>
-        <div className="seg speed" role="group" aria-label="Vitesse" title="×1 = 1 minute simulée par seconde réelle">
+        <div className="seg speed" role="group" aria-label="Vitesse" title="×1 = temps réel (1 minute simulée = 60 s) · touches + / −">
           {SPEEDS.map((s) => (
-            <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)} title={`×${s} = ${s} minute${s > 1 ? 's' : ''} simulée${s > 1 ? 's' : ''} par seconde réelle`}>
+            <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)} title={speedTitle(s)} aria-pressed={speed === s}>
               ×{s}
             </button>
           ))}

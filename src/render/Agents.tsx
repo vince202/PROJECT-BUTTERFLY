@@ -11,6 +11,16 @@
  * placed at the standing spots (café terrace...), waiting on the sidewalk at
  * bus stops, sleep dimming with "z z z".
  *
+ * Motion (motion.ts): walks follow a smoothed version of the street route —
+ * rounded corners, right-hand sidewalk at a per-inhabitant distance, smooth
+ * speed through the trace frames — and the figure turns with a damped heading.
+ * People whose trace places them in a building walk to its door and go in;
+ * while inside they are shown by a small badge in their colour above the door
+ * (stacked per door, hoverable / clickable) and a soft glow on the doorstep.
+ * The selected or followed inhabitant inside also appears as a faint
+ * silhouette at the door when the camera is close. Standing people shift
+ * their weight and look around now and then; cadence varies per inhabitant.
+ *
  * Mood (trace `mood`, -1..1, interpolated) is shown by a coloured ring at the
  * feet, a pictogram for strong moods and the posture of the far figure.
  * Names only appear for the hovered / selected / followed inhabitant.
@@ -25,6 +35,7 @@ import { AGENTS } from '../sim/population';
 import type { AgentProfile } from '../sim/types';
 import { useSimStore } from '../store/useSimStore';
 import { MOOD_HIGH, MOOD_LOW, type StreetSample, activeRealityOf, agentMood, agentWorld, angleDelta, damp, env, hashString, labelMaterial, makeLabel, moodColor, radialTexture, sampleFrames, sizeLabel, streetLerp } from './shared';
+import { AgentMotion, type Door, newPose } from './motion';
 import { CURB_H, STOP_PUSH, onRoad } from './layout';
 import { seatAt } from './seats';
 import { type CharacterRig, type ClipName, CharacterCast, playClip } from './characters';
@@ -36,8 +47,6 @@ const AGENT_SCALE = 0.24;
 const MEEPLE_UNITS = 7.5;
 /** Distance up to which the animated character is shown instead of the far figure. */
 const LOD_DISTANCE = 150;
-/** Lateral offset applied while walking so that people use the right-hand sidewalk (metres). */
-const SIDEWALK_OFFSET = 8.5;
 /** Below this camera distance the mood glyphs are a little bigger. */
 const ALL_NAMES_DISTANCE = 380;
 
@@ -52,6 +61,17 @@ const MOOD_RING_Y = 0.36;
 /** Ring alpha while awake / asleep. */
 const RING_ALPHA = 0.95;
 const RING_ALPHA_ASLEEP = 0.3;
+
+/** Indoor indicator: height above the doorstep (m) and on-screen sizes (CSS px). */
+const BADGE_Y = 4.3;
+const BADGE_PX = 18;
+const BADGE_PX_ASLEEP = 16;
+const BADGE_PX_HOT = 24;
+/** Horizontal spacing of stacked badges (in badge widths) and badges per row. */
+const BADGE_GAP = 0.82;
+const BADGE_ROW = 6;
+/** Nominal walking speed of the walk clip at timeScale 1 (m/s). */
+const WALK_CLIP_SPEED = 1.45;
 
 const SKIN = ['#f1c7a5', '#e5b48e', '#c98e66', '#8d5a3b', '#f4d2b8'];
 const HAIR = ['#3b2a20', '#5a3b26', '#1f1a17', '#a8743f', '#d9b56c', '#7a3f22'];
@@ -156,6 +176,57 @@ function makeGlyphTexture(kind: 'joy' | 'low'): THREE.CanvasTexture {
   return tex;
 }
 
+const cssRgba = (color: THREE.Color, a: number) => {
+  const c = { r: 0, g: 0, b: 0 };
+  color.getRGB(c, THREE.SRGBColorSpace);
+  return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${a})`;
+};
+
+/** Indoor badge: dot in the profile colour, cream rim, soft halo of the same colour. */
+function makeBadgeTexture(color: string): THREE.CanvasTexture {
+  const n = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = n;
+  const ctx = c.getContext('2d')!;
+  const r = n / 2;
+  const col = new THREE.Color(color);
+  const halo = ctx.createRadialGradient(r, r, r * 0.3, r, r, r);
+  halo.addColorStop(0, cssRgba(col, 0.55));
+  halo.addColorStop(1, cssRgba(col, 0));
+  ctx.fillStyle = halo;
+  ctx.fillRect(0, 0, n, n);
+  ctx.beginPath();
+  ctx.arc(r, r, r * 0.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 252, 245, 0.97)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(40, 36, 30, 0.35)';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(r, r, r * 0.37, 0, Math.PI * 2);
+  ctx.fillStyle = cssRgba(col, 1);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Gold ring drawn around the badge of the selected / hovered inhabitant. */
+function makeBadgeHaloTexture(): THREE.CanvasTexture {
+  const n = 96;
+  const c = document.createElement('canvas');
+  c.width = c.height = n;
+  const ctx = c.getContext('2d')!;
+  ctx.strokeStyle = '#ffd166';
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.arc(n / 2, n / 2, n * 0.4, 0, Math.PI * 2);
+  ctx.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /** Shared ring material with a per-instance alpha attribute (`aAlpha`) on top of instance colours. */
 function makeMoodRingMaterial(map: THREE.Texture): THREE.MeshBasicMaterial {
   const mat = new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false, opacity: 1 });
@@ -220,8 +291,21 @@ interface Meeple {
   nextFidget: number;
   /** One-shot clip currently playing (victory, pickup...), if any. */
   oneShot: ClipName | null;
-  /** Head turn for idle "look around". */
+  /** Head / body turn for idle "look around" (radians, smoothed). */
   look: number;
+  /** Smoothed trace motion (motion.ts). */
+  motion: AgentMotion;
+  /** Indoor indicator above the door, and its door / stacking slot this frame. */
+  badge: THREE.Sprite;
+  door: Door | null;
+  badgeIdx: number;
+  /** Per-inhabitant variation (deterministic from the id). */
+  stride: number;
+  idleRate: number;
+  lookPeriod: number;
+  swayRate: number;
+  /** Entry of `agentWorld` (mutated in place every frame). */
+  world: { pos: THREE.Vector3; visible: boolean; h?: number; inside?: boolean };
 }
 
 const noRaycast = () => {};
@@ -310,7 +394,20 @@ function makeMeeple(p: AgentProfile, geo: ReturnType<typeof makeGeometries>, eye
   umbrella.visible = false;
   root.add(umbrella);
 
+  const badgeTex = makeBadgeTexture(p.color);
+  const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: badgeTex, sizeAttenuation: false, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
+  badge.visible = false;
+  badge.renderOrder = 8;
+  badge.userData.agentId = p.id;
+  badge.raycast = noRaycast;
+  root.add(badge);
+
   return {
+    motion: new AgentMotion(p.id), badge, door: null, badgeIdx: 0, world: { pos: root.position, visible: false },
+    stride: 0.88 + ((h >>> 12) & 0xff) / 255 * 0.24,
+    idleRate: 0.85 + ((h >>> 20) & 0xff) / 255 * 0.3,
+    lookPeriod: 7 + ((h >>> 9) % 7),
+    swayRate: 0.45 + ((h >>> 15) & 0xff) / 255 * 0.3,
     id: p.id, profile: p, root, umbrella, inner, legL, legR, armL, armR, eyes, head, hair, hit, label, labelAspect: lab.aspect, zz, glyph, bubble, bubbleKind: null, mats, bodyColor, rig: null,
     parts: [legL, legR, torso, armL, armR, head, hair, eyes[0], eyes[1]],
     heading: 0, phase: 0, moveK: 0, hoverK: 0, offset: new THREE.Vector3(), last: new THREE.Vector3(), groundY: CURB_H, asleep: false, dimmed: false, initialised: false, mood: 0, glyphK: 0, glyphKind: null,
@@ -342,6 +439,17 @@ const tmpMatrix = new THREE.Matrix4();
 const HIDDEN_MATRIX = new THREE.Matrix4().makeScale(0, 0, 0);
 const tmpCam = new THREE.Vector3();
 const tmpCrowd = new THREE.Color();
+const pose = newPose();
+/** Inhabitants inside, per door, this frame (for stacking the badges). */
+const doorCounts = new Map<string, number>();
+/** Idle look-around angles (radians); zeros make it occasional. */
+const LOOKS = [0.55, -0.5, 0, 0.35, -0.7, 0, 0.65, -0.3];
+/** Integer hash (for deterministic per-inhabitant idle variation). */
+const mix32 = (n: number) => {
+  let h = Math.imul(n ^ (n >>> 16), 0x45d9f3b);
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+  return (h ^ (h >>> 16)) >>> 0;
+};
 
 /** Bus stop id -> push direction (z) for waiting people. */
 const STOP_SIDE = new Map<string, number>();
@@ -356,7 +464,7 @@ export function Agents() {
   const selectAgent = useSimStore((s) => s.selectAgent);
   const hoverAgent = useSimStore((s) => s.hoverAgent);
 
-  const { meeples, ring, shadow, glyphMats, bubbleMats, dispose, crowd } = useMemo(() => {
+  const { meeples, ring, shadow, glyphMats, bubbleMats, dispose, crowd, doorGlow, badgeHalo } = useMemo(() => {
     const geo = makeGeometries();
     const eyeMat = new THREE.MeshBasicMaterial({ color: '#1d1a17' });
     const hitMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, transparent: true, opacity: 0 });
@@ -385,11 +493,30 @@ export function Agents() {
     shadow.frustumCulled = false;
     shadow.raycast = noRaycast;
     shadow.renderOrder = 1;
+    // Doorstep glow of the inhabitants inside a building (additive, profile colour).
+    const doorGeo = new THREE.PlaneGeometry(1, 1);
+    doorGeo.rotateX(-Math.PI / 2);
+    const doorMat = new THREE.MeshBasicMaterial({ map: radialTexture(), transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+    const doorGlow = new THREE.InstancedMesh(doorGeo, doorMat, meeples.length);
+    doorGlow.name = 'agent-door-glow';
+    doorGlow.frustumCulled = false;
+    doorGlow.raycast = noRaycast;
+    doorGlow.renderOrder = 2;
     for (let i = 0; i < meeples.length; i++) {
       ring.setMatrixAt(i, HIDDEN_MATRIX);
       ring.setColorAt(i, moodColor(0, tmpMood));
       shadow.setMatrixAt(i, HIDDEN_MATRIX);
+      doorGlow.setMatrixAt(i, HIDDEN_MATRIX);
+      doorGlow.setColorAt(i, meeples[i].bodyColor);
     }
+    doorGlow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    doorGlow.instanceColor!.setUsage(THREE.DynamicDrawUsage);
+    // Gold ring around the badge of the selected / hovered inhabitant inside.
+    const haloTex = makeBadgeHaloTexture();
+    const badgeHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, sizeAttenuation: false, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false }));
+    badgeHalo.visible = false;
+    badgeHalo.renderOrder = 9;
+    badgeHalo.raycast = noRaycast;
     ring.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     ring.instanceColor!.setUsage(THREE.DynamicDrawUsage);
     shadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -421,7 +548,14 @@ export function Agents() {
         Object.values(m.mats).forEach((mt) => mt.dispose());
         (m.label.material as THREE.SpriteMaterial).map?.dispose();
         m.label.material.dispose();
+        m.badge.material.map?.dispose();
+        m.badge.material.dispose();
       }
+      doorGeo.dispose();
+      doorMat.dispose();
+      doorGlow.dispose();
+      haloTex.dispose();
+      badgeHalo.material.dispose();
     };
     // Far figures: one instanced mesh per body part for the whole crowd (9 draw calls).
     const partMat = new THREE.MeshStandardMaterial({ roughness: 0.6 });
@@ -443,7 +577,7 @@ export function Agents() {
       partMat.dispose();
       for (const im of crowd) im.dispose();
     };
-    return { meeples, ring, shadow, glyphMats, bubbleMats, dispose: disposeAll, crowd };
+    return { meeples, ring, shadow, glyphMats, bubbleMats, dispose: disposeAll, crowd, doorGlow, badgeHalo };
   }, []);
 
   useEffect(() => dispose, [dispose]);
@@ -481,6 +615,10 @@ export function Agents() {
     const pickups = pickupsAt(reality, s.time);
     camera.getWorldPosition(tmpCam);
     const spectator = s.uiMode === 'spectator';
+    /** Simulated minutes per real second (0 while paused): converts track speeds to m/s. */
+    const simRate = s.playing ? s.speed / 60 : 0;
+    doorCounts.clear();
+    let haloFor: Meeple | null = null;
 
     for (let i = 0; i < meeples.length; i++) {
       const m = meeples[i];
@@ -489,49 +627,66 @@ export function Agents() {
       if (!pair || !a0 || !a1) {
         m.root.visible = false;
         m.hit.raycast = noRaycast;
+        m.badge.visible = false;
+        m.badge.raycast = noRaycast;
+        m.door = null;
         ring.setMatrixAt(i, HIDDEN_MATRIX);
         shadow.setMatrixAt(i, HIDDEN_MATRIX);
+        doorGlow.setMatrixAt(i, HIDDEN_MATRIX);
         for (const im of crowd) im.setMatrixAt(i, HIDDEN_MATRIX);
-        agentWorld.set(m.id, { pos: m.root.position, visible: false });
+        m.world.visible = false;
+        m.world.inside = false;
+        agentWorld.set(m.id, m.world);
         continue;
       }
       const k = pair.k;
+      const riding = k < 0.5 ? a0.riding : a1.riding;
+      const asleep = a0.asleep;
       let x: number;
       let z: number;
-      const jump = Math.hypot(a1.x - a0.x, a1.y - a0.y);
-      if (jump > 250) {
+      let moving = false;
+      let inside = false;
+      let loc: string = a0.loc;
+      if (!riding && m.motion.resolve(reality, s.time, pose)) {
+        // Smoothed walk / standing spot / door (motion.ts).
+        x = pose.x;
+        z = pose.z;
+        moving = pose.moving;
+        inside = pose.inside;
+        loc = pose.loc;
+      } else if (Math.hypot(a1.x - a0.x, a1.y - a0.y) > 250) {
         x = k < 0.5 ? a0.x : a1.x;
         z = k < 0.5 ? a0.y : a1.y;
       } else {
+        // On the bus (hidden): the raw trace position, following the streets.
         streetLerp(a0.x, a0.y, a1.x, a1.y, k, sample);
         x = sample.x;
         z = sample.y;
       }
-      const riding = k < 0.5 ? a0.riding : a1.riding;
-      const asleep = a0.asleep;
-      const travelling = (a0.loc === '' || a1.loc === '') && !riding;
-      const moving = jump > 2 && jump <= 250 && !riding;
-      const loc = a0.loc;
-      const seat = !moving && loc ? seatAt(loc, x, z) : null;
-      const talk = !moving && !asleep ? talks?.get(m.id) : undefined;
+      const door = inside ? pose.door : null;
+      m.door = door;
+      const seat = !moving && !inside && loc ? seatAt(loc, x, z) : null;
+      const talk = !moving && !asleep && !inside ? talks?.get(m.id) : undefined;
+      const atStop = !moving && !inside && !!loc && STOP_SIDE.has(loc);
 
-      // Heading: along the movement, towards a conversation partner, or the seat's direction.
+      // Heading: damped turn along the path, towards the seat's direction or a
+      // conversation partner; facing out of the door while inside.
       if (moving) {
-        const target = Math.atan2(sample.dx, sample.dy);
-        m.heading += angleDelta(m.heading, target) * damp(10, dt);
+        if (pose.dx !== 0 || pose.dz !== 0) m.heading += angleDelta(m.heading, Math.atan2(pose.dx, pose.dz)) * damp(8, dt);
+      } else if (door) {
+        m.heading += angleDelta(m.heading, door.heading) * damp(6, dt);
       } else if (seat) {
         m.heading += angleDelta(m.heading, seat.heading) * damp(6, dt);
       } else if (talk) {
         const other = agentWorld.get(talk.partner);
-        if (other && other.visible) {
+        if (other && other.visible && !other.inside) {
           const dx = other.pos.x - m.root.position.x;
           const dz = other.pos.z - m.root.position.z;
           if (dx * dx + dz * dz > 0.04) m.heading += angleDelta(m.heading, Math.atan2(dx, dz)) * damp(5, dt);
         }
       }
-      // Right-hand sidewalk offset while walking; waiting people stand on the sidewalk at stops.
-      if (moving && travelling) tmpTarget.set(-sample.dy * SIDEWALK_OFFSET, 0, sample.dx * SIDEWALK_OFFSET);
-      else if (!moving && loc && STOP_SIDE.has(loc)) tmpTarget.set(0, 0, STOP_SIDE.get(loc)! * STOP_PUSH);
+      // Waiting people stand on the sidewalk at bus stops (walkers' sidewalk offset is part of the track).
+      if (atStop) tmpTarget.set(0, 0, STOP_SIDE.get(loc)! * STOP_PUSH);
       else tmpTarget.set(0, 0, 0);
       if (!m.initialised) m.offset.copy(tmpTarget);
       else m.offset.lerp(tmpTarget, damp(4, dt));
@@ -551,12 +706,12 @@ export function Agents() {
       const slump = smooth01((-mood - 0.4) / 0.4);
       const joy = smooth01((mood - 0.4) / 0.4);
 
-      // Displayed speed (m/s) for the walk cycle.
+      // Displayed walking speed (m/s): track speed (m per simulated minute) times the clock rate.
       const moved = m.initialised ? m.last.distanceTo(m.root.position) : 0;
       m.last.copy(m.root.position);
       m.initialised = true;
       m.moveK += ((moving ? 1 : 0) - m.moveK) * damp(8, dt);
-      const speed = dt > 0 ? moved / dt : 0;
+      const walkMps = moving ? pose.speed * simRate : 0;
 
       // Level of detail: animated character near the camera, growing figure far away.
       const dist = tmpCam.distanceTo(m.root.position);
@@ -564,47 +719,65 @@ export function Agents() {
       const hovered = s.hoveredAgentId === m.id;
       const selected = s.selectedAgentId === m.id;
       const followed = s.followAgentId === m.id;
+      const hot = hovered || selected || followed;
+      // Inside a building only the badge is drawn; the selected / followed one also as a faint silhouette at the door.
+      const silhouette = inside && (selected || followed) && near;
+      const figure = !riding && (!inside || silhouette);
       m.hoverK += ((hovered || selected ? 1 : 0) - m.hoverK) * damp(10, dt);
       const grow = 1 + m.hoverK * 0.12;
       const farGrow = Math.max(1.45, dist / 103);
       const nearGrow = 1 + 0.5 * THREE.MathUtils.smoothstep(dist, 40, LOD_DISTANCE);
       const height = (near ? 1.75 * nearGrow : MEEPLE_UNITS * AGENT_SCALE * farGrow) * grow;
 
-      const visible = !riding;
-      m.root.visible = visible;
-      m.hit.raycast = visible ? THREE.Mesh.prototype.raycast : noRaycast;
+      m.root.visible = !riding;
+      m.hit.raycast = figure ? THREE.Mesh.prototype.raycast : noRaycast;
       m.hit.scale.setScalar(Math.max(height, 2.2) / 9.5 * 1.15);
-      if (asleep !== m.asleep) {
-        m.asleep = asleep;
-        setDimmed(m, asleep);
+      m.asleep = asleep;
+      const dim = asleep || silhouette;
+      if (dim !== m.dimmed) setDimmed(m, dim);
+
+      // Idle micro-motions: weight shift and an occasional look around (deterministic per inhabitant).
+      const idleK = !moving && !seat && !talk && figure ? 1 - m.moveK : 0;
+      let lookTarget = 0;
+      if (!moving && !talk && !asleep && figure) {
+        const ph = t + (m.motion.hash % 997) / 37;
+        const win = Math.floor(ph / m.lookPeriod);
+        if (ph - win * m.lookPeriod < 2.6) lookTarget = LOOKS[mix32(m.motion.hash + win * 7919) % LOOKS.length] * (seat ? 0.5 : 1);
       }
+      m.look += (lookTarget - m.look) * damp(3, dt);
+      const sway = Math.sin(t * m.swayRate * 1.6 + i * 1.3);
 
       m.inner.visible = !near;
       if (m.rig) {
         const rig = m.rig;
-        rig.group.visible = near;
-        if (near) {
+        rig.group.visible = near && figure;
+        if (near && figure) {
           rig.group.scale.setScalar(rig.baseScale * nearGrow * grow);
           // Animation state machine.
           let want: ClipName = 'idle';
-          let ts = 1;
+          let ts = m.idleRate;
           if (moving) {
             want = 'walk';
-            ts = THREE.MathUtils.clamp(speed / 1.5, 0.9, 2.4);
+            // Cadence follows the displayed speed (stride varies per inhabitant); frozen while paused.
+            ts = Math.min(2.6, walkMps / (WALK_CLIP_SPEED * m.stride));
             m.oneShot = null;
           } else if (seat) {
             want = 'sit';
+            ts = 1;
             m.oneShot = null;
           } else if (pickups?.has(m.id) && m.oneShot !== 'pickup' && rig.current !== 'pickup') {
             m.oneShot = 'pickup';
-          } else if (!asleep && joy > 0.3 && !talk && t > m.nextFidget && !m.oneShot) {
+          } else if (!asleep && joy > 0.3 && !talk && !inside && t > m.nextFidget && !m.oneShot) {
             m.oneShot = 'victory';
-            m.nextFidget = t + 18 + (hashString(m.id) % 15);
+            m.nextFidget = t + 18 + (m.motion.hash % 15);
           }
           if (!moving && !seat && m.oneShot) {
             const act = rig.actions[m.oneShot];
             if (act && rig.current === m.oneShot && !act.isRunning()) m.oneShot = null;
-            else want = m.oneShot;
+            else {
+              want = m.oneShot;
+              ts = 1;
+            }
           }
           playClip(rig, want, want === 'sit' ? 0.35 : 0.25, ts);
           rig.mixer.update(dt);
@@ -613,13 +786,16 @@ export function Agents() {
           const sitting = want === 'sit' && !!seat;
           rig.group.position.y = sitting ? seat!.height - 0.41 : 0;
           rig.group.position.z = sitting ? -0.32 : 0;
+          rig.group.position.x = sway * 0.03 * idleK;
+          rig.group.rotation.z = sway * 0.03 * idleK;
+          rig.group.rotation.y = m.look;
           tmpEmissive.copy(m.bodyColor).multiplyScalar(m.hoverK * 0.35);
           rig.material.emissive.copy(tmpEmissive);
         }
       }
-      if (!near) {
+      if (!near && figure) {
         // Far figure: procedural walk cycle and posture.
-        m.phase += Math.min(moved, dt * 16) * 0.9 / farGrow;
+        m.phase += Math.min(moved, dt * 16) * 0.9 / farGrow * m.stride;
         const swing = Math.sin(m.phase) * 0.65 * m.moveK * (1 + joy * 0.15 - slump * 0.25);
         m.legL.rotation.x = swing;
         m.legR.rotation.x = -swing;
@@ -627,6 +803,8 @@ export function Agents() {
         m.armR.rotation.x = swing * 0.8;
         m.inner.position.y = Math.abs(Math.sin(m.phase)) * 0.35 * m.moveK * AGENT_SCALE * farGrow * (1 + joy * 0.8 - slump * 0.3);
         m.inner.rotation.x = slump * 0.07;
+        m.inner.rotation.y = m.look * 0.6;
+        m.inner.rotation.z = sway * 0.03 * idleK;
         m.head.position.y = 6.55 - slump * 0.22;
         m.hair.position.y = 6.62 - slump * 0.22;
         m.hair.rotation.x = -0.35 + slump * 0.22;
@@ -643,28 +821,32 @@ export function Agents() {
       }
 
       // Umbrellas in the rain (walkers and people waiting at stops).
-      const wantUmbrella = visible && env.rain > 0.35 && !asleep && !seat && (moving || (!!loc && STOP_SIDE.has(loc)) || loc === 'park');
+      const outdoors = figure && !inside;
+      const wantUmbrella = outdoors && env.rain > 0.35 && !asleep && !seat && (moving || atStop || loc === 'park');
       m.umbrella.visible = wantUmbrella;
       if (wantUmbrella) m.umbrella.scale.setScalar(height / 1.75);
 
       // Sleep bubble
-      m.zz.visible = asleep && visible;
+      m.zz.visible = asleep && outdoors;
       if (m.zz.visible) {
         sizeLabel(m.zz, m.zz.userData.aspect as number, 15);
         m.zz.position.set(0.25 * height, height * 0.95 + Math.sin(t * 1.5 + i) * 0.06 * height, 0);
       }
 
-      // Name: only for the hovered, selected or followed inhabitant.
-      const showLabel = visible && (hovered || selected || followed) && !(spectator && !hovered && !followed);
+      // Name: only for the hovered, selected or followed inhabitant (above the badge when inside).
+      const showLabel = !riding && hot && !(spectator && !hovered && !followed);
       m.label.visible = showLabel;
       if (showLabel) {
         sizeLabel(m.label, m.labelAspect, selected || hovered ? 21 : 18);
-        m.label.position.y = height * 1.08 + 0.2;
+        if (!inside) {
+          m.label.center.set(0.5, 0);
+          m.label.position.set(0, height * 1.08 + 0.2, 0);
+        }
         (m.label.material as THREE.SpriteMaterial).opacity = asleep ? 0.6 : 1;
       }
 
       // Speech bubble for the conversation leader.
-      const wantBubble = visible && !!talk && talk.leader && dist < 420;
+      const wantBubble = outdoors && !!talk && talk.leader && dist < 420;
       if (wantBubble && m.bubbleKind !== talk!.kind) {
         m.bubbleKind = talk!.kind;
         m.bubble.material = bubbleMats[talk!.kind];
@@ -680,7 +862,7 @@ export function Agents() {
 
       // Mood ring and contact shadow at the feet.
       const footR = near ? 1.25 * nearGrow : 1.35 * farGrow;
-      if (visible) {
+      if (outdoors) {
         tmpMatrix.makeScale(footR * 2 * grow, 1, footR * 2 * grow).setPosition(m.root.position.x, m.groundY + MOOD_RING_Y - CURB_H + 0.06, m.root.position.z);
         ring.setMatrixAt(i, tmpMatrix);
         ring.setColorAt(i, moodColor(mood, tmpMood));
@@ -695,13 +877,14 @@ export function Agents() {
       // Mood pictogram (not while asleep).
       const strength = Math.abs(mood);
       const kind = mood >= 0 ? 'joy' : 'low';
-      const wantGlyph = visible && !asleep && !wantBubble && (strength >= GLYPH_ON || (strength >= GLYPH_OFF && m.glyphKind === kind && m.glyphK > 0.5));
+      const wantGlyph = outdoors && !asleep && !wantBubble && (strength >= GLYPH_ON || (strength >= GLYPH_OFF && m.glyphKind === kind && m.glyphK > 0.5));
       if (wantGlyph && m.glyphKind !== kind && m.glyphK < 0.05) {
         m.glyphKind = kind;
         m.glyph.material = glyphMats[kind];
       }
       const glyphTarget = wantGlyph && m.glyphKind === kind ? 1 : 0;
       m.glyphK += (glyphTarget - m.glyphK) * damp(7, dt);
+      if (!outdoors) m.glyphK = 0;
       m.glyph.visible = m.glyphK > 0.02;
       if (m.glyph.visible) {
         const px = (env.camDistance < ALL_NAMES_DISTANCE ? GLYPH_PX : GLYPH_PX - 2) * m.glyphK;
@@ -712,8 +895,33 @@ export function Agents() {
         m.glyph.position.y = height * 1.05;
       }
 
-      // Feed the instanced crowd with the far figure's part transforms.
-      if (visible && !near) {
+      // Indoor indicator: badge above the door (stacked per door after the loop) and a doorstep glow.
+      if (inside && door && !riding) {
+        const idx = doorCounts.get(door.key) ?? 0;
+        doorCounts.set(door.key, idx + 1);
+        m.badgeIdx = idx;
+        m.badge.visible = true;
+        m.badge.raycast = THREE.Sprite.prototype.raycast;
+        m.badge.renderOrder = hot ? 9 : 8;
+        m.badge.position.set(0, BADGE_Y, 0);
+        sizeLabel(m.badge, 1, hot ? BADGE_PX_HOT * (1 + Math.sin(t * 3) * 0.05) : asleep ? BADGE_PX_ASLEEP : BADGE_PX);
+        m.badge.material.opacity = asleep && !hot ? 0.8 : 1;
+        if (hot && (!haloFor || selected)) haloFor = m;
+        const nx = Math.sin(door.heading);
+        const nz = Math.cos(door.heading);
+        const off = (idx & 1 ? -1 : 1) * Math.ceil(idx / 2) * 1.1;
+        const gs = hot ? 4.4 : 3;
+        tmpMatrix.makeScale(gs, 1, gs).setPosition(door.x + nx * 1.1 + nz * off, CURB_H + 0.07, door.z + nz * 1.1 - nx * off);
+        doorGlow.setMatrixAt(i, tmpMatrix);
+        doorGlow.setColorAt(i, tmpCrowd.copy(m.bodyColor).multiplyScalar((0.3 + 0.7 * env.night) * (asleep ? 0.45 : 1) * (hot ? 1.5 : 1)));
+      } else {
+        m.badge.visible = false;
+        m.badge.raycast = noRaycast;
+        doorGlow.setMatrixAt(i, HIDDEN_MATRIX);
+      }
+
+      // Feed the instanced crowd with the far figure's part transforms (never for people inside).
+      if (outdoors && !near) {
         m.root.updateMatrixWorld(true);
         for (let pi = 0; pi < crowd.length; pi++) {
           crowd[pi].setMatrixAt(i, m.parts[pi].matrixWorld);
@@ -721,8 +929,38 @@ export function Agents() {
           if (base && pi < 7) crowd[pi].setColorAt(i, tmpCrowd.copy(base).multiplyScalar(asleep ? 0.45 : 1).lerp(m.bodyColor, pi === 2 ? m.hoverK * 0.3 : 0));
         }
       } else for (const im of crowd) im.setMatrixAt(i, HIDDEN_MATRIX);
-      agentWorld.set(m.id, { pos: m.root.position, visible, h: height });
+      m.world.visible = !riding;
+      m.world.h = height;
+      m.world.inside = inside;
+      agentWorld.set(m.id, m.world);
     }
+
+    // Stack the badges of each door side by side (rows of BADGE_ROW), labels above them.
+    badgeHalo.visible = false;
+    for (const m of meeples) {
+      if (!m.badge.visible || !m.door) continue;
+      const n = doorCounts.get(m.door.key) ?? 1;
+      const row = Math.floor(m.badgeIdx / BADGE_ROW);
+      const inRow = Math.min(BADGE_ROW, n - row * BADGE_ROW);
+      const cx = (m.badgeIdx % BADGE_ROW) - (inRow - 1) / 2;
+      const offX = cx * BADGE_GAP * BADGE_PX;
+      const offY = row * BADGE_GAP * BADGE_PX;
+      const bpx = m.badge.scale.y / env.pxToSprite;
+      m.badge.center.set(0.5 - offX / bpx, 0.5 - offY / bpx);
+      if (m.label.visible) {
+        const lpx = m.label.scale.y / env.pxToSprite;
+        m.label.position.set(0, BADGE_Y, 0);
+        m.label.center.set(0.5 - offX / (lpx * m.labelAspect), -(offY + bpx * 0.5 + 3) / lpx);
+      }
+      if (m === haloFor) {
+        const hpx = bpx * 1.5;
+        sizeLabel(badgeHalo, 1, hpx);
+        badgeHalo.position.set(m.root.position.x, m.root.position.y + BADGE_Y, m.root.position.z);
+        badgeHalo.center.set(0.5 - offX / hpx, 0.5 - offY / hpx);
+        badgeHalo.visible = true;
+      }
+    }
+
     for (const im of crowd) {
       im.instanceMatrix.needsUpdate = true;
       if (im.instanceColor) im.instanceColor.needsUpdate = true;
@@ -731,6 +969,8 @@ export function Agents() {
     if (ring.instanceColor) ring.instanceColor.needsUpdate = true;
     ringAlpha.needsUpdate = true;
     shadow.instanceMatrix.needsUpdate = true;
+    doorGlow.instanceMatrix.needsUpdate = true;
+    if (doorGlow.instanceColor) doorGlow.instanceColor.needsUpdate = true;
   });
 
   const onOver = (e: ThreeEvent<PointerEvent>) => {
@@ -759,6 +999,8 @@ export function Agents() {
       ))}
       <primitive object={ring} />
       <primitive object={shadow} />
+      <primitive object={doorGlow} />
+      <primitive object={badgeHalo} />
       {crowd.map((im) => (
         <primitive key={im.name} object={im} />
       ))}

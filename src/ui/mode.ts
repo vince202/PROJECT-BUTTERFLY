@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useSimStore, type UiMode } from '../store/useSimStore';
+import { stepSpeed } from '../store/speed';
 
 /** Duration of the exit animation of the outgoing mode (ms). Must match `--mode-out` in styles.css. */
 export const MODE_OUT_MS = 200;
@@ -85,7 +86,8 @@ export function isTypingTarget(t: EventTarget | null): boolean {
 
 /**
  * Global keyboard shortcuts (both modes):
- * Space = play/pause · Shift+←/→ = ±10 min · Tab = switch mode ·
+ * Space = play/pause · Shift+←/→ = ±10 min · + / − = next / previous speed
+ * preset (×1 ×5 ×20 ×60) · Tab = switch mode ·
  * Escape = lab: close the panel, then the event · spectator: clear the
  * selection, then (second press) back to the laboratory.
  */
@@ -112,6 +114,10 @@ export function useGlobalShortcuts() {
         s.seek(Math.floor(s.time) + 10);
       } else if (e.key === 'ArrowLeft' && e.shiftKey) {
         s.seek(Math.floor(s.time) - 10);
+      } else if ((e.key === '+' || e.key === '=') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        s.setSpeed(stepSpeed(s.speed, 1));
+      } else if ((e.key === '-' || e.key === '_') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        s.setSpeed(stepSpeed(s.speed, -1));
       }
     };
     window.addEventListener('keydown', onKey);

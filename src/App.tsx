@@ -23,7 +23,7 @@ import { SpectatorOverlay } from './ui/Spectator';
 import { useGlobalShortcuts, useModeTransition } from './ui/mode';
 import { checkAiStatus } from './ai/client';
 
-/** Drives the display clock from real time (×1 = one simulated minute per real second). */
+/** Drives the display clock from real time (×1 = real time: one simulated minute per 60 s, see store/speed.ts). */
 function useClock() {
   const tick = useSimStore((s) => s.tick);
   useEffect(() => {
