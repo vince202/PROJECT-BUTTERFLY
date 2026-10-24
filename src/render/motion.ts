@@ -10,7 +10,9 @@
  * - the polyline is offset to the walker's right-hand sidewalk (mitred joins,
  *   per-inhabitant distance so people do not all walk the same line), with no
  *   offset at the standing spots and doors where the walk starts / ends;
- * - every corner is rounded (quadratic Bézier, a few metres of cut);
+ * - a node that would make the walker turn back is skipped, offset segments
+ *   that would flip near a corner are merged, and every corner is rounded
+ *   (quadratic Bézier, a few metres of cut) on the simplified polyline;
  * - the arc length is interpolated in time with a monotone cubic Hermite
  *   spline through the frames, so speed changes are smooth while the walker is
  *   still exactly on schedule at each minute (up to the rounded corners).
@@ -105,7 +107,7 @@ export function isIndoorVisit(agentId: string, locId: string, arrival: number): 
 export const SIDEWALK_OFFSET = 8.5;
 /** Corner cut of the rounded paths (metres). */
 const CORNER_CUT = 4.5;
-/** Bézier subdivisions per rounded corner (even: the middle sample is the corner's anchor). */
+/** Bézier subdivisions per rounded corner. */
 const CORNER_STEPS = 8;
 
 interface Track {

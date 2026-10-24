@@ -61,17 +61,17 @@ node scripts/render-check.mjs     # contrôle du rendu 3D : vues scriptées à 0
 
 | Zone | Contenu |
 |---|---|
-| Haut | Horloge, période du jour, météo, lecture (▶, ×1 ×2 ×10 ×60, journée complète, aller à…), bascule Réalité A / Réalité B, panneaux, « ⋯ Plus » (graine, jour suivant, politique de décision, état de l'IA), bouton **Spectateur** |
+| Haut | Horloge, période du jour, météo, lecture (▶, ×1 ×5 ×20 ×60, journée complète, aller à…), bascule Réalité A / Réalité B, panneaux, « ⋯ Plus » (graine, jour suivant, politique de décision, état de l'IA), bouton **Spectateur** |
 | Gauche | Les vingt habitants, recherche, sélection, suivi caméra |
 | Centre | La ville 3D (orbite, zoom, clic sur un habitant) et les panneaux « Et si… », Causalité, Comparer, Rapport |
 | Droite | Inspecteur : fiche de l'habitant sélectionné (besoins, émotions, relations, souvenirs, agenda, **Pourquoi fait-il cela ?**) ou fiche de l'événement sélectionné |
 | Bas | Chronologie 06:00–24:00 avec marqueurs d'événements et de divergence |
 
-**Vitesse ×1** = une minute simulée par seconde réelle (la journée dure 18 minutes). ×60 = une heure simulée par seconde.
+**Vitesse ×1** = temps réel : une minute simulée dure 60 secondes. ×5 et ×20 (par défaut) accélèrent d’autant ; ×60 = une minute simulée par seconde réelle (la journée dure 18 minutes). Touches <kbd>+</kbd> / <kbd>−</kbd> pour changer de vitesse ; la vitesse choisie est mémorisée.
 
 **Deux modes.** Le mode **Laboratoire** garde toute l'analyse (listes, inspecteur, chronologie, panneaux). Le mode **Spectateur** (bouton 👁 ou touche Tab) met la ville en plein écran avec quelques superpositions discrètes : horloge, pilule de lecture, carte contextuelle de l'habitant survolé ou sélectionné. La caméra zoome en continu de la vue d'ensemble jusqu'au niveau de la rue (molette vers le curseur, orbite, double-clic sur un bâtiment pour le cadrer, suivi d'un habitant).
 
-**La ville 3D** est construite à partir d'une palette commune et de modèles libres (CC0) de Quaternius, Kenney et Poly Haven, listés dans [docs/CREDITS.md](docs/CREDITS.md) : maisons à colombages, café et sa terrasse, place du marché, parc avec fontaine et kiosque, canal, bus, et vingt personnages animés (marche, repos, assis, conversations avec bulles) qui suivent exactement les positions calculées par la simulation.
+**La ville 3D** est construite à partir d'une palette commune et de modèles libres (CC0) de Quaternius, Kenney et Poly Haven, listés dans [docs/CREDITS.md](docs/CREDITS.md) : maisons à colombages, café et sa terrasse, place du marché, parc avec fontaine et kiosque, canal, bus, et vingt personnages animés (marche, repos, assis, conversations avec bulles) qui suivent les positions calculées par la simulation : trajets lissés (virages arrondis, trottoir de droite, cadence propre à chacun), entrée dans les bâtiments par la porte, et pastille à leur couleur au-dessus de la porte tant qu’ils sont à l’intérieur (la terrasse du café, le parc, les arrêts et la rue restent visibles).
 
 La journée entière est calculée instantanément (quelques centaines de millisecondes) dès l'ouverture ; la lecture est une relecture. Vous pouvez donc sauter à n'importe quelle heure : positions, activités, relations et historiques correspondent à l'état réellement simulé.
 
@@ -80,7 +80,7 @@ La journée entière est calculée instantanément (quelques centaines de millis
 La graine par défaut (`DEMO_SEED` dans `src/store/useSimStore.ts`) est choisie pour qu'un retard de bus de trois minutes produise une conséquence réelle. Déroulé :
 
 1. Lancez l'application : la ville et ses vingt habitants apparaissent, il est 06:00.
-2. Appuyez sur ▶ (×10 est confortable) et observez les trajets, le bus, les rencontres.
+2. Appuyez sur ▶ (×20 par défaut, ×60 pour aller vite) et observez les trajets, le bus, les rencontres.
 3. Cliquez « Journée complète » pour aller à minuit, puis ouvrez « Rapport » : la journée de chaque habitant y est résumée.
 4. Dans la chronologie, cliquez un marqueur de bus (ou sélectionnez un habitant qui prend le bus et remontez à son événement « monte dans le bus »), puis dans l'inspecteur : **« Retarder ce bus de 3 min »**. Vous pouvez aussi taper « Et si le bus avait trois minutes de retard ? » dans le panneau « Et si… ».
 5. La réalité B est calculée et le panneau « Comparer » s'ouvre : première divergence, conséquences vérifiées, différences observées, habitants touchés, tableau par habitant.
