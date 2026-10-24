@@ -71,8 +71,8 @@ export type QuickKind = 'bus_delay' | 'stay_home' | 'encounter' | 'force_action'
 
 export const QUICK_LABELS: Record<QuickKind, { label: string; icon: string }> = {
   bus_delay: { label: 'Retarder un bus', icon: '🚌' },
-  stay_home: { label: 'Retenir quelqu’un chez lui', icon: '🏠' },
-  encounter: { label: 'Faire se croiser deux personnes', icon: '🤝' },
+  stay_home: { label: 'Retenir chez soi', icon: '🏠' },
+  encounter: { label: 'Faire se croiser', icon: '🤝' },
   force_action: { label: 'Imposer une décision', icon: '👉' },
   location_hours: { label: 'Fermer un lieu plus tôt', icon: '🔒' },
   weather: { label: 'Changer la météo', icon: '🌦' },

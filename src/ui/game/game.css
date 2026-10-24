@@ -10,6 +10,12 @@
   --hud-w: 320px;
 }
 
+/* The game panels carry text over a bright city: a denser glass than the spectator's. */
+.spectator-ui .glass.objective, .spectator-ui .glass.composer, .spectator-ui .glass.notebook { background: rgba(12, 16, 30, 0.8); }
+/* The marker tooltip of the scrub bar stays above the shortcut hint. */
+.spectator-ui.playing-game .spec-pill { z-index: 2; }
+.spectator-ui.playing-game .spec-hint { bottom: calc(var(--spec-m) + 132px); }
+
 /* Only the interactive pieces take the pointer. */
 .game-hud > *, .composer, .notebook, .bilan-scrim, .rewind, .quest-picker { pointer-events: auto; }
 
@@ -93,7 +99,7 @@
 }
 
 .objective {
-  position: relative; width: 100%; display: grid; gap: 8px; padding: 12px 14px 12px 16px; border-radius: 16px; overflow: hidden;
+  position: relative; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px 12px 16px; border-radius: 16px; overflow: hidden;
 }
 .objective::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--agent); }
 .objective.st-fulfilled { border-color: rgba(78, 205, 196, 0.45) !important; }
@@ -110,7 +116,7 @@
 .objective-fill.tone-danger { background: linear-gradient(90deg, #e04f4f, var(--danger)); }
 .objective-fill.tone-warn { background: linear-gradient(90deg, #e08a2e, var(--warn)); }
 .objective-deadline { font-size: 11.5px; color: var(--text-2); }
-.objective-row { display: flex; align-items: center; gap: 8px; }
+.objective-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
 .objective-row .spec-chip:disabled { opacity: 0.45; cursor: not-allowed; }
 .gesture-budget { display: inline-flex; align-items: center; gap: 4px; margin-right: auto; }
 .gesture-pip { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid rgba(246, 183, 60, 0.6); background: transparent; }

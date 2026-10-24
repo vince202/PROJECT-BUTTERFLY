@@ -125,6 +125,22 @@ async function gameShots() {
   };
   // Hold the live alerts (as hovering the feed does) so that a slow capture still shows them.
   const hold = (v) => ui('setHeld', v);
+  // Keyboard shortcut G (checked; the composer is opened through the store if the key did not reach the page).
+  const openComposer = async () => {
+    await page.keyboard.press('g');
+    await page.waitForTimeout(800);
+    const open = await page.evaluate(() => window.__butterflyGameUi.getState().composerOpen);
+    console.log('composer opened by G:', open);
+    if (!open) await ui('setComposerOpen', true);
+    await page.waitForSelector('.composer-input', { state: 'attached', timeout: 60000 });
+  };
+  // DOM-level typing (Playwright's fill waits for a stable frame, too slow with software WebGL).
+  const typeSentence = (text) => page.evaluate((t) => {
+    const el = document.querySelector('.composer-input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, t);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    setTimeout(() => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })), 50);
+  }, text);
 
   await act('setUiMode', 'spectator');
   await gshot('01-start-screen', 1500);
@@ -139,20 +155,16 @@ async function gameShots() {
   await gshot('03-0840', 600);
 
   // Composer: a French sentence, interpreted locally at the current minute.
-  await page.keyboard.press('g');
-  await page.waitForTimeout(600);
-  await page.fill('.composer-input', 'Et si le bus avait trois minutes de retard ?');
-  await page.press('.composer-input', 'Enter');
+  await openComposer();
+  await typeSentence('Et si le bus avait trois minutes de retard ?');
   await gshot('04-composer', 800);
   await clickButton('Appliquer ce geste');
   await page.waitForTimeout(1500);
   console.log('after gesture', await state());
   await gshot('05-gesture-applied', 400);
   // The same sentence again: refused inline (already in place in this loop).
-  await page.keyboard.press('g');
-  await page.waitForTimeout(600);
-  await page.fill('.composer-input', 'Et si le bus avait trois minutes de retard ?');
-  await page.press('.composer-input', 'Enter');
+  await openComposer();
+  await typeSentence('Et si le bus avait trois minutes de retard ?');
   await gshot('05b-refusal', 700);
   await page.keyboard.press('Escape');
 
@@ -202,19 +214,23 @@ async function gameShots() {
   console.log('loop 2', await state());
   await act('seek', 7 * 60 + 20);
   await page.keyboard.press('n');
+  await page.waitForTimeout(800);
+  const nb = await page.evaluate(() => window.__butterflyGameUi.getState().notebookOpen);
+  console.log('notebook opened by N:', nb);
+  if (!nb) await ui('setNotebookOpen', true);
   await gshot('11-loop2-notebook', 1200);
   await page.keyboard.press('Escape');
 
   // Loop 2: the quick « Imposer une décision » (defaults: Léa goes to school now) saves the quest.
-  await page.keyboard.press('g');
-  await page.waitForTimeout(600);
+  await openComposer();
   await clickButton('Imposer une décision', '.composer-kind');
   await gshot('12-composer-quick', 800);
   await clickButton('Appliquer ce geste');
   await page.waitForTimeout(1500);
   console.log('loop 2 gesture', await state(), await page.evaluate(() => { const s = window.__butterfly.getState(); return s.realityB?.def.interventions.map((i) => i.description); }));
+  await act('seek', 7 * 60 + 33);
   await holdWhen(1);
-  await playTo(7 * 60 + 45);
+  await playTo(7 * 60 + 38);
   await hold(true);
   console.log('alerts loop 2', await alertsOnScreen());
   await gshot('13-loop2-success-bubble', 600);
