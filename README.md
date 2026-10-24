@@ -9,11 +9,15 @@ Puis vous intervenez : **« Et si le bus avait trois minutes de retard ? »** BU
 
 Parfois rien d'important ne change. Parfois deux personnes ne se rencontrent pas. Parfois un portefeuille change de mains et un dîner n'a pas lieu.
 
-![La ville de nuit](docs/screenshots/nuit.png)
+![Le quartier central à midi](docs/screenshots/quartier.png)
 
-| Inspecteur — « Pourquoi fait-il cela ? » | Comparaison des réalités | Explorateur causal |
+| Terrasse du Café Le Papillon | Place du Marché | Le café la nuit |
 |---|---|---|
-| ![Inspecteur](docs/screenshots/inspecteur.png) | ![Comparaison](docs/screenshots/comparaison.png) | ![Causalité](docs/screenshots/causalite.png) |
+| ![Terrasse](docs/screenshots/terrasse.png) | ![Marché](docs/screenshots/marche.png) | ![Nuit](docs/screenshots/nuit-cafe.png) |
+
+| Mode Spectateur | Inspecteur — « Pourquoi fait-il cela ? » | Comparaison des réalités | Explorateur causal |
+|---|---|---|---|
+| ![Spectateur](docs/screenshots/spectateur.png) | ![Inspecteur](docs/screenshots/inspecteur.png) | ![Comparaison](docs/screenshots/comparaison.png) | ![Causalité](docs/screenshots/causalite.png) |
 
 ---
 
@@ -48,6 +52,7 @@ npm run build            # bundle de production (dist/)
 npm run cli -- --seed 42 # simule une journée en ligne de commande
 npm run cli -- --seed 51 --bus-delay 3 --at 09:25 --agent gerard
 node scripts/screenshot.mjs       # test visuel : parcourt la démonstration dans Chromium et enregistre des captures
+node scripts/render-check.mjs     # contrôle du rendu 3D : vues scriptées à 08:00, 12:30, 21:30, pluie, survol, mode spectateur
 ```
 
 ---
@@ -56,13 +61,17 @@ node scripts/screenshot.mjs       # test visuel : parcourt la démonstration dan
 
 | Zone | Contenu |
 |---|---|
-| Haut | Horloge, période du jour, météo, lecture (▶, ×1 ×2 ×10 ×60, journée complète, aller à…), graine, bascule Réalité A / Réalité B, panneaux |
+| Haut | Horloge, période du jour, météo, lecture (▶, ×1 ×2 ×10 ×60, journée complète, aller à…), bascule Réalité A / Réalité B, panneaux, « ⋯ Plus » (graine, jour suivant, politique de décision, état de l'IA), bouton **Spectateur** |
 | Gauche | Les vingt habitants, recherche, sélection, suivi caméra |
 | Centre | La ville 3D (orbite, zoom, clic sur un habitant) et les panneaux « Et si… », Causalité, Comparer, Rapport |
 | Droite | Inspecteur : fiche de l'habitant sélectionné (besoins, émotions, relations, souvenirs, agenda, **Pourquoi fait-il cela ?**) ou fiche de l'événement sélectionné |
 | Bas | Chronologie 06:00–24:00 avec marqueurs d'événements et de divergence |
 
 **Vitesse ×1** = une minute simulée par seconde réelle (la journée dure 18 minutes). ×60 = une heure simulée par seconde.
+
+**Deux modes.** Le mode **Laboratoire** garde toute l'analyse (listes, inspecteur, chronologie, panneaux). Le mode **Spectateur** (bouton 👁 ou touche Tab) met la ville en plein écran avec quelques superpositions discrètes : horloge, pilule de lecture, carte contextuelle de l'habitant survolé ou sélectionné. La caméra zoome en continu de la vue d'ensemble jusqu'au niveau de la rue (molette vers le curseur, orbite, double-clic sur un bâtiment pour le cadrer, suivi d'un habitant).
+
+**La ville 3D** est construite à partir d'une palette commune et de modèles libres (CC0) de Quaternius, Kenney et Poly Haven, listés dans [docs/CREDITS.md](docs/CREDITS.md) : maisons à colombages, café et sa terrasse, place du marché, parc avec fontaine et kiosque, canal, bus, et vingt personnages animés (marche, repos, assis, conversations avec bulles) qui suivent exactement les positions calculées par la simulation.
 
 La journée entière est calculée instantanément (quelques centaines de millisecondes) dès l'ouverture ; la lecture est une relecture. Vous pouvez donc sauter à n'importe quelle heure : positions, activités, relations et historiques correspondent à l'état réellement simulé.
 
@@ -142,7 +151,8 @@ Un formulaire structuré permet de composer n'importe quelle intervention sans p
 Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). En résumé :
 
 - `src/sim/` — moteur de simulation pur TypeScript (ville, population, décision utilitaire, événements causaux, bus, réalités, instantanés, comparaison, interprète d'interventions, récit). Aucune dépendance au navigateur.
-- `src/render/` — ville 3D en React Three Fiber (géométrie procédurale, cycle jour/nuit, pluie, caméra de suivi).
+- `src/render/` — ville 3D en React Three Fiber : palette et matériaux (`shared.ts`, `materials.ts`), chargement des modèles glTF (`models.ts`), kit de maisons procédurales (`kit.ts`), composition de la ville (`layout.ts`, `town.ts`, `Town.tsx`), personnages animés (`Agents.tsx`, `characters.ts`, `social.ts`, `seats.ts`), bus, rues, éclairage, pluie, caméra (`CameraRig.tsx`, `focus.ts`).
+- `public/models/` — bibliothèque de modèles 3D libres (voir `docs/CREDITS.md`).
 - `src/ui/` — interface en français.
 - `src/store/` — état applicatif (Zustand).
 - `server/` — adaptateur LLM optionnel.
@@ -151,7 +161,8 @@ Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). En résumé :
 ## Limites connues
 
 - Une seule ligne de bus (deux véhicules) et une ville de 22 lieux : l'échelle est volontairement petite pour rester lisible.
-- Le modèle de décision est utilitaire et réglé à la main ; il est conçu pour être remplacé (interface `DecisionPolicy`).
+- Le modèle de décision est utilitaire et réglé à la main ; il est conçu pour être remplacé (interface `DecisionPolicy`) et un conseiller (simulé ou LLM) peut arbitrer les choix ouverts.
+- Les performances 3D n'ont été mesurées qu'en rendu logiciel (environnement sans GPU) : 180 à 400 appels de dessin et 1,4 à 2 millions de triangles par image selon la distance ; à vérifier sur une machine réelle.
 - Le chemin « conseiller IA » a été construit et testé avec le conseiller simulé ; l'appel réel au modèle n'a pas pu être exercé dans l'environnement de développement (aucune clé disponible).
 - Les habitants n'ont pas de téléphone : un rendez-vous abandonné n'est pas annoncé à l'autre partie (c'est un choix de conception pour l'effet papillon).
 - La narration IA dépend d'une clé API ; sans clé, les rapports sont factuels et non narrés.
