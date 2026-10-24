@@ -26,6 +26,8 @@ import { fmtTime } from '../src/sim/time';
 import { AnthropicAdvisor } from './advisor';
 import { JevAdvisor } from './jev';
 import { OllamaEmbedder } from './embed';
+import { Brain } from './brain';
+import type { KnowledgeGrain } from '../src/sim/knowledge';
 import type { DecisionAdvisor } from '../src/sim/advisor';
 import type { AdviceRequest } from '../src/sim/advisor';
 import { DAY_END, DAY_START, type ActionType, type Intervention, type SimEvent } from '../src/sim/types';
@@ -247,9 +249,11 @@ function createAdvisor(): DecisionAdvisor | null {
 const advisor = createAdvisor();
 const embedder = process.env.BUTTERFLY_EMBED === 'off' ? null : new OllamaEmbedder({ model: process.env.OLLAMA_EMBED_MODEL, baseUrl: process.env.OLLAMA_URL });
 let embedderReady: boolean | null = null;
+const brain = new Brain({ file: process.env.BUTTERFLY_BRAIN_FILE ?? 'data/brain.json' });
 async function embedderStatus(): Promise<boolean> {
   if (!embedder) return false;
   if (embedderReady === null || !embedderReady) embedderReady = await embedder.probe();
+  if (embedderReady && embedder && brain.embedderName !== embedder.name) brain.setEmbedder(embedder);
   return embedderReady;
 }
 const cache = new Map<string, unknown>();
@@ -284,13 +288,29 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return json(res, 204, {});
   const url = new URL(req.url ?? '/', 'http://localhost');
   try {
+    if (url.pathname === '/api/brain/stats') {
+      await embedderStatus();
+      return json(res, 200, { ok: true, ...brain.stats(), patterns: brain.patterns(undefined, 12).map((g) => ({ id: g.id, kind: g.kind, text: g.text, count: g.count, weight: g.weight, tags: g.tags })) });
+    }
     if (url.pathname === '/api/ai/status') {
       const embedOk = await embedderStatus();
-      const advisorInfo = { ...(advisor ? { advisor: advisor.name, advisorModel: 'model' in advisor ? (advisor as { model: string }).model : undefined } : { advisor: null }), embedder: embedOk && embedder ? embedder.name : null, embedModel: embedOk && embedder ? embedder.model : undefined };
+      const advisorInfo = { ...(advisor ? { advisor: advisor.name, advisorModel: 'model' in advisor ? (advisor as { model: string }).model : undefined } : { advisor: null }), embedder: embedOk && embedder ? embedder.name : null, embedModel: embedOk && embedder ? embedder.model : undefined, brain: { grains: brain.stats().grains, observations: brain.stats().observations } };
       return json(res, 200, provider ? { enabled: true, model: provider.model, provider: provider.name, fallbacks: USE_FALLBACKS, message: `Narration IA activée (${provider.model})`, ...advisorInfo } : { enabled: false, message: advisor ? `Narration IA désactivée (aucune clé Anthropic) — conseiller de décision ${advisor.name} actif.` : 'Aucune clé API configurée — narration IA désactivée, repli déterministe local.', ...advisorInfo });
     }
     if (req.method !== 'POST') return json(res, 405, { ok: false, explanation: 'Méthode non autorisée', issues: [] });
     const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+    if (url.pathname === '/api/brain/ingest') {
+      await embedderStatus();
+      const grains = (Array.isArray(body.grains) ? body.grains : []).slice(0, 500) as KnowledgeGrain[];
+      const valid = grains.filter((g) => g && typeof g.signature === 'string' && typeof g.text === 'string' && Array.isArray(g.effects));
+      const result = await brain.ingest(valid);
+      return json(res, 200, { ok: true, ...result, ...brain.stats() });
+    }
+    if (url.pathname === '/api/brain/query') {
+      await embedderStatus();
+      const hits = await brain.query({ text: String(body.text ?? '').slice(0, 2000), k: Math.min(20, Number(body.k ?? 8)), kinds: Array.isArray(body.kinds) ? (body.kinds as KnowledgeGrain['kind'][]) : undefined, agents: Array.isArray(body.agents) ? (body.agents as string[]) : undefined, tags: Array.isArray(body.tags) ? (body.tags as string[]) : undefined });
+      return json(res, 200, { ok: true, hits: hits.map((h) => ({ ...h.grain, vector: undefined, similarity: Number(h.similarity.toFixed(3)), score: Number(h.score.toFixed(3)) })) });
+    }
     if (url.pathname === '/api/ai/embed') {
       if (!embedder || !(await embedderStatus())) return json(res, 503, { ok: false, vectors: [], explanation: 'Aucun serveur d’embeddings local (Ollama) disponible.' });
       const texts = (Array.isArray(body.texts) ? body.texts : []).slice(0, 512).map((t) => String(t).slice(0, 2000));

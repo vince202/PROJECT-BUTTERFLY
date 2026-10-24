@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "server": "tsx --env-file-if-exists=.env server/index.ts",
     "cli": "tsx scripts/cli.ts",
-    "cli:advised": "tsx --env-file-if-exists=.env scripts/llm-day.ts"
+    "cli:advised": "tsx --env-file-if-exists=.env scripts/llm-day.ts",
+    "brain:learn": "tsx --env-file-if-exists=.env scripts/brain-learn.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.2.0",

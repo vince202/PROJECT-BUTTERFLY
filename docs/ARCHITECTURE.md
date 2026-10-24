@@ -161,6 +161,10 @@ Le rappel de souvenirs suit la recette des agents génératifs : score = 0,55 ×
 
 Les demandes au conseiller (`AdviceRequest`) comportent aussi `stakes` : titre, désir, tension, état et échéance de l'arc du jour, ainsi que le secret et le nombre de personnes qui le connaissent. Jev le reçoit dans `state.enjeu_du_jour`, le conseiller Anthropic dans une ligne « Enjeu du jour ».
 
+## Toile de connaissance (`src/sim/knowledge.ts`, `server/brain.ts`)
+
+`extractGrains(A, B?, comparison?)` produit des `KnowledgeGrain` purs : `signature` stable (les mêmes situations se reconnaissent d'une graine à l'autre), `situation`, `cause`, `effects`, `text` (pour l'embedding), acteurs, graine, jour, poids dramatique et étiquettes. Les extracteurs (`arcGrains`, `secretGrains`, `chainGrains`, `encounterGrains`, `interventionGrains`) ne lisent que le journal d'événements, le graphe causal et la comparaison : aucun fait inventé. Côté serveur, `Brain` fusionne les grains par signature (compteur d'observations, graines vues), les vectorise avec l'embedder courant (lexical, puis Ollama dès qu'il est détecté, avec recalcul paresseux), persiste dans un JSON local et répond aux requêtes par 0,7 × similarité + 0,15 × fréquence + 0,15 × poids, avec filtres par famille, acteurs et étiquettes. Le script `scripts/brain-learn.ts` apprend en jouant des graines successives. Règle d'architecture : le cerveau est en aval du moteur (ingestion après génération) et en amont des seuls modules consultatifs (éditeur d'interventions, conseillers, narrateur).
+
 ## Évolutions prévues
 
 - **Échelle** : la ville et la population sont des données ; ajouter des habitants, des lieux ou une seconde ligne de bus ne touche pas le moteur. Pour plusieurs centaines d'habitants, déplacer le moteur dans un Web Worker (il n'a aucune dépendance au DOM).

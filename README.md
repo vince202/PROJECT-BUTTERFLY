@@ -151,6 +151,17 @@ npm run cli:advised -- --seed 51 --advisor mock --embed lexical   # rappel lexic
 npm run cli:advised -- --seed 51 --advisor jev --embed ollama     # rappel par embeddings locaux
 ```
 
+## Le cerveau de la ville : une toile de connaissance qui grandit
+
+Au-delà des souvenirs d'un habitant, BUTTERFLY peut **apprendre d'une partie à l'autre**. À la fin d'une journée simulée et de chaque comparaison A/B, des **grains de connaissance** sont extraits (`src/sim/knowledge.ts`) : situation → cause → effets, toujours tirés d'événements enregistrés. Cinq familles : l'issue des histoires du jour, le chemin des secrets, les chaînes causales les plus influentes, les rencontres marquantes et, surtout, **les interventions et leurs conséquences vérifiées** (« bus retardé de 3 min à 09:25 → Gérard oublie son portefeuille → Noé le rend à 20:24 ; le destin d'Antoine bascule »).
+
+Le serveur les range dans un **cerveau persistant** (`server/brain.ts`, fichier local `data/brain.json`, jamais envoyé ailleurs) : les situations identiques fusionnent et comptent leurs observations, chaque grain est vectorisé (Ollama local ou embedder lexical) et peut être retrouvé par similarité (`POST /api/brain/query`), ingéré (`POST /api/brain/ingest`) ou résumé (`GET /api/brain/stats`, motifs les plus fréquents). Le cerveau **informe** sans jamais piloter : il nourrit l'imagination (quelles interventions ont déjà produit des bascules dans des situations voisines), les conseillers (précédents) et la narration (« ce qui aurait pu arriver », avec de vrais précédents). Le moteur reste déterministe et la comparaison A/B exacte.
+
+```bash
+npm run brain:learn -- --from 1 --to 30            # apprend en jouant trente journées (et leur variante « bus en retard »)
+npm run brain:learn -- --from 1 --to 30 --embed ollama
+```
+
 ## Narration : un modèle rapide, des gabarits contraints aux faits
 
 Le serveur propose plusieurs gabarits de narration (`POST /api/ai/narrate`, style `day`, `agent`, `causal`, `compare`, `morning`, `dialogue`, `counterfactual`) : récit de la journée, portrait d'un habitant centré sur son histoire du jour, chaîne causale commentée, comparaison des deux réalités, « Ce matin, dans la ville » (qui veut quoi, qui cache quoi, avant que la journée n'ait lieu), scène dialoguée (répliques imaginées mais limitées aux faits enregistrés, signalée comme telle) et « Ce qui aurait pu arriver ». Le modèle par défaut est `claude-haiku-5-5`, rapide et peu coûteux ; la consigne interdit d'inventer un événement, un lieu ou une motivation absents des faits.
